@@ -1,0 +1,46 @@
+use internal;
+use pregraph;
+
+grammar;
+
+pub Graph: internal::StructuralGraph = {
+    <a:GraphNode*> => {
+        let mut ret = internal::StructuralGraph::new();
+        for n in &a {
+            match n {
+                Port(src, target) => {
+                    let isrc = ret.add_node(src);
+                    for dst in &target {
+                    }
+                }
+            }
+        }
+        ret
+    }
+}
+
+GraphNode: internal::Node = {
+    "Port" <Str> "[" <Comma<Str>> "]" => Node::Port(<>),
+    "LoopReg" <Str> "[" <Comma<Str>> "]" => Node::LoopReg(<>),
+    "DataReg" <Str> "[" <Comma<Str>> "]" => Node::DataReg(<>),
+    "NullReg" <Str> "[" <Comma<Str>> "]" => Node::NullReg(<>),
+}
+
+Str: String = {
+    <s:r#""[^"]*""#> => s.chars().skip(1).take(s.len()-2).collect::<String>()
+}
+
+Comma<T>: Vec<T> = {
+    <v:(<T> ",")*> <e:T?> => match e {
+        None => v,
+        Some(e) => {
+            let mut v = v;
+            v.push(e);
+            v
+        }
+    }
+}
+
+// Local Variables:
+// mode: rust
+// End:
