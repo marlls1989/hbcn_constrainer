@@ -1,84 +1,44 @@
-use petgraph::prelude::*;
-use std::collections::HashMap;
+use std::collections::*;
 
-#[derive(PartialEq, Eq, Clone, Copy)]
-pub enum NodeType {
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
+pub enum NodeLabel {
     Port,
     LoopReg,
     DataReg,
     NullReg,
 }
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Edge {
-    pub hasToken: bool,
-    pub relax: bool,
-    pub minDelay: bool,
+#[derive(Clone,Debug)]
+pub struct StructuralGraph<'a> where
+{
+    nodes: HashSet<String>,
+    nodeid_map: HashMap<&'a str, usize>,
+    adjacency_list: Vec<HashSet<&'a str>>,
+    free_list: Vec<usize>,
 }
 
-impl Edge {
-    pub fn new(hasToken: bool, relax: bool, minDelay: bool) -> Edge {
-        Edge {
-            hasToken: hasToken,
-            relax: relax,
-            minDelay: minDelay,
-        }
+impl Default for Graph<'_> {
+    fn default() -> Self {
+        StructuralGraph::new()
     }
-}
-
-pub struct StructuralGraph<'a> {
-    node_type: HashMap<String, NodeType>,
-    graph: DiGraphMap<&'a str, ()>,
 }
 
 impl StructuralGraph<'_> {
     pub fn new() -> Self {
-        StructuralGraph {
-            node_type: HashMap::new(),
-            graph: DiGraphMap::new(),
+        StructuralGraph{
+            nodes: HashSet::new(),
+            nodeid_map: HashMap::new(),
+            adjacency_list: Vec::new(),
+            free_list: Vec::new(),
         }
     }
 
-    pub fn add_node(&mut self, nt: NodeType, name: &str) {
-        let name = name.to_string();
-        self.graph.add_node(&name);
-        self.node_type.insert(name, nt);
-    }
-
-    pub fn connect(&mut self, src: &str, dst: &str) -> Result<(), String> {
-        let src = match self.node_type.get_key_value(src) {
-            Some((k, _)) => k,
-            None => return Err(format!("src vertex {} not found", src)),
-        };
-
-        let dst = match self.node_type.get_key_value(dst) {
-            Some((k, _)) => k,
-            None => return Err(format!("dst vertex {} not found", dst)),
-        };
-
-        self.graph.add_edge(src, dst, ());
-
-        return Ok(());
-    }
-
-    pub fn connect_many<'a, I>(&mut self, src: &str, dsts: I) -> Result<(), String>
-    where
-        I: Iterator<Item = &'a str>,
-    {
-        let src = match self.node_type.get_key_value(src) {
-            Some((k, _)) => k,
-            None => return Err(format!("src vertex {} not found", src)),
-        };
-
-        for dst in dsts {
-            let dst = match self.node_type.get_key_value(dst) {
-                Some((k, _)) => k,
-                None => return Err(format!("dst vertex {} not found", dst)),
-            };
-
-            self.graph.add_edge(src, dst, ());
+    fn next_id(&mut self) -> usize {
+        match self.free_list.pop() {
+            Some(i) => i,
+            None => self.adjacency_list.len(),
         }
-
-        return Ok(());
     }
+
+
 }
