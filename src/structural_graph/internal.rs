@@ -45,7 +45,7 @@ impl StructuralGraph<'_> {
         self.node_type.insert(name, nt);
     }
 
-    pub fn add_edge(&mut self, src: &str, dst: &str) -> Result<(), String> {
+    pub fn connect(&mut self, src: &str, dst: &str) -> Result<(), String> {
         let src = match self.node_type.get_key_value(src) {
             Some((k, _)) => k,
             None => return Err(format!("src vertex {} not found", src)),
@@ -61,7 +61,7 @@ impl StructuralGraph<'_> {
         return Ok(());
     }
 
-    pub fn add_edges_to_src<'a, I>(&mut self, src: &str, dsts: I) -> Result<(), String>
+    pub fn connect_many<'a, I>(&mut self, src: &str, dsts: I) -> Result<(), String>
     where
         I: Iterator<Item = &'a str>,
     {
