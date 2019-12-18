@@ -1,3 +1,6 @@
+mod structural_graph;
+
 fn main() {
-    println!("Hello, world!");
+    let g = structural_graph::StructuralGraph::new();
+    println!("{:?}", g);
 }

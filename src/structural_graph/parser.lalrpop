@@ -1,16 +1,15 @@
-use internal;
-use pregraph;
+use crate::structural_graph::internal::*;
 
 grammar;
 
-pub Graph: internal::StructuralGraph = {
+pub Graph: StructuralGraph = {
     <a:GraphNode*> => {
-        let mut ret = internal::StructuralGraph::new();
-        for n in &a {
+        let mut ret = StructuralGraph::new();
+        for n in a {
             match n {
-                Port(src, target) => {
-                    let isrc = ret.add_node(src);
-                    for dst in &target {
+                Node::Port(src, target) => {
+                    let isrc = ret.add_node(&src);
+                    for dst in target {
                     }
                 }
             }
@@ -19,7 +18,7 @@ pub Graph: internal::StructuralGraph = {
     }
 }
 
-GraphNode: internal::Node = {
+GraphNode: Node = {
     "Port" <Str> "[" <Comma<Str>> "]" => Node::Port(<>),
     "LoopReg" <Str> "[" <Comma<Str>> "]" => Node::LoopReg(<>),
     "DataReg" <Str> "[" <Comma<Str>> "]" => Node::DataReg(<>),
