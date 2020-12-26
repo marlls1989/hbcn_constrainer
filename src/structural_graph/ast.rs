@@ -16,7 +16,10 @@ pub struct Entry {
 
 impl Entry {
     pub fn new(entry_type: EntryType, name: Rc<str>, adjacency_list: Vec<Rc<str>>) -> Entry {
-        Entry {entry_type, name, adjacency_list,}
+        Entry {
+            entry_type,
+            name,
+            adjacency_list,
+        }
     }
 }
-
