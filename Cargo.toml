@@ -1,15 +1,16 @@
 [package]
 name = "hbcn_constrainer"
 version = "0.1.0"
-authors = ["Marcos Sartori <msartori@thesiriusproject.com>"]
+authors = ["Marcos Sartori <marcos.sartori@acad.pucrs.br>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-lalrpop = "0.17.2"
+lalrpop = "^0.17.2"
 
 [dependencies]
-petgraph = "0.4.13"
-lalrpop-util = "0.17.2"
-regex = "0.2.1"
+petgraph = "^0.4.13"
+lalrpop-util = "^0.17.2"
+regex = "^0.2.1"
+clap = "^2.33.3"

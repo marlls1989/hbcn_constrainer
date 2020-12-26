@@ -1,32 +1,24 @@
-use crate::structural_graph::internal::*;
+use crate::structural_graph::ast::*;
+use std::rc::Rc;
 
 grammar;
 
-pub Graph: StructuralGraph = {
-    <a:GraphNode*> => {
-        let mut ret = StructuralGraph::new();
-        for n in a {
-            match n {
-                Node::Port(src, target) => {
-                    let isrc = ret.add_node(&src);
-                    for dst in target {
-                    }
-                }
-            }
-        }
-        ret
-    }
+pub Graph: Vec<Entry> = {
+    Node*
 }
 
-GraphNode: Node = {
-    "Port" <Str> "[" <Comma<Str>> "]" => Node::Port(<>),
-    "LoopReg" <Str> "[" <Comma<Str>> "]" => Node::LoopReg(<>),
-    "DataReg" <Str> "[" <Comma<Str>> "]" => Node::DataReg(<>),
-    "NullReg" <Str> "[" <Comma<Str>> "]" => Node::NullReg(<>),
+Node: Entry = {
+    <Type> <Str> "[" <Comma<Str>> "]" => Entry::new(<>),
 }
 
-Str: String = {
-    <s:r#""[^"]*""#> => s.chars().skip(1).take(s.len()-2).collect::<String>()
+Type: EntryType = {
+    "Port" => EntryType::Port,
+    "DataReg" => EntryType::DataReg,
+    "NullReg" => EntryType::NullReg,
+}
+
+Str: Rc<str> = {
+    <s:r#""[^"]*""#> => s.chars().skip(1).take(s.len()-2).collect::<String>().into()
 }
 
 Comma<T>: Vec<T> = {
