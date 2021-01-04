@@ -7,10 +7,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [build-dependencies]
-lalrpop = "^0.17.2"
+lalrpop = "^0.19.2"
 
 [dependencies]
 petgraph = "^0.4.13"
-lalrpop-util = "^0.17.2"
-regex = "^0.2.1"
+lalrpop-util = "^0.19.2"
+regex = "^1.4.2"
 clap = "^2.33.3"
+immutable_string = "^0.1.0"

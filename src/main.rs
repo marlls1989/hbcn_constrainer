@@ -1,7 +1,6 @@
 mod structural_graph;
 
 use clap;
-use petgraph::dot;
 use petgraph::dot::Dot;
 use std::fs;
 
@@ -19,5 +18,5 @@ fn main() {
         .get_matches();
     let file = fs::read_to_string(matches.value_of("input").unwrap()).unwrap();
     let g = structural_graph::StructuralGraph::parse(&file).unwrap();
-    println!("{:?}", Dot::new(&g.inner));
+    println!("{:?}", Dot::new(g.inner_ref()));
 }

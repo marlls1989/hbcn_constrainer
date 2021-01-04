@@ -4,32 +4,21 @@ use lalrpop_util;
 lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
 
 use ast::{Entry, EntryType};
-use petgraph::{graph, Graph};
+use immutable_string::ImmutableString;
+use petgraph::{graph, stable_graph::StableGraph};
 use std::collections::HashMap;
-use std::rc::Rc;
 
-#[derive(Debug, Clone)]
+type Symbol = ImmutableString;
+
+/// Identifier of a register or port component
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircuitNode {
-    Port { name: Rc<str> },
-    Register { name: Rc<str> },
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum ChannelPhase {
-    AckNull,
-    ReqData,
-    AckData,
-    ReqNull,
-}
-
-#[derive(Debug, Clone)]
-pub struct Channel {
-    pub initial_phase: ChannelPhase,
-    pub is_internal: bool,
+    Port { name: Symbol },
+    Register { name: Symbol },
 }
 
 impl CircuitNode {
-    pub fn name(&self) -> Rc<str> {
+    pub fn name(&self) -> Symbol {
         match self {
             CircuitNode::Port { name } => name.clone(),
             CircuitNode::Register { name } => name.clone(),
@@ -37,20 +26,38 @@ impl CircuitNode {
     }
 }
 
-type InnerGraphT = petgraph::Graph<CircuitNode, Channel>;
+/// Channel phase to be used when expanding from StructuralGraph to HBCN
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ChannelPhase {
+    AckNull,
+    ReqData,
+    AckData,
+    ReqNull,
+}
+
+/// Channel representation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Channel {
+    pub initial_phase: ChannelPhase,
+    pub is_internal: bool,
+}
+
+type InnerGraphT = StableGraph<CircuitNode, Channel>;
 
 #[derive(Debug)]
 pub struct StructuralGraph {
-    pub inner: InnerGraphT,
+    inner: InnerGraphT,
+    lut: HashMap<Symbol, graph::NodeIndex>,
 }
 
 type LarlPopError<'a> = lalrpop_util::ParseError<usize, parser::Token<'a>, &'static str>;
 
-#[derive(Debug)]
+/// Error Response of StructuralGraph::parse
+#[derive(Debug, PartialEq, Eq)]
 pub enum ParseError<'a> {
     SyntaxError(LarlPopError<'a>),
     MultipleDefinitions(CircuitNode),
-    UndefinedElement(Rc<str>),
+    UndefinedElement(Symbol),
 }
 
 impl<'a> From<LarlPopError<'a>> for ParseError<'a> {
@@ -66,15 +73,21 @@ impl From<StructuralGraph> for InnerGraphT {
 }
 
 impl StructuralGraph {
+    /// Get reference to internal petgraph representantion
+    pub fn inner_ref(&self) -> &InnerGraphT {
+        &self.inner
+    }
+
+    /// Parse StructuralGraph description generate by pulsar's syn_rtl
     pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
         let nodes = parser::GraphParser::new().parse(input)?;
 
         let mut ret = StructuralGraph {
-            inner: Graph::new(),
+            inner: InnerGraphT::new(),
+            lut: HashMap::new(),
         };
 
-        let mut lut: HashMap<Rc<str>, graph::NodeIndex> = HashMap::new();
-        let mut adjacency: Vec<(graph::NodeIndex, Channel, Vec<Rc<str>>)> = Vec::new();
+        let mut adjacency: Vec<(graph::NodeIndex, Channel, Vec<Symbol>)> = Vec::new();
 
         for Entry {
             entry_type,
@@ -84,16 +97,16 @@ impl StructuralGraph {
         {
             let c = match entry_type {
                 EntryType::DataReg => {
-                    let s0: Rc<str> = format!("{}/s0", name).into();
-                    let s1: Rc<str> = format!("{}/s1", name).into();
+                    let s0: Symbol = format!("{}/s0", name.as_ref()).into();
+                    let s1: Symbol = format!("{}/s1", name.as_ref()).into();
 
                     let cn = CircuitNode::Register { name: name.clone() };
                     let cni = ret.inner.add_node(cn);
-                    lut.insert(name, cni);
+                    ret.lut.insert(name, cni);
 
                     let s0n = CircuitNode::Register { name: s0.clone() };
                     let s0i = ret.inner.add_node(s0n);
-                    lut.insert(s0, s0i);
+                    ret.lut.insert(s0, s0i);
                     ret.inner.add_edge(
                         cni,
                         s0i,
@@ -117,7 +130,7 @@ impl StructuralGraph {
                 EntryType::NullReg => CircuitNode::Register { name },
             };
             let ni = ret.inner.add_node(c.clone());
-            if let Some(_) = lut.insert(c.name(), ni) {
+            if let Some(_) = ret.lut.insert(c.name(), ni) {
                 return Err(ParseError::MultipleDefinitions(c));
             }
             adjacency.push((
@@ -132,7 +145,7 @@ impl StructuralGraph {
 
         for (ni, channel, adjacency_list) in adjacency.into_iter() {
             for x in adjacency_list.into_iter() {
-                if let Some(xi) = lut.get(x.as_ref()) {
+                if let Some(xi) = ret.lut.get(x.as_ref()) {
                     ret.inner.add_edge(ni, *xi, channel.clone());
                 } else {
                     return Err(ParseError::UndefinedElement(x.clone()));
@@ -141,5 +154,56 @@ impl StructuralGraph {
         }
 
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_valid() {
+        let input = r#"
+            Port "a" ["result"]
+            Port "b" ["result"]
+            NullReg "result" ["acc", "output"]
+            DataReg "acc" ["result"]
+            Port "output" []
+            "#;
+        let result = StructuralGraph::parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let result = result.unwrap();
+        let g = result.inner_ref();
+        assert_eq!(g.edge_count(), 7);
+        assert_eq!(g.node_count(), 7);
+    }
+
+    #[test]
+    fn parse_err_undefined() {
+        let input = r#"
+            Port "a" ["result"]
+            Port "b" ["result"]
+            NullReg "result" ["acc", "output"]
+            DataReg "acc" ["result"]
+            "#;
+        let result = StructuralGraph::parse(input);
+        assert!(matches!(result, Err(ParseError::UndefinedElement(_))));
+        if let Err(ParseError::UndefinedElement(node)) = result {
+            assert_eq!(node.as_ref(), "output");
+        }
+    }
+
+    #[test]
+    fn parse_err_syntax() {
+        let input = r#"
+            Port "a" ["result"]
+            Port "b" ["result"]
+            NullReg "result" ["acc" "output"]
+            DataReg "acc" ["result"]
+            Port "output" []
+            "#;
+        let result = StructuralGraph::parse(input);
+        assert!(matches!(result, Err(ParseError::SyntaxError(_))));
     }
 }

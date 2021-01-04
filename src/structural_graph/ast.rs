@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use immutable_string::ImmutableString;
 
 #[derive(PartialEq, Eq, Debug)]
 pub enum EntryType {
@@ -10,12 +10,16 @@ pub enum EntryType {
 #[derive(PartialEq, Eq, Debug)]
 pub struct Entry {
     pub entry_type: EntryType,
-    pub name: Rc<str>,
-    pub adjacency_list: Vec<Rc<str>>,
+    pub name: ImmutableString,
+    pub adjacency_list: Vec<ImmutableString>,
 }
 
 impl Entry {
-    pub fn new(entry_type: EntryType, name: Rc<str>, adjacency_list: Vec<Rc<str>>) -> Entry {
+    pub fn new(
+        entry_type: EntryType,
+        name: ImmutableString,
+        adjacency_list: Vec<ImmutableString>,
+    ) -> Entry {
         Entry {
             entry_type,
             name,

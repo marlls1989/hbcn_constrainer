@@ -1,5 +1,5 @@
 use crate::structural_graph::ast::*;
-use std::rc::Rc;
+use immutable_string::ImmutableString;
 
 grammar;
 
@@ -17,8 +17,8 @@ Type: EntryType = {
     "NullReg" => EntryType::NullReg,
 }
 
-Str: Rc<str> = {
-    <s:r#""[^"]*""#> => s.chars().skip(1).take(s.len()-2).collect::<String>().into()
+Str: ImmutableString = {
+    <s:r#""[^"]*""#> => ImmutableString::from(&s[1 .. s.len()-1]),
 }
 
 Comma<T>: Vec<T> = {
