@@ -1,3 +1,4 @@
+mod hbcn;
 mod structural_graph;
 
 use clap;
@@ -17,6 +18,7 @@ fn main() {
         )
         .get_matches();
     let file = fs::read_to_string(matches.value_of("input").unwrap()).unwrap();
-    let g = structural_graph::StructuralGraph::parse(&file).unwrap();
-    println!("{:?}", Dot::new(g.inner_ref()));
+    let g = structural_graph::parse(&file).unwrap();
+    let hbcn = hbcn::from_structural_graph(&g).unwrap();
+    println!("{:?}", Dot::new(&hbcn));
 }

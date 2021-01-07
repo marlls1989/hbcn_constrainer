@@ -216,11 +216,11 @@ name = "hbcn_constrainer"
 version = "0.1.0"
 dependencies = [
  "clap",
- "immutable_string",
  "lalrpop",
  "lalrpop-util",
  "petgraph 0.4.13",
  "regex",
+ "string_cache",
 ]
 
 [[package]]
@@ -230,16 +230,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5aca5565f760fb5b220e499d72710ed156fdb74e631659e99377d9ebfbd13ae8"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "immutable_string"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33f918ad955a027c154e246ba6e6cc9628264a1eab90126618aecc0f9944389a"
-dependencies = [
- "lazy_static",
- "weak-table",
 ]
 
 [[package]]
@@ -421,6 +411,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde"
+version = "1.0.118"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06c64263859d87aa2eb554587e2d23183398d617427327cf2b3d0ed8c69e4800"
+
+[[package]]
 name = "siphasher"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -436,6 +432,7 @@ dependencies = [
  "new_debug_unreachable",
  "phf_shared",
  "precomputed-hash",
+ "serde",
 ]
 
 [[package]]
@@ -505,12 +502,6 @@ name = "wasi"
 version = "0.9.0+wasi-snapshot-preview1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cccddf32554fecc6acb585f82a32a72e28b48f8c4c1883ddfeeeaa96f7d8e519"
-
-[[package]]
-name = "weak-table"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9a8f3bf74f2d43500dea6a8291b6ac943e3465ea9936b94bd017e61b7b21dd01"
 
 [[package]]
 name = "winapi"
