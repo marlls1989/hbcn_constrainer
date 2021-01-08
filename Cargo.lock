@@ -128,6 +128,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "coin_cbc"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b4356073281cff831d69307400046b24f7761612d7f45041d50b1a0b6b2f17e"
+dependencies = [
+ "coin_cbc_sys",
+]
+
+[[package]]
+name = "coin_cbc_sys"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14a368596759b3d8b42a349485c3757f78941aa188ef6f123ff8f2eff4c9c02b"
+
+[[package]]
 name = "constant_time_eq"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -216,6 +231,7 @@ name = "hbcn_constrainer"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "coin_cbc",
  "lalrpop",
  "lalrpop-util",
  "petgraph 0.4.13",
