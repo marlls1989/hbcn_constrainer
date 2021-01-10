@@ -1,5 +1,5 @@
 use super::structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph};
-use coin_cbc::{Col, Model, Row};
+use coin_cbc::{Col, Model, Sense};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     stable_graph::StableGraph,
@@ -145,12 +145,42 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
     Some(ret)
 }
 
-pub fn constraint_cycle_time(hbcn: &HBCN) -> Option<HBCN> {
+pub fn constraint_cycle_time(hbcn: &HBCN, cycle_time: f64) -> Option<HBCN> {
     let mut m = Model::default();
     let pseudo_clock = m.add_col();
     let arr_var: HashMap<NodeIndex, Col> = hbcn.node_indices().map(|x| (x, m.add_col())).collect();
-    let delay_var: HashMap<EdgeIndex, Col> =
-        hbcn.edge_indices().map(|x| (x, m.add_col())).collect();
+    let slack_var: HashMap<EdgeIndex, Col> = hbcn
+        .edge_indices()
+        .filter_map(|x| {
+            let (ref src, ref dst) = hbcn.edge_endpoints(x)?;
+            let slack = m.add_col();
 
-    None
+            let arrival_eq = m.add_row();
+            m.set_row_equal(arrival_eq, if hbcn[x].token { cycle_time } else { 0. });
+            m.set_weight(arrival_eq, slack, 1.);
+            m.set_weight(arrival_eq, pseudo_clock, 1.);
+            m.set_weight(arrival_eq, *arr_var.get(src)?, 1.);
+            m.set_weight(arrival_eq, *arr_var.get(dst)?, -1.);
+
+            Some((x, slack))
+        })
+        .collect();
+
+    m.set_obj_coeff(pseudo_clock, 1.);
+    m.set_obj_sense(Sense::Maximize);
+    let sol = m.solve();
+    let pseudo_clock = sol.col(pseudo_clock);
+
+    if pseudo_clock.is_nan() {
+        None
+    } else {
+        Some(hbcn.filter_map(
+            |_, n| Some(n.clone()),
+            |ie, e| {
+                let mut e = e.clone();
+                e.max_delay = Some(pseudo_clock + sol.col(*(slack_var.get(&ie)?)));
+                Some(e)
+            },
+        ))
+    }
 }
