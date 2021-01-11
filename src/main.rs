@@ -19,7 +19,7 @@ fn main() {
         .get_matches();
     let file = fs::read_to_string(matches.value_of("input").unwrap()).unwrap();
     let g = structural_graph::parse(&file).unwrap();
-    let sm = structural_graph::slack_match(&g, 1.);
+    let sm = structural_graph::slack_match(&g, 0.25, 4.).unwrap();
     // let hbcn = hbcn::from_structural_graph(&g, 0.2).unwrap();
     // let hbcn = hbcn::constraint_cycle_time(&hbcn, 4.).unwrap_or(hbcn);
 

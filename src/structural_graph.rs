@@ -137,9 +137,12 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
     Ok(ret)
 }
 
-pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<CircuitNode, f64> {
-    const CT: f64 = 4.;
-
+pub fn slack_match(
+    g: &StructuralGraph,
+    buffer_delay: f64,
+    cycle_time: f64,
+) -> Option<StableGraph<(CircuitNode, f64, f64), (Channel, (u32, f64, f64))>> {
+    let stage_delay = cycle_time / 4.;
     let mut m = Model::default();
 
     let arr_pairs: HashMap<graph::NodeIndex, (Col, Col)> = g
@@ -147,22 +150,25 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
         .map(|ix| (ix, (m.add_col(), m.add_col())))
         .collect();
 
-    let slack_buffers: HashMap<graph::EdgeIndex, Col> = g
+    let slack_buffers: HashMap<graph::EdgeIndex, (Col, Col, Col)> = g
         .edge_indices()
         .filter_map(|ie| {
             let (ref src, ref dst) = g.edge_endpoints(ie)?;
             let (src_data, src_null) = arr_pairs.get(src)?;
             let (dst_data, dst_null) = arr_pairs.get(dst)?;
             let e = g[ie];
-
-            let stage_delay = if e.is_internal { buffer_delay } else { CT / 4. };
+            let stage_delay = if e.is_internal {
+                buffer_delay
+            } else {
+                stage_delay
+            };
 
             let fwd_data = m.add_row();
             m.set_row_lower(
                 fwd_data,
                 stage_delay
                     - if e.initial_phase == ChannelPhase::ReqData {
-                        CT
+                        cycle_time
                     } else {
                         0.
                     },
@@ -175,7 +181,7 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
                 fwd_null,
                 stage_delay
                     - if e.initial_phase == ChannelPhase::ReqNull {
-                        CT
+                        cycle_time
                     } else {
                         0.
                     },
@@ -188,7 +194,7 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
                 bwd_data,
                 stage_delay
                     - if e.initial_phase == ChannelPhase::AckData {
-                        CT
+                        cycle_time
                     } else {
                         0.
                     },
@@ -201,7 +207,7 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
                 bwd_null,
                 stage_delay
                     - if e.initial_phase == ChannelPhase::AckNull {
-                        CT
+                        cycle_time
                     } else {
                         0.
                     },
@@ -212,46 +218,31 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
             if e.is_internal {
                 None
             } else {
-                let buf_count = m.add_integer();
-                m.set_obj_coeff(buf_count, 1.);
-                m.set_weight(
-                    fwd_data,
-                    buf_count,
-                    if e.initial_phase == ChannelPhase::ReqData {
-                        CT
-                    } else {
-                        0.
-                    } - buffer_delay,
-                );
-                m.set_weight(
-                    fwd_null,
-                    buf_count,
-                    if e.initial_phase == ChannelPhase::ReqNull {
-                        CT
-                    } else {
-                        0.
-                    } - buffer_delay,
-                );
-                m.set_weight(
-                    bwd_data,
-                    buf_count,
-                    if e.initial_phase == ChannelPhase::AckData {
-                        CT
-                    } else {
-                        0.
-                    } - buffer_delay,
-                );
-                m.set_weight(
-                    bwd_null,
-                    buf_count,
-                    if e.initial_phase == ChannelPhase::AckNull {
-                        CT
-                    } else {
-                        0.
-                    } - buffer_delay,
-                );
+                let fwd_setup = m.add_col();
+                m.set_col_upper(fwd_setup, stage_delay / 4.);
+                let bwd_setup = m.add_col();
+                m.set_col_upper(bwd_setup, stage_delay / 4.);
 
-                Some((ie, buf_count))
+                m.set_weight(fwd_data, fwd_setup, 1.);
+                m.set_weight(fwd_null, fwd_setup, 1.);
+                m.set_weight(bwd_data, bwd_setup, 1.);
+                m.set_weight(bwd_null, bwd_setup, 1.);
+
+                m.set_obj_coeff(fwd_setup, 10.);
+                m.set_obj_coeff(bwd_setup, 10.);
+
+                let buf_count = m.add_integer();
+                let delta = match e.initial_phase {
+                    ChannelPhase::AckNull | ChannelPhase::AckData => stage_delay,
+                    ChannelPhase::ReqNull | ChannelPhase::ReqData => -stage_delay,
+                };
+                m.set_weight(fwd_data, buf_count, -delta);
+                m.set_weight(fwd_null, buf_count, -delta);
+                m.set_weight(bwd_data, buf_count, delta);
+                m.set_weight(bwd_null, buf_count, delta);
+
+                m.set_obj_coeff(buf_count, 1.);
+                Some((ie, (buf_count, fwd_setup, bwd_setup)))
             }
         })
         .collect();
@@ -259,10 +250,24 @@ pub fn slack_match(g: &StructuralGraph, buffer_delay: f64) -> StableGraph<Circui
     m.set_obj_sense(Sense::Minimize);
     let sol = m.solve();
 
-    g.map(
-        |_, n| n.clone(),
-        |ie, _| slack_buffers.get(&ie).map_or(0., |x| sol.col(*x)),
-    )
+    if sol.raw().is_proven_infeasible() || sol.raw().is_initial_solve_proven_primal_infeasible() {
+        None
+    } else {
+        Some(g.map(
+            |ix, x| {
+                let (d, n) = arr_pairs.get(&ix).unwrap();
+                (x.clone(), sol.col(*d), sol.col(*n))
+            },
+            |ie, e| {
+                (
+                    e.clone(),
+                    slack_buffers.get(&ie).map_or((0, 0., 0.), |(x, y, z)| {
+                        (sol.col(*x).round() as u32, sol.col(*y), sol.col(*z))
+                    }),
+                )
+            },
+        ))
+    }
 }
 
 #[cfg(test)]
