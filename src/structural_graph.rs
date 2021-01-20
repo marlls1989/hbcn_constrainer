@@ -15,14 +15,14 @@ type Symbol = DefaultAtom;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CircuitNode {
     Port(Symbol),
-    Register(Symbol),
+    Register { name: Symbol, protected: bool },
 }
 
 impl CircuitNode {
     pub fn name(&self) -> Symbol {
         match self {
             CircuitNode::Port(name) => name.clone(),
-            CircuitNode::Register(name) => name.clone(),
+            CircuitNode::Register { name, .. } => name.clone(),
         }
     }
 }
@@ -81,21 +81,27 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                 let s0: Symbol = format!("{}/s0", name.as_ref()).into();
                 let s1: Symbol = format!("{}/s1", name.as_ref()).into();
 
-                let cn = CircuitNode::Register(name.clone());
+                let cn = CircuitNode::Register {
+                    name: name.clone(),
+                    protected: true,
+                };
                 let cni = ret.add_node(cn);
                 lut.insert(name, cni);
 
-                let s0n = CircuitNode::Register(s0.clone());
+                let s0n = CircuitNode::Register {
+                    name: s0.clone(),
+                    protected: true,
+                };
                 let s0i = ret.add_node(s0n);
-                lut.insert(s0, s0i);
-                ret.add_edge(
+                lut.insert(s0.clone(), s0i);
+                adjacency.push((
                     cni,
-                    s0i,
                     Channel {
                         initial_phase: ChannelPhase::ReqNull,
                         is_internal: true,
                     },
-                );
+                    vec![s0],
+                ));
                 adjacency.push((
                     s0i,
                     Channel {
@@ -105,10 +111,20 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                     vec![s1.clone()],
                 ));
 
-                CircuitNode::Register(s1)
+                CircuitNode::Register {
+                    name: s1,
+                    protected: true,
+                }
             }
             EntryType::Port => CircuitNode::Port(name),
-            EntryType::NullReg => CircuitNode::Register(name),
+            EntryType::NullReg => CircuitNode::Register {
+                name,
+                protected: false,
+            },
+            EntryType::ControlReg => CircuitNode::Register {
+                name,
+                protected: true,
+            },
         };
         let ni = ret.add_node(c.clone());
         if let Some(_) = lut.insert(c.name(), ni) {
@@ -139,26 +155,43 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
 
 pub fn slack_match(
     g: &StructuralGraph,
-    buffer_delay: f64,
+    internal_delay: f64,
     cycle_time: f64,
-) -> Option<StableGraph<(CircuitNode, f64, f64), (Channel, (u32, f64, f64))>> {
+) -> Option<StableGraph<(CircuitNode, f64, f64, bool), (Channel, u32)>> {
     let stage_delay = cycle_time / 4.;
     let mut m = Model::default();
 
-    let arr_pairs: HashMap<graph::NodeIndex, (Col, Col)> = g
+    let arr_pairs: HashMap<graph::NodeIndex, (Col, Col, Option<Col>)> = g
         .node_indices()
-        .map(|ix| (ix, (m.add_col(), m.add_col())))
+        .map(|ix| {
+            (
+                ix,
+                (
+                    m.add_col(),
+                    m.add_col(),
+                    match g[ix] {
+                        CircuitNode::Port(_)
+                        | CircuitNode::Register {
+                            protected: true, ..
+                        } => None,
+                        CircuitNode::Register {
+                            protected: false, ..
+                        } => Some(m.add_col()),
+                    },
+                ),
+            )
+        })
         .collect();
 
-    let slack_buffers: HashMap<graph::EdgeIndex, (Col, Col, Col)> = g
+    let slack_buffers: HashMap<graph::EdgeIndex, Col> = g
         .edge_indices()
         .filter_map(|ie| {
             let (ref src, ref dst) = g.edge_endpoints(ie)?;
-            let (src_data, src_null) = arr_pairs.get(src)?;
-            let (dst_data, dst_null) = arr_pairs.get(dst)?;
+            let (src_data, src_null, _) = arr_pairs.get(src)?;
+            let (dst_data, dst_null, dst_suppres) = arr_pairs.get(dst)?;
             let e = g[ie];
             let stage_delay = if e.is_internal {
-                buffer_delay
+                internal_delay
             } else {
                 stage_delay
             };
@@ -215,22 +248,17 @@ pub fn slack_match(
             m.set_weight(bwd_null, *src_data, 1.);
             m.set_weight(bwd_null, *dst_null, -1.);
 
+            if let Some(suppres) = dst_suppres {
+                m.set_weight(fwd_data, *suppres, stage_delay);
+                m.set_weight(fwd_null, *suppres, stage_delay);
+                m.set_weight(bwd_data, *suppres, stage_delay);
+                m.set_weight(bwd_null, *suppres, stage_delay);
+                m.set_obj_coeff(*suppres, 1.);
+            }
+
             if e.is_internal {
                 None
             } else {
-                let fwd_setup = m.add_col();
-                m.set_col_upper(fwd_setup, stage_delay / 4.);
-                let bwd_setup = m.add_col();
-                m.set_col_upper(bwd_setup, stage_delay / 4.);
-
-                m.set_weight(fwd_data, fwd_setup, 1.);
-                m.set_weight(fwd_null, fwd_setup, 1.);
-                m.set_weight(bwd_data, bwd_setup, 1.);
-                m.set_weight(bwd_null, bwd_setup, 1.);
-
-                m.set_obj_coeff(fwd_setup, 10.);
-                m.set_obj_coeff(bwd_setup, 10.);
-
                 let buf_count = m.add_integer();
                 let delta = match e.initial_phase {
                     ChannelPhase::AckNull | ChannelPhase::AckData => stage_delay,
@@ -240,9 +268,9 @@ pub fn slack_match(
                 m.set_weight(fwd_null, buf_count, -delta);
                 m.set_weight(bwd_data, buf_count, delta);
                 m.set_weight(bwd_null, buf_count, delta);
-
                 m.set_obj_coeff(buf_count, 1.);
-                Some((ie, (buf_count, fwd_setup, bwd_setup)))
+
+                Some((ie, buf_count))
             }
         })
         .collect();
@@ -255,15 +283,20 @@ pub fn slack_match(
     } else {
         Some(g.map(
             |ix, x| {
-                let (d, n) = arr_pairs.get(&ix).unwrap();
-                (x.clone(), sol.col(*d), sol.col(*n))
+                let (d, n, suppres_stage) = arr_pairs.get(&ix).unwrap();
+                (
+                    x.clone(),
+                    sol.col(*d),
+                    sol.col(*n),
+                    suppres_stage.map_or(false, |x| sol.col(x).round() as u32 != 0),
+                )
             },
             |ie, e| {
                 (
                     e.clone(),
-                    slack_buffers.get(&ie).map_or((0, 0., 0.), |(x, y, z)| {
-                        (sol.col(*x).round() as u32, sol.col(*y), sol.col(*z))
-                    }),
+                    slack_buffers
+                        .get(&ie)
+                        .map_or(0, |x| sol.col(*x).round() as u32),
                 )
             },
         ))

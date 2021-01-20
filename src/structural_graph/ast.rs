@@ -5,6 +5,7 @@ pub enum EntryType {
     Port,
     DataReg,
     NullReg,
+    ControlReg,
 }
 
 #[derive(PartialEq, Eq, Debug)]

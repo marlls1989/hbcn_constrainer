@@ -15,6 +15,7 @@ Type: EntryType = {
     "Port" => EntryType::Port,
     "DataReg" => EntryType::DataReg,
     "NullReg" => EntryType::NullReg,
+    "ControlReg" => EntryType::ControlReg,
 }
 
 Str: Symbol = {
