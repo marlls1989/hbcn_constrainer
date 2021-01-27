@@ -6,8 +6,9 @@ lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
 use ast::{Entry, EntryType};
 use coin_cbc::{Col, Model, Sense};
 use petgraph::{graph, stable_graph::StableGraph};
-use std::collections::HashMap;
+use std::{collections::HashMap, error::Error, fmt};
 use string_cache::DefaultAtom;
+use gag::Gag;
 
 type Symbol = DefaultAtom;
 
@@ -23,6 +24,22 @@ impl CircuitNode {
         match self {
             CircuitNode::Port(name) => name.clone(),
             CircuitNode::Register { name, .. } => name.clone(),
+        }
+    }
+}
+
+impl fmt::Display for CircuitNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CircuitNode::Port(name) => write!(f, "Port {}", name),
+            CircuitNode::Register {
+                name,
+                protected: false,
+            } => write!(f, "Unprotected Register {}", name),
+            CircuitNode::Register {
+                name,
+                protected: true,
+            } => write!(f, "Protected Register {}", name),
         }
     }
 }
@@ -49,15 +66,29 @@ type LarlPopError<'a> = lalrpop_util::ParseError<usize, parser::Token<'a>, &'sta
 
 /// Error Response of StructuralGraph::parse
 #[derive(Debug, PartialEq, Eq)]
-pub enum ParseError<'a> {
-    SyntaxError(LarlPopError<'a>),
+pub enum ParseError {
+    SyntaxError(String),
     MultipleDefinitions(CircuitNode),
     UndefinedElement(Symbol),
 }
 
-impl<'a> From<LarlPopError<'a>> for ParseError<'a> {
-    fn from(err: LarlPopError) -> ParseError {
-        ParseError::SyntaxError(err)
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ParseError::SyntaxError(err) => write!(f, "{}", err),
+            ParseError::MultipleDefinitions(node) => {
+                write!(f, "Multiple Definitions of {}", node.name())
+            }
+            ParseError::UndefinedElement(name) => write!(f, "Undefined Element: {}", name),
+        }
+    }
+}
+
+impl Error for ParseError {}
+
+impl From<LarlPopError<'_>> for ParseError {
+    fn from(err: LarlPopError) -> Self {
+        ParseError::SyntaxError(format!("{}", err))
     }
 }
 
@@ -153,11 +184,26 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
     Ok(ret)
 }
 
+#[derive(Debug,PartialEq,Eq)]
+pub enum SolverError {
+    Unfeasible,
+}
+
+impl fmt::Display for SolverError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Problem Unfeasible")
+    }
+}
+
+impl Error for SolverError {}
+
 pub fn slack_match(
     g: &StructuralGraph,
     internal_delay: f64,
     cycle_time: f64,
-) -> Option<StableGraph<(CircuitNode, f64, f64, bool), (Channel, u32)>> {
+) -> Result<StableGraph<(CircuitNode, f64, f64, bool), (Channel, u32)>, SolverError> {
+    let _redirect_stdout = Gag::stdout();
+    let _redirect_stderr = Gag::stderr();
     let stage_delay = cycle_time / 4.;
     let mut m = Model::default();
 
@@ -279,9 +325,9 @@ pub fn slack_match(
     let sol = m.solve();
 
     if sol.raw().is_proven_infeasible() || sol.raw().is_initial_solve_proven_primal_infeasible() {
-        None
+        Err(SolverError::Unfeasible)
     } else {
-        Some(g.map(
+        Ok(g.map(
             |ix, x| {
                 let (d, n, suppres_stage) = arr_pairs.get(&ix).unwrap();
                 (

@@ -10,10 +10,11 @@ edition = "2018"
 lalrpop = "^0.19.2"
 
 [dependencies]
-petgraph = "^0.4.13"
-lalrpop-util = "^0.19.2"
+petgraph = "~0.4.13"
+lalrpop-util = "~0.19.2"
 regex = "^1.4.2"
 clap = "^2.33.3"
-string_cache = "^0.8.1"
-coin_cbc = "^0.1.0"
+string_cache = "~0.8.1"
+coin_cbc = "~0.1.0"
+gag = "~0.1.10"
 
