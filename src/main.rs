@@ -17,13 +17,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         .setting(clap::AppSettings::SubcommandRequired)
         .subcommand(
             clap::SubCommand::with_name("lint")
-            .about("Perform slack matching analsis to advise on buffer insertion and removal.")
+                .about("Perform slack matching analsis to advise on buffer insertion and removal."),
         )
         .arg(
             clap::Arg::with_name("input")
                 .help("Sets the input file to use")
-                .required(true)
-                //.index(1),
+                .required(true), //.index(1),
         )
         .get_matches();
     let g = read_file(main_args.value_of("input").unwrap())?;
@@ -31,11 +30,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     return match main_args.subcommand() {
         ("lint", Some(_)) => lint_main(&g),
         (x, _) => panic!("Subcommand {} not handled", x),
-    }
+    };
 }
 
 fn lint_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
-
     let matched = structural_graph::slack_match(g, 0.4, 4.)?;
 
     let removals = matched.node_indices().filter_map(|ix| {
@@ -43,7 +41,7 @@ fn lint_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>
         if remove {
             Some(name)
         } else {
-           None
+            None
         }
     });
 
@@ -69,5 +67,3 @@ fn lint_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>
 
     Ok(())
 }
-
-

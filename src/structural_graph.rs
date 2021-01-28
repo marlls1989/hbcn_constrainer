@@ -5,10 +5,10 @@ lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
 
 use ast::{Entry, EntryType};
 use coin_cbc::{Col, Model, Sense};
+use gag::Gag;
 use petgraph::{graph, stable_graph::StableGraph};
 use std::{collections::HashMap, error::Error, fmt};
 use string_cache::DefaultAtom;
-use gag::Gag;
 
 type Symbol = DefaultAtom;
 
@@ -184,7 +184,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
     Ok(ret)
 }
 
-#[derive(Debug,PartialEq,Eq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SolverError {
     Unfeasible,
 }

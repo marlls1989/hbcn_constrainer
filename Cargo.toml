@@ -15,6 +15,5 @@ lalrpop-util = "~0.19.2"
 regex = "^1.4.2"
 clap = "^2.33.3"
 string_cache = "~0.8.1"
-coin_cbc = "~0.1.0"
+coin_cbc = { git = "https://github.com/marlls1989/coin_cbc" }
 gag = "~0.1.10"
-

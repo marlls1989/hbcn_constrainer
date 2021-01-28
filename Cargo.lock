@@ -124,8 +124,7 @@ dependencies = [
 [[package]]
 name = "coin_cbc"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1b4356073281cff831d69307400046b24f7761612d7f45041d50b1a0b6b2f17e"
+source = "git+https://github.com/marlls1989/coin_cbc#488b50bf671ee09272e5d9659974ffd6dedf266e"
 dependencies = [
  "coin_cbc_sys",
 ]
@@ -133,8 +132,7 @@ dependencies = [
 [[package]]
 name = "coin_cbc_sys"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14a368596759b3d8b42a349485c3757f78941aa188ef6f123ff8f2eff4c9c02b"
+source = "git+https://github.com/marlls1989/coin_cbc#488b50bf671ee09272e5d9659974ffd6dedf266e"
 
 [[package]]
 name = "constant_time_eq"
