@@ -9,6 +9,9 @@ edition = "2018"
 [build-dependencies]
 lalrpop = "^0.19.2"
 
+[features]
+embedded_cbc = ["coin_cbc/embedded_cbc"]
+
 [dependencies]
 petgraph = "~0.4.13"
 lalrpop-util = "~0.19.2"
