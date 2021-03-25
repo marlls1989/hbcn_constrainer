@@ -8,7 +8,7 @@ pub Graph: Vec<Entry> = {
 }
 
 Node: Entry = {
-    <Type> <Str> "[" <Comma<Str>> "]" => Entry::new(<>),
+    <Type> <Str> "[" <Comma<AdjencyTuple>> "]" => Entry::new(<>),
 }
 
 Type: EntryType = {
@@ -20,6 +20,14 @@ Type: EntryType = {
 
 Str: Symbol = {
     <s:r#""[^"]*""#> => Symbol::from(&s[1 .. s.len()-1]),
+}
+
+Int: u32 = {
+    <i:r"[0-9]+"> => i.parse().unwrap(),
+}
+
+AdjencyTuple: (Symbol, u32) = {
+    "(" <s:Str> "," <n:Int> ")" => (s, n),
 }
 
 Comma<T>: Vec<T> = {

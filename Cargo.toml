@@ -19,4 +19,10 @@ regex = "^1.4.2"
 clap = "^2.33.3"
 string_cache = "~0.8.1"
 coin_cbc = { git = "https://github.com/marlls1989/coin_cbc" }
+gurobi = "~0.3.4"
 gag = "~0.1.10"
+vcd = "~0.6.1"
+itertools = "~0.10.0"
+lazy_static = "~1.4.0"
+rayon = "~1.5.0"
+

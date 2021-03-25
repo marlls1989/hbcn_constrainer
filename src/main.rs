@@ -1,8 +1,24 @@
 mod hbcn;
+mod sdc;
+mod slack_match;
 mod structural_graph;
 
 use clap;
-use std::{error::Error, fs};
+use petgraph::dot;
+use std::{collections::BinaryHeap, error::Error, fmt, fs};
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum SolverError {
+    Infeasible,
+}
+
+impl fmt::Display for SolverError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Problem Infeasible")
+    }
+}
+
+impl Error for SolverError {}
 
 fn read_file(file_name: &str) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
     let file = fs::read_to_string(file_name)?;
@@ -14,27 +30,91 @@ fn main() -> Result<(), Box<dyn Error>> {
         .version("0.1.0")
         .author("Marcos Sartori <marcos.sartori@acad.pucrs.br>")
         .about("Pulsar HBCN analysis timing tools")
-        .setting(clap::AppSettings::SubcommandRequired)
-        .subcommand(
-            clap::SubCommand::with_name("lint")
-                .about("Perform slack matching analsis to advise on buffer insertion and removal."),
-        )
         .arg(
             clap::Arg::with_name("input")
                 .help("Sets the input file to use")
-                .required(true), //.index(1),
+                .required(true)
+                .index(1),
+        )
+        .setting(clap::AppSettings::SubcommandRequired)
+        .subcommand(
+            clap::SubCommand::with_name("lint")
+                .about("Perform slack matching to advise on buffer insertion and removal.")
+                .arg(
+                    clap::Arg::with_name("dot")
+                        .long("dot")
+                        .value_name("DOT FILE"),
+                ),
+        )
+        .subcommand(
+            clap::SubCommand::with_name("analyse")
+                .about("Compute the virtual delay cycle time estimation.")
+                .arg(
+                    clap::Arg::with_name("dot")
+                        .long("dot")
+                        .value_name("DOT FILE"),
+                )
+                .arg(
+                    clap::Arg::with_name("vcd")
+                        .long("vcd")
+                        .value_name("VCD FILE"),
+                ),
         )
         .get_matches();
     let g = read_file(main_args.value_of("input").unwrap())?;
 
-    return match main_args.subcommand() {
-        ("lint", Some(_)) => lint_main(&g),
+    match main_args.subcommand() {
+        ("lint", Some(args)) => lint_main(&g, args),
+        ("analyse", Some(args)) => analyse_main(&g, args),
         (x, _) => panic!("Subcommand {} not handled", x),
-    };
+    }
 }
 
-fn lint_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
-    let matched = structural_graph::slack_match(g, 0.4, 4.)?;
+fn analyse_main(
+    g: &structural_graph::StructuralGraph,
+    args: &clap::ArgMatches,
+) -> Result<(), Box<dyn Error>> {
+    let hbcn = hbcn::from_structural_graph(g, true).unwrap();
+    let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn).unwrap();
+
+    let mut slack: BinaryHeap<_> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+            (hbcn[ie].slack, &hbcn[src].transition, &hbcn[dst].transition)
+        })
+        .collect();
+
+    while let Some((slack, src, dst)) = slack.pop() {
+        println!("{}ps of free slack on ({} -> {})", slack, src, dst);
+    }
+
+    println!("Cycletime: {}ps", ct);
+
+    if args.is_present("dot") {
+        let filename = args.value_of("dot").unwrap();
+        fs::write(filename, format!("{:?}", dot::Dot::new(&hbcn)))?;
+    }
+
+    if args.is_present("vcd") {
+        let filename = args.value_of("vcd").unwrap();
+        let mut file = std::io::BufWriter::new(fs::File::create(filename)?);
+        hbcn::write_vcd(&hbcn, &mut file)?;
+    }
+
+    Ok(())
+}
+
+fn lint_main(
+    g: &structural_graph::StructuralGraph,
+    args: &clap::ArgMatches,
+) -> Result<(), Box<dyn Error>> {
+    let matched = slack_match::slack_match(g, 0.4, 4.)?;
+
+    if args.is_present("dot") {
+        let filename = args.value_of("dot").unwrap();
+        fs::write(filename, format!("{:?}", dot::Dot::new(&matched)))?;
+    }
 
     let removals = matched.node_indices().filter_map(|ix| {
         let (ref name, _, _, remove) = matched[ix];

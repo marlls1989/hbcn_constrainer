@@ -1,47 +1,83 @@
-use super::structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph};
-use coin_cbc::{Col, Model, Sense};
+use super::structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol};
+use gurobi::*;
+use itertools::Itertools;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     stable_graph::StableGraph,
     EdgeDirection,
 };
-use std::collections::HashMap;
+use regex::Regex;
+use std::{
+    cmp::Ordering,
+    collections::{BinaryHeap, HashMap},
+    fmt, io,
+};
+use vcd;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+fn clog2(x: usize) -> u32 {
+    const NUM_BITS: u32 = (std::mem::size_of::<usize>() as u32) * 8;
+    NUM_BITS - x.leading_zeros()
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
 pub enum Transition {
     Spacer(CircuitNode),
     Data(CircuitNode),
 }
 
-#[derive(PartialEq, Debug, Clone)]
+impl Transition {
+    pub fn circuit_node(&self) -> &CircuitNode {
+        match self {
+            Transition::Data(id) => id,
+            Transition::Spacer(id) => id,
+        }
+    }
+
+    pub fn name(&self) -> &Symbol {
+        self.circuit_node().name()
+    }
+}
+
+impl fmt::Display for Transition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Transition::Spacer(id) => write!(f, "Spacer at {}", id),
+            Transition::Data(id) => write!(f, "Data at {}", id),
+        }
+    }
+}
+
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Place {
     token: bool,
-    max_delay: Option<f64>,
-    min_delay: Option<f64>,
+    weight: u32,
     relative_endpoints: Vec<NodeIndex>,
 }
 
 pub type HBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option<HBCN> {
+pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, u32)> = g
         .node_indices()
         .map(|ix| {
             let ref val = g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
-            (ix, (token, spacer))
+            let backward_cost =
+                5 + 10 * clog2(g.edges_directed(ix, petgraph::Direction::Outgoing).count());
+            (ix, (token, spacer, backward_cost))
         })
         .collect();
 
     for ix in g.edge_indices() {
         let (ref src, ref dst) = g.edge_endpoints(ix)?;
-        let (src_token, src_spacer) = vertice_map.get(src)?;
-        let (dst_token, dst_spacer) = vertice_map.get(dst)?;
+        let (src_token, src_spacer, backward_cost) = vertice_map.get(src)?;
+        let (dst_token, dst_spacer, _) = vertice_map.get(dst)?;
         let Channel {
             initial_phase,
-            is_internal,
+            forward_cost,
+            ..
         } = g[ix];
 
         ret.add_edge(
@@ -49,13 +85,8 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
             *dst_token,
             Place {
                 token: initial_phase == ChannelPhase::ReqData,
-                max_delay: if is_internal {
-                    Some(internal_delay)
-                } else {
-                    None
-                },
-                min_delay: None,
                 relative_endpoints: Vec::new(),
+                weight: forward_cost,
             },
         );
         ret.add_edge(
@@ -63,13 +94,8 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
             *dst_spacer,
             Place {
                 token: initial_phase == ChannelPhase::ReqNull,
-                max_delay: if is_internal {
-                    Some(internal_delay)
-                } else {
-                    None
-                },
-                min_delay: None,
                 relative_endpoints: Vec::new(),
+                weight: forward_cost,
             },
         );
         ret.add_edge(
@@ -77,13 +103,8 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
             *src_spacer,
             Place {
                 token: initial_phase == ChannelPhase::AckData,
-                max_delay: if is_internal {
-                    Some(internal_delay)
-                } else {
-                    None
-                },
-                min_delay: None,
                 relative_endpoints: Vec::new(),
+                weight: *backward_cost,
             },
         );
         ret.add_edge(
@@ -91,52 +112,61 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
             *src_token,
             Place {
                 token: initial_phase == ChannelPhase::AckNull,
-                max_delay: if is_internal {
-                    Some(internal_delay)
-                } else {
-                    None
-                },
-                min_delay: None,
                 relative_endpoints: Vec::new(),
+                weight: *backward_cost,
             },
         );
     }
 
-    for ix in g.node_indices() {
-        let (ix_data, ix_null) = vertice_map.get(&ix)?;
-        for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-            let (is_data, is_null) = vertice_map.get(&is)?;
-            for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                let (id_data, id_null) = vertice_map.get(&id)?;
-                if let Some(ie) = ret.find_edge(*is_data, *id_null) {
-                    ret[ie].relative_endpoints.push(*ix_data);
-                } else {
-                    ret.add_edge(
-                        *is_data,
-                        *id_null,
-                        Place {
-                            token: ret[ret.find_edge(*is_data, *ix_data)?].token
-                                || ret[ret.find_edge(*ix_data, *id_null)?].token,
-                            min_delay: None,
-                            max_delay: None,
-                            relative_endpoints: vec![*ix_data],
-                        },
-                    );
-                }
-                if let Some(ie) = ret.find_edge(*is_null, *id_data) {
-                    ret[ie].relative_endpoints.push(*ix_null);
-                } else {
-                    ret.add_edge(
-                        *is_null,
-                        *id_data,
-                        Place {
-                            token: ret[ret.find_edge(*is_null, *ix_null)?].token
-                                || ret[ret.find_edge(*ix_null, *id_data)?].token,
-                            min_delay: None,
-                            max_delay: None,
-                            relative_endpoints: vec![*ix_null],
-                        },
-                    );
+    if reflexive {
+        for ix in g.node_indices() {
+            let (ix_data, ix_null, backward_cost) = vertice_map.get(&ix)?;
+            for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
+                let (is_data, is_null, _) = vertice_map.get(&is)?;
+                let Place {
+                    weight: data_forward_cost,
+                    ..
+                } = ret[ret.find_edge(*is_data, *ix_data)?];
+                let Place {
+                    weight: null_forward_cost,
+                    ..
+                } = ret[ret.find_edge(*is_null, *ix_null)?];
+                for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
+                    let (id_data, id_null, _) = vertice_map.get(&id)?;
+                    if let Some(ie) = ret.find_edge(*is_data, *id_null) {
+                        let ref mut place = ret[ie];
+                        place.relative_endpoints.push(*ix_data);
+                        place.weight =
+                            std::cmp::max(place.weight, backward_cost + data_forward_cost);
+                    } else {
+                        ret.add_edge(
+                            *is_data,
+                            *id_null,
+                            Place {
+                                token: ret[ret.find_edge(*is_data, *ix_data)?].token
+                                    || ret[ret.find_edge(*ix_data, *id_null)?].token,
+                                relative_endpoints: vec![*ix_data],
+                                weight: backward_cost + data_forward_cost,
+                            },
+                        );
+                    }
+                    if let Some(ie) = ret.find_edge(*is_null, *id_data) {
+                        let ref mut place = ret[ie];
+                        place.relative_endpoints.push(*ix_null);
+                        place.weight =
+                            std::cmp::max(place.weight, backward_cost + null_forward_cost);
+                    } else {
+                        ret.add_edge(
+                            *is_null,
+                            *id_data,
+                            Place {
+                                token: ret[ret.find_edge(*is_null, *ix_null)?].token
+                                    || ret[ret.find_edge(*ix_null, *id_data)?].token,
+                                relative_endpoints: vec![*ix_null],
+                                weight: backward_cost + null_forward_cost,
+                            },
+                        );
+                    }
                 }
             }
         }
@@ -145,42 +175,274 @@ pub fn from_structural_graph(g: &StructuralGraph, internal_delay: f64) -> Option
     Some(ret)
 }
 
-pub fn constraint_cycle_time(hbcn: &HBCN, cycle_time: f64) -> Option<HBCN> {
-    let mut m = Model::default();
-    let pseudo_clock = m.add_col();
-    let arr_var: HashMap<NodeIndex, Col> = hbcn.node_indices().map(|x| (x, m.add_col())).collect();
-    let slack_var: HashMap<EdgeIndex, Col> = hbcn
-        .edge_indices()
-        .filter_map(|x| {
-            let (ref src, ref dst) = hbcn.edge_endpoints(x)?;
-            let slack = m.add_col();
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct TransitionEvent {
+    pub time: u64,
+    pub transition: Transition,
+}
 
-            let arrival_eq = m.add_row();
-            m.set_row_equal(arrival_eq, if hbcn[x].token { cycle_time } else { 0. });
-            m.set_weight(arrival_eq, slack, 1.);
-            m.set_weight(arrival_eq, pseudo_clock, 1.);
-            m.set_weight(arrival_eq, *arr_var.get(src)?, 1.);
-            m.set_weight(arrival_eq, *arr_var.get(dst)?, -1.);
+impl PartialOrd for TransitionEvent {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
 
-            Some((x, slack))
+impl Ord for TransitionEvent {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.time.cmp(&other.time)
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct SlackedPlace {
+    pub slack: u64,
+    pub place: Place,
+}
+
+impl PartialOrd for SlackedPlace {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for SlackedPlace {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.slack.cmp(&other.slack)
+    }
+}
+
+pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
+
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
+
+pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Option<PathConstraints> {
+    let env = Env::new("hbcn_constraining.log").ok()?;
+    let mut m = Model::new("constraint", &env).ok()?;
+
+    let factor = m
+        .add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+        .ok()?;
+
+    let arr_var: HashMap<NodeIndex, Var> = hbcn
+        .node_indices()
+        .map(|x| {
+            (
+                x,
+                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                    .unwrap(),
+            )
         })
         .collect();
 
-    m.set_obj_coeff(pseudo_clock, 1.);
-    m.set_obj_sense(Sense::Maximize);
-    let sol = m.solve();
-    let pseudo_clock = sol.col(pseudo_clock);
+    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
-    if pseudo_clock.is_nan() {
+            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
+        })
+        .collect();
+
+    for v in delay_vars.values_mut() {
+        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[]).ok()?);
+    }
+
+    for ie in hbcn.edge_indices() {
+        let (src, dst) = hbcn.edge_endpoints(ie)?;
+        let place = &hbcn[ie];
+        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].as_ref()?;
+
+        m.add_constr(
+            "",
+            1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
+            Equal,
+            if place.token { ct as f64 } else { 0.0 },
+        )
+        .ok()?;
+
+        m.add_constr(
+            "",
+            1.0 * delay - (place.weight as f64).ln() * &factor,
+            Greater,
+            0.0,
+        )
+        .ok()?;
+    }
+
+    m.update().ok()?;
+
+    m.set_objective(&factor, Maximize).ok()?;
+
+    m.write("hbcn_constraining.lp").ok()?;
+
+    m.optimize().ok()?;
+
+    match m.status().ok()? {
+        Status::Optimal | Status::SubOptimal => Some(
+            delay_vars
+                .into_iter()
+                .filter_map(|((src, dst), var)| {
+                    let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
+                    Some(((src.clone(), dst.clone()), val))
+                })
+                .collect(),
+        ),
+        _ => None,
+    }
+}
+
+pub fn compute_cycle_time(hbcn: &HBCN) -> Option<(f64, SolvedHBCN)> {
+    let env = Env::new("hbcn_analysis.log").ok()?;
+    let mut m = Model::new("analysis", &env).ok()?;
+    let cycle_time = m
+        .add_var("cycle_time", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
+        .ok()?;
+
+    let mut arr_var: HashMap<NodeIndex, Var> = hbcn
+        .node_indices()
+        .map(|x| {
+            (
+                x,
+                m.add_var("", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
+                    .unwrap(),
+            )
+        })
+        .collect();
+
+    let mut slack_var: HashMap<EdgeIndex, Var> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
+            let ref place = hbcn[ie];
+            let slack = m
+                .add_var("", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
+                .unwrap();
+
+            let mut expr = 1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &slack;
+            if place.token {
+                expr += 1.0 * &cycle_time;
+            }
+            m.add_constr("", expr, Equal, place.weight as f64).unwrap();
+
+            (ie, slack)
+        })
+        .collect();
+
+    m.update().ok()?;
+
+    m.set_objective(&cycle_time, Minimize).ok()?;
+
+    m.write("hbcn_analysis.lp").ok()?;
+
+    m.optimize().ok()?;
+    if m.status().ok()? == Status::InfOrUnbd {
         None
     } else {
-        Some(hbcn.filter_map(
-            |_, n| Some(n.clone()),
-            |ie, e| {
-                let mut e = e.clone();
-                e.max_delay = Some(pseudo_clock + sol.col(*(slack_var.get(&ie)?)));
-                Some(e)
-            },
+        Some((
+            m.get(attr::ObjVal).ok()?,
+            hbcn.map(
+                |ix, x| TransitionEvent {
+                    transition: x.clone(),
+                    time: m
+                        .get_values(attr::X, &[arr_var.remove(&ix).unwrap()])
+                        .unwrap()[0]
+                        .round() as u64,
+                },
+                |ie, e| SlackedPlace {
+                    place: e.clone(),
+                    slack: m
+                        .get_values(attr::X, &[slack_var.remove(&ie).unwrap()])
+                        .unwrap()[0]
+                        .round() as u64,
+                },
+            ),
         ))
     }
 }
+
+pub fn write_vcd(hbcn: &SolvedHBCN, w: &mut dyn io::Write) -> io::Result<()> {
+    let mut writer = vcd::Writer::new(w);
+    let re = Regex::new(r"[^a-zA-Z0-9_]").unwrap();
+
+    writer.timescale(1, vcd::TimescaleUnit::PS)?;
+    writer.add_module("top")?;
+
+    let mut variables = HashMap::new();
+    let mut event_heap = BinaryHeap::new();
+
+    for ix in hbcn.node_indices() {
+        let ref event = hbcn[ix];
+        event_heap.push(event.clone());
+
+        let cnode = event.transition.name();
+        if !variables.contains_key(cnode) {
+            variables.insert(
+                cnode.clone(),
+                writer.add_wire(1, &re.replace_all(cnode, "_"))?,
+            );
+        }
+    }
+
+    for (_, var) in variables.iter() {
+        writer.change_scalar(*var, vcd::Value::V0)?;
+    }
+
+    for (time, events) in event_heap
+        .into_sorted_vec()
+        .into_iter()
+        .group_by(|x| x.time)
+        .into_iter()
+    {
+        writer.timestamp(time)?;
+        for event in events {
+            match event.transition {
+                Transition::Data(id) => writer.change_scalar(variables[id.name()], vcd::Value::V1),
+                Transition::Spacer(id) => {
+                    writer.change_scalar(variables[id.name()], vcd::Value::V0)
+                }
+            }?;
+        }
+    }
+
+    Ok(())
+}
+
+//pub fn constraint_cycle_time(hbcn: &HBCN, cycle_time: f64) -> Option<HBCN> {
+//    let mut m = Model::default();
+//    let pseudo_clock = m.add_col();
+//    let arr_var: HashMap<NodeIndex, Col> = hbcn.node_indices().map(|x| (x, m.add_col())).collect();
+//    let slack_var: HashMap<EdgeIndex, Col> = hbcn
+//        .edge_indices()
+//        .filter_map(|x| {
+//            let (ref src, ref dst) = hbcn.edge_endpoints(x)?;
+//            let slack = m.add_col();
+//
+//            let arrival_eq = m.add_row();
+//            m.set_row_equal(arrival_eq, if hbcn[x].token { cycle_time } else { 0. });
+//            m.set_weight(arrival_eq, slack, 1.);
+//            m.set_weight(arrival_eq, pseudo_clock, 1.);
+//            m.set_weight(arrival_eq, *arr_var.get(src)?, 1.);
+//            m.set_weight(arrival_eq, *arr_var.get(dst)?, -1.);
+//
+//            Some((x, slack))
+//        })
+//        .collect();
+//
+//    m.set_obj_coeff(pseudo_clock, 1.);
+//    m.set_obj_sense(Sense::Maximize);
+//    let sol = m.solve();
+//    let pseudo_clock = sol.col(pseudo_clock);
+//
+//    if pseudo_clock.is_nan() {
+//        None
+//    } else {
+//        Some(hbcn.filter_map(
+//            |_, n| Some(n.clone()),
+//            |ie, e| {
+//                let mut e = e.clone();
+//                e.max_delay = Some(pseudo_clock + sol.col(*(slack_var.get(&ie)?)));
+//                Some(e)
+//            },
+//        ))
+//    }
+//}

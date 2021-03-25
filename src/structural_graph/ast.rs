@@ -12,11 +12,11 @@ pub enum EntryType {
 pub struct Entry {
     pub entry_type: EntryType,
     pub name: Symbol,
-    pub adjacency_list: Vec<Symbol>,
+    pub adjacency_list: Vec<(Symbol, u32)>,
 }
 
 impl Entry {
-    pub fn new(entry_type: EntryType, name: Symbol, adjacency_list: Vec<Symbol>) -> Entry {
+    pub fn new(entry_type: EntryType, name: Symbol, adjacency_list: Vec<(Symbol, u32)>) -> Entry {
         Entry {
             entry_type,
             name,
