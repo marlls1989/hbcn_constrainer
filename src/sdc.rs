@@ -1,8 +1,7 @@
 use super::{hbcn::PathConstraints, structural_graph::CircuitNode};
-use itertools::*;
 use lazy_static::*;
-use rayon::prelude::*;
 use regex::Regex;
+use std::io::{self, Write};
 
 fn port_wildcard(s: &str) -> String {
     lazy_static! {
@@ -46,16 +45,16 @@ fn src_rails(s: &CircuitNode) -> String {
     }
 }
 
-pub fn write_path_constraints(paths: &PathConstraints) -> String {
-    paths
-        .par_iter()
-        .map(|((src, dst), val)| {
-            format!(
-                "set_multicycle_path -from {} -to {} {}\n",
-                src_rails(&src),
-                dst_rails(&dst),
-                val
-            )
-        })
-        .reduce(|| "".to_owned(), |a, b| [a, b].concat())
+pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -> io::Result<()> {
+    for ((src, dst), val) in paths.iter() {
+        writeln!(
+            writer,
+            "set_multicycle_path -from {} -to {} {}",
+            src_rails(&src),
+            dst_rails(&dst),
+            val
+        )?;
+    }
+
+    Ok(())
 }

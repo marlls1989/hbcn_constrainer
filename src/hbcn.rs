@@ -1,5 +1,8 @@
-use super::structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol};
-use gurobi::*;
+use super::{
+    structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol},
+    SolverError,
+};
+use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarType::*, INFINITY};
 use itertools::Itertools;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
@@ -10,6 +13,7 @@ use regex::Regex;
 use std::{
     cmp::Ordering,
     collections::{BinaryHeap, HashMap},
+    error::Error,
     fmt, io,
 };
 use vcd;
@@ -215,13 +219,11 @@ pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
 
-pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Option<PathConstraints> {
-    let env = Env::new("hbcn_constraining.log").ok()?;
-    let mut m = Model::new("constraint", &env).ok()?;
+pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Box<dyn Error>> {
+    let env = Env::new("hbcn_constraining.log")?;
+    let mut m = Model::new("constraint", &env)?;
 
-    let factor = m
-        .add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])
-        .ok()?;
+    let factor = m.add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])?;
 
     let arr_var: HashMap<NodeIndex, Var> = hbcn
         .node_indices()
@@ -244,66 +246,62 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Option<PathConstraints> {
         .collect();
 
     for v in delay_vars.values_mut() {
-        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[]).ok()?);
+        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[])?);
     }
 
     for ie in hbcn.edge_indices() {
-        let (src, dst) = hbcn.edge_endpoints(ie)?;
+        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
         let place = &hbcn[ie];
-        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].as_ref()?;
+        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+            .as_ref()
+            .unwrap();
 
         m.add_constr(
             "",
             1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
             Equal,
             if place.token { ct as f64 } else { 0.0 },
-        )
-        .ok()?;
+        )?;
 
         m.add_constr(
             "",
             1.0 * delay - (place.weight as f64).ln() * &factor,
             Greater,
             0.0,
-        )
-        .ok()?;
+        )?;
     }
 
-    m.update().ok()?;
+    m.update()?;
 
-    m.set_objective(&factor, Maximize).ok()?;
+    m.set_objective(&factor, Maximize)?;
 
-    m.write("hbcn_constraining.lp").ok()?;
+    m.write("hbcn_constraining.lp")?;
 
-    m.optimize().ok()?;
+    m.optimize()?;
 
-    match m.status().ok()? {
-        Status::Optimal | Status::SubOptimal => Some(
-            delay_vars
-                .into_iter()
-                .filter_map(|((src, dst), var)| {
-                    let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
-                    Some(((src.clone(), dst.clone()), val))
-                })
-                .collect(),
-        ),
-        _ => None,
+    match m.status()? {
+        Status::Optimal | Status::SubOptimal => Ok(delay_vars
+            .into_iter()
+            .filter_map(|((src, dst), var)| {
+                let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
+                Some(((src.clone(), dst.clone()), val))
+            })
+            .collect()),
+        _ => Err(Box::new(SolverError::Infeasible)),
     }
 }
 
-pub fn compute_cycle_time(hbcn: &HBCN) -> Option<(f64, SolvedHBCN)> {
-    let env = Env::new("hbcn_analysis.log").ok()?;
-    let mut m = Model::new("analysis", &env).ok()?;
-    let cycle_time = m
-        .add_var("cycle_time", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
-        .ok()?;
+pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Error>> {
+    let env = Env::new("hbcn_analysis.log")?;
+    let mut m = Model::new("analysis", &env)?;
+    let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
 
     let mut arr_var: HashMap<NodeIndex, Var> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                m.add_var("", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
+                m.add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])
                     .unwrap(),
             )
         })
@@ -315,7 +313,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Option<(f64, SolvedHBCN)> {
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let ref place = hbcn[ie];
             let slack = m
-                .add_var("", VarType::Integer, 0.0, 0.0, INFINITY, &[], &[])
+                .add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])
                 .unwrap();
 
             let mut expr = 1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &slack;
@@ -328,32 +326,36 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Option<(f64, SolvedHBCN)> {
         })
         .collect();
 
-    m.update().ok()?;
+    m.update()?;
 
-    m.set_objective(&cycle_time, Minimize).ok()?;
+    m.set_objective(&cycle_time, Minimize)?;
 
-    m.write("hbcn_analysis.lp").ok()?;
+    m.write("hbcn_analysis.lp")?;
 
-    m.optimize().ok()?;
-    if m.status().ok()? == Status::InfOrUnbd {
-        None
+    m.optimize()?;
+    if m.status()? == Status::InfOrUnbd {
+        Err(Box::new(SolverError::Infeasible))
     } else {
-        Some((
-            m.get(attr::ObjVal).ok()?,
-            hbcn.map(
-                |ix, x| TransitionEvent {
-                    transition: x.clone(),
-                    time: m
-                        .get_values(attr::X, &[arr_var.remove(&ix).unwrap()])
-                        .unwrap()[0]
-                        .round() as u64,
+        Ok((
+            m.get(attr::ObjVal)?,
+            hbcn.filter_map(
+                |ix, x| {
+                    Some(TransitionEvent {
+                        transition: x.clone(),
+                        time: m
+                            .get_values(attr::X, &[arr_var.remove(&ix).unwrap()])
+                            .ok()?[0]
+                            .round() as u64,
+                    })
                 },
-                |ie, e| SlackedPlace {
-                    place: e.clone(),
-                    slack: m
-                        .get_values(attr::X, &[slack_var.remove(&ie).unwrap()])
-                        .unwrap()[0]
-                        .round() as u64,
+                |ie, e| {
+                    Some(SlackedPlace {
+                        place: e.clone(),
+                        slack: m
+                            .get_values(attr::X, &[slack_var.remove(&ie).unwrap()])
+                            .ok()?[0]
+                            .round() as u64,
+                    })
                 },
             ),
         ))

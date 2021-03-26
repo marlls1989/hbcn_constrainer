@@ -1,11 +1,16 @@
 mod hbcn;
 mod sdc;
-mod slack_match;
+//mod slack_match;
 mod structural_graph;
 
 use clap;
 use petgraph::dot;
-use std::{collections::BinaryHeap, error::Error, fmt, fs};
+use std::{
+    collections::BinaryHeap,
+    error::Error,
+    fmt, fs,
+    io::{BufWriter, Write},
+};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SolverError {
@@ -37,18 +42,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .index(1),
         )
         .setting(clap::AppSettings::SubcommandRequired)
-        .subcommand(
-            clap::SubCommand::with_name("lint")
-                .about("Perform slack matching to advise on buffer insertion and removal.")
-                .arg(
-                    clap::Arg::with_name("dot")
-                        .long("dot")
-                        .value_name("DOT FILE"),
-                ),
-        )
+        //        .subcommand(
+        //            clap::SubCommand::with_name("lint")
+        //                .about("Perform slack matching to advise on buffer insertion and removal.")
+        //                .arg(
+        //                    clap::Arg::with_name("dot")
+        //                        .long("dot")
+        //                        .value_name("DOT FILE"),
+        //                ),
+        //        )
         .subcommand(
             clap::SubCommand::with_name("analyse")
-                .about("Compute the virtual delay cycle time estimation.")
+                .about("Compute the virtual cycle time.")
                 .arg(
                     clap::Arg::with_name("dot")
                         .long("dot")
@@ -60,14 +65,62 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .value_name("VCD FILE"),
                 ),
         )
+        .subcommand(
+            clap::SubCommand::with_name("constrain")
+                .about("Create a multi-path SDC file to constrain the circuit cycle time")
+                .arg(
+                    clap::Arg::with_name("divisor")
+                        .short("d")
+                        .help("pseudo-clock/cycle-time divisor")
+                        .required(true)
+                        .takes_value(true)
+                        .value_name("CLOCK DIVISOR"),
+                )
+                .arg(
+                    clap::Arg::with_name("output")
+                        .short("o")
+                        .help("Output SDC file")
+                        .required(true)
+                        .takes_value(true)
+                        .value_name("SDC FILE"),
+                )
+                .arg(
+                    clap::Arg::with_name("reflexive")
+                        .short("r")
+                        .takes_value(false)
+                        .help("Reflexive Paths"),
+                ),
+        )
         .get_matches();
     let g = read_file(main_args.value_of("input").unwrap())?;
 
     match main_args.subcommand() {
-        ("lint", Some(args)) => lint_main(&g, args),
+        //("lint", Some(args)) => lint_main(&g, args),
         ("analyse", Some(args)) => analyse_main(&g, args),
+        ("constrain", Some(args)) => constrain_main(&g, args),
         (x, _) => panic!("Subcommand {} not handled", x),
     }
+}
+
+fn constrain_main(
+    g: &structural_graph::StructuralGraph,
+    args: &clap::ArgMatches,
+) -> Result<(), Box<dyn Error>> {
+    let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
+    let reflexive = args.is_present("reflexive");
+    let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
+
+    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
+    let paths = hbcn::constraint_cycle_time(&hbcn, divisor)?;
+
+    writeln!(
+        out_file,
+        "create_clock -period [expr ${{CT}} / {}] [get_port {{clk}}]",
+        divisor
+    )?;
+    sdc::write_path_constraints(&mut out_file, &paths)?;
+
+    Ok(())
 }
 
 fn analyse_main(
@@ -75,7 +128,7 @@ fn analyse_main(
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
     let hbcn = hbcn::from_structural_graph(g, true).unwrap();
-    let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn).unwrap();
+    let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn)?;
 
     let mut slack: BinaryHeap<_> = hbcn
         .edge_indices()
@@ -105,45 +158,45 @@ fn analyse_main(
     Ok(())
 }
 
-fn lint_main(
-    g: &structural_graph::StructuralGraph,
-    args: &clap::ArgMatches,
-) -> Result<(), Box<dyn Error>> {
-    let matched = slack_match::slack_match(g, 0.4, 4.)?;
-
-    if args.is_present("dot") {
-        let filename = args.value_of("dot").unwrap();
-        fs::write(filename, format!("{:?}", dot::Dot::new(&matched)))?;
-    }
-
-    let removals = matched.node_indices().filter_map(|ix| {
-        let (ref name, _, _, remove) = matched[ix];
-        if remove {
-            Some(name)
-        } else {
-            None
-        }
-    });
-
-    let insertions = matched.edge_indices().filter_map(|ix| {
-        let (_, n) = matched[ix];
-        if n > 0 {
-            let (is, id) = matched.edge_endpoints(ix)?;
-            let (ref sname, _, _, _) = matched[is];
-            let (ref dname, _, _, _) = matched[id];
-            Some((sname, dname, n))
-        } else {
-            None
-        }
-    });
-
-    for x in removals {
-        println!("Remove {} ", x);
-    }
-
-    for (s, d, n) in insertions {
-        println!("Insert {} buffers between {} and {}", n, s, d);
-    }
-
-    Ok(())
-}
+//fn lint_main(
+//    g: &structural_graph::StructuralGraph,
+//    args: &clap::ArgMatches,
+//) -> Result<(), Box<dyn Error>> {
+//    let matched = slack_match::slack_match(g, 0.4, 4.)?;
+//
+//    if args.is_present("dot") {
+//        let filename = args.value_of("dot").unwrap();
+//        fs::write(filename, format!("{:?}", dot::Dot::new(&matched)))?;
+//    }
+//
+//    let removals = matched.node_indices().filter_map(|ix| {
+//        let (ref name, _, _, remove) = matched[ix];
+//        if remove {
+//            Some(name)
+//        } else {
+//            None
+//        }
+//    });
+//
+//    let insertions = matched.edge_indices().filter_map(|ix| {
+//        let (_, n) = matched[ix];
+//        if n > 0 {
+//            let (is, id) = matched.edge_endpoints(ix)?;
+//            let (ref sname, _, _, _) = matched[is];
+//            let (ref dname, _, _, _) = matched[id];
+//            Some((sname, dname, n))
+//        } else {
+//            None
+//        }
+//    });
+//
+//    for x in removals {
+//        println!("Remove {} ", x);
+//    }
+//
+//    for (s, d, n) in insertions {
+//        println!("Insert {} buffers between {} and {}", n, s, d);
+//    }
+//
+//    Ok(())
+//}
