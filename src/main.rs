@@ -31,10 +31,10 @@ fn read_file(file_name: &str) -> Result<structural_graph::StructuralGraph, Box<d
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let main_args = clap::App::new("HBCN Constrainer")
-        .version("0.1.0")
-        .author("Marcos Sartori <marcos.sartori@acad.pucrs.br>")
-        .about("Pulsar HBCN analysis timing tools")
+    let main_args = clap::App::new("HBCN Tools")
+        .version(clap::crate_version!())
+        .author(clap::crate_authors!())
+        .about("Pulsar HBCN timing analysis tools")
         .arg(
             clap::Arg::with_name("input")
                 .help("Sets the input file to use")
@@ -57,12 +57,18 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .arg(
                     clap::Arg::with_name("dot")
                         .long("dot")
-                        .value_name("DOT FILE"),
+                        .value_name("dot file"),
                 )
                 .arg(
                     clap::Arg::with_name("vcd")
                         .long("vcd")
-                        .value_name("VCD FILE"),
+                        .value_name("vcd file"),
+                )
+                .arg(
+                    clap::Arg::with_name("reflexive")
+                        .short("r")
+                        .takes_value(false)
+                        .help("Reflexive Paths"),
                 ),
         )
         .subcommand(
@@ -74,7 +80,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .help("pseudo-clock/cycle-time divisor")
                         .required(true)
                         .takes_value(true)
-                        .value_name("CLOCK DIVISOR"),
+                        .value_name("clock divisor"),
                 )
                 .arg(
                     clap::Arg::with_name("output")
@@ -82,7 +88,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .help("Output SDC file")
                         .required(true)
                         .takes_value(true)
-                        .value_name("SDC FILE"),
+                        .value_name("sdc file"),
                 )
                 .arg(
                     clap::Arg::with_name("reflexive")
@@ -127,7 +133,8 @@ fn analyse_main(
     g: &structural_graph::StructuralGraph,
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let hbcn = hbcn::from_structural_graph(g, true).unwrap();
+    let reflexive = args.is_present("reflexive");
+    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
     let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn)?;
 
     let mut slack: BinaryHeap<_> = hbcn
