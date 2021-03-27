@@ -265,7 +265,7 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Bo
 
         m.add_constr(
             "",
-            1.0 * delay - (place.weight as f64).ln() * &factor,
+            1.0 * delay - (place.weight as f64) * &factor,
             Greater,
             0.0,
         )?;
