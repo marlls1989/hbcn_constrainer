@@ -121,7 +121,7 @@ fn constrain_main(
 
     writeln!(
         out_file,
-        "create_clock -period [expr ${{CT}} / {}] [get_port {{clk}}]",
+        "create_clock -period [expr ${{PERIOD}} / {}] [get_port {{clk}}]",
         divisor
     )?;
     sdc::write_path_constraints(&mut out_file, &paths)?;
