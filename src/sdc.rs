@@ -24,6 +24,7 @@ fn dst_rails(s: &CircuitNode) -> String {
             )
         }
         CircuitNode::Register { name, .. } => format!(
+            //"[get_pin -of_objects [vfind {{{}/*}}] -filter {{is_clock_pin == true}}]",
             "[get_pin -of_objects [vfind {{{}/*}}] -filter {{(is_data == true) && (direction == in)}}]",
             name
         ),
@@ -39,7 +40,7 @@ fn src_rails(s: &CircuitNode) -> String {
             )
         }
         CircuitNode::Register { name, .. } => format!(
-            "[get_pin -of_objects [vfind {{{}/*}}] -filter {{is_clock_pin == true}}]",
+            "[get_pin -of_objects [vfind {{{}/*}}] -filter {{direction == out}}]",
             name
         ),
     }
@@ -49,10 +50,10 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
     for ((src, dst), val) in paths.iter() {
         writeln!(
             writer,
-            "set_multicycle_path -from {} -to {} {}",
+            "set_multicycle_path {} -through {} -through {} -from [get_clock clk]",
+            val,
             src_rails(&src),
             dst_rails(&dst),
-            val
         )?;
     }
 
