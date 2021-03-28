@@ -25,7 +25,7 @@ fn dst_rails(s: &CircuitNode) -> String {
         }
         CircuitNode::Register { name, .. } => format!(
             //"[get_pin -of_objects [vfind {{{}/*}}] -filter {{is_clock_pin == true}}]",
-            "[get_pins -of_objects [vfind {{{}/*}}] -filter {{(is_data == true) && (direction == in)}}]",
+            "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == in}}]",
             name
         ),
     }
@@ -40,7 +40,7 @@ fn src_rails(s: &CircuitNode) -> String {
             )
         }
         CircuitNode::Register { name, .. } => format!(
-            "[get_pins -of_objects [vfind {{{}/*}}] -filter {{direction == out}}]",
+            "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == out}}]",
             name
         ),
     }
