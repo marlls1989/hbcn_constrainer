@@ -60,7 +60,7 @@ pub struct Place {
 
 pub type HBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
+pub fn from_structural_graph(g: &StructuralGraph) -> Option<HBCN> {
     let mut ret = HBCN::new();
     let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, u32)> = g
         .node_indices()
@@ -122,55 +122,62 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
         );
     }
 
-    if reflexive {
-        for ix in g.node_indices() {
-            let (ix_data, ix_null, backward_cost) = vertice_map.get(&ix)?;
-            for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                let (is_data, is_null, _) = vertice_map.get(&is)?;
-                let Place {
-                    weight: data_forward_cost,
-                    ..
-                } = ret[ret.find_edge(*is_data, *ix_data)?];
-                let Place {
-                    weight: null_forward_cost,
-                    ..
-                } = ret[ret.find_edge(*is_null, *ix_null)?];
-                for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                    let (id_data, id_null, _) = vertice_map.get(&id)?;
-                    if let Some(ie) = ret.find_edge(*is_data, *id_null) {
-                        let ref mut place = ret[ie];
-                        place.relative_endpoints.push(*ix_data);
-                        place.weight =
-                            std::cmp::max(place.weight, backward_cost + data_forward_cost);
-                    } else {
-                        ret.add_edge(
-                            *is_data,
-                            *id_null,
-                            Place {
-                                token: ret[ret.find_edge(*is_data, *ix_data)?].token
-                                    || ret[ret.find_edge(*ix_data, *id_null)?].token,
-                                relative_endpoints: vec![*ix_data],
-                                weight: backward_cost + data_forward_cost,
-                            },
-                        );
-                    }
-                    if let Some(ie) = ret.find_edge(*is_null, *id_data) {
-                        let ref mut place = ret[ie];
-                        place.relative_endpoints.push(*ix_null);
-                        place.weight =
-                            std::cmp::max(place.weight, backward_cost + null_forward_cost);
-                    } else {
-                        ret.add_edge(
-                            *is_null,
-                            *id_data,
-                            Place {
-                                token: ret[ret.find_edge(*is_null, *ix_null)?].token
-                                    || ret[ret.find_edge(*ix_null, *id_data)?].token,
-                                relative_endpoints: vec![*ix_null],
-                                weight: backward_cost + null_forward_cost,
-                            },
-                        );
-                    }
+    // For all nodes ix in g
+    for ix in g.node_indices() {
+        let (ix_data, ix_null, backward_cost) = vertice_map.get(&ix)?;
+
+        // Find all predecessors is of ix
+        for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
+            // get pair of transitions related to is
+            let (is_data, is_null, _) = vertice_map.get(&is)?;
+
+            // find the forward path places related to the transitions of is
+            let Place {
+                weight: data_forward_cost,
+                ..
+            } = ret[ret.find_edge(*is_data, *ix_data)?];
+            let Place {
+                weight: null_forward_cost,
+                ..
+            } = ret[ret.find_edge(*is_null, *ix_null)?];
+
+            // Find all predecessors id of ix
+            for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
+                let (id_data, id_null, _) = vertice_map.get(&id)?;
+
+                // If a path is established between is and id, update Place
+                // Else create a reflexive path between is and id
+                if let Some(ie) = ret.find_edge(*is_data, *id_null) {
+                    ret[ie].relative_endpoints.push(*ix_data);
+                    ret[ie].weight =
+                        std::cmp::max(ret[ie].weight, backward_cost + data_forward_cost);
+                } else {
+                    ret.add_edge(
+                        *is_data,
+                        *id_null,
+                        Place {
+                            token: ret[ret.find_edge(*is_data, *ix_data)?].token
+                                || ret[ret.find_edge(*ix_data, *id_null)?].token,
+                            relative_endpoints: vec![*ix_data],
+                            weight: backward_cost + data_forward_cost,
+                        },
+                    );
+                }
+                if let Some(ie) = ret.find_edge(*is_null, *id_data) {
+                    ret[ie].relative_endpoints.push(*ix_null);
+                    ret[ie].weight =
+                        std::cmp::max(ret[ie].weight, backward_cost + null_forward_cost);
+                } else {
+                    ret.add_edge(
+                        *is_null,
+                        *id_data,
+                        Place {
+                            token: ret[ret.find_edge(*is_null, *ix_null)?].token
+                                || ret[ret.find_edge(*ix_null, *id_data)?].token,
+                            relative_endpoints: vec![*ix_null],
+                            weight: backward_cost + null_forward_cost,
+                        },
+                    );
                 }
             }
         }

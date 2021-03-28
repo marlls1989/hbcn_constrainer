@@ -63,12 +63,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     clap::Arg::with_name("vcd")
                         .long("vcd")
                         .value_name("vcd file"),
-                )
-                .arg(
-                    clap::Arg::with_name("reflexive")
-                        .short("r")
-                        .takes_value(false)
-                        .help("Reflexive Paths"),
                 ),
         )
         .subcommand(
@@ -89,12 +83,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .required(true)
                         .takes_value(true)
                         .value_name("sdc file"),
-                )
-                .arg(
-                    clap::Arg::with_name("reflexive")
-                        .short("r")
-                        .takes_value(false)
-                        .help("Reflexive Paths"),
                 ),
         )
         .get_matches();
@@ -113,11 +101,11 @@ fn constrain_main(
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
     let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
-    let reflexive = args.is_present("reflexive");
-    let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
 
-    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
+    let hbcn = hbcn::from_structural_graph(g).unwrap();
     let paths = hbcn::constraint_cycle_time(&hbcn, divisor)?;
+
+    let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
 
     writeln!(
         out_file,
@@ -133,8 +121,7 @@ fn analyse_main(
     g: &structural_graph::StructuralGraph,
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let reflexive = args.is_present("reflexive");
-    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
+    let hbcn = hbcn::from_structural_graph(g).unwrap();
     let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn)?;
 
     let mut slack: BinaryHeap<_> = hbcn
