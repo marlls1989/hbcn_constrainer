@@ -69,7 +69,7 @@ pub fn from_structural_graph(g: &StructuralGraph) -> Option<HBCN> {
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
             let backward_cost =
-                5 + 10 * clog2(g.edges_directed(ix, petgraph::Direction::Outgoing).count());
+                15 + 10 * clog2(g.edges_directed(ix, petgraph::Direction::Outgoing).count());
             (ix, (token, spacer, backward_cost))
         })
         .collect();
