@@ -6,11 +6,12 @@ mod structural_graph;
 use clap;
 use petgraph::dot;
 use std::{
-    collections::BinaryHeap,
+    collections::{BinaryHeap, HashMap},
     error::Error,
     fmt, fs,
     io::{BufWriter, Write},
 };
+use structural_graph::CircuitNode;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SolverError {
@@ -69,6 +70,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             clap::SubCommand::with_name("constrain")
                 .about("Create a multi-path SDC file to constrain the circuit cycle time")
                 .arg(
+                    clap::Arg::with_name("reflexive")
+                        .short("r")
+                        .help("Constraint Reflexive paths for WINDS")
+                        .takes_value(false)
+                        .multiple(false),
+                )
+                .arg(
                     clap::Arg::with_name("divisor")
                         .short("d")
                         .help("pseudo-clock/cycle-time divisor")
@@ -83,6 +91,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         .required(true)
                         .takes_value(true)
                         .value_name("sdc file"),
+                )
+                .arg(
+                    clap::Arg::with_name("csv")
+                        .long("csv")
+                        .help("Output CSV file")
+                        .takes_value(true)
+                        .value_name("csv file"),
                 ),
         )
         .get_matches();
@@ -101,8 +116,9 @@ fn constrain_main(
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
     let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
+    let reflexive = args.is_present("reflexive");
 
-    let hbcn = hbcn::from_structural_graph(g).unwrap();
+    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
     let paths = hbcn::constraint_cycle_time(&hbcn, divisor)?;
 
     let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
@@ -114,6 +130,35 @@ fn constrain_main(
     )?;
     sdc::write_path_constraints(&mut out_file, &paths)?;
 
+    if args.is_present("csv") {
+        let mut csv_file = BufWriter::new(fs::File::create(args.value_of("csv").unwrap())?);
+        let cost_map: HashMap<(CircuitNode, CircuitNode), u32> = hbcn
+            .edge_indices()
+            .filter_map(|ie| {
+                let (is, id) = hbcn.edge_endpoints(ie)?;
+
+                Some((
+                    (
+                        hbcn[is].circuit_node().clone(),
+                        hbcn[id].circuit_node().clone(),
+                    ),
+                    hbcn[ie].weight,
+                ))
+            })
+            .collect();
+        writeln!(csv_file, "src,dst,cost,constrain")?;
+        for ((src, dst), constrain) in paths.iter() {
+            writeln!(
+                csv_file,
+                "{},{},{},{}",
+                src.name(),
+                dst.name(),
+                cost_map[&(src.clone(), dst.clone())],
+                constrain
+            )?;
+        }
+    }
+
     Ok(())
 }
 
@@ -121,7 +166,7 @@ fn analyse_main(
     g: &structural_graph::StructuralGraph,
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let hbcn = hbcn::from_structural_graph(g).unwrap();
+    let hbcn = hbcn::from_structural_graph(g, false).unwrap();
     let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn)?;
 
     let mut slack: BinaryHeap<_> = hbcn
