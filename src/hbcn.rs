@@ -6,12 +6,14 @@ use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarTy
 use itertools::Itertools;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
+    prelude::*,
     stable_graph::StableGraph,
     EdgeDirection,
 };
+use rayon::prelude::*;
 use regex::Regex;
 use std::{
-    cmp::Ordering,
+    cmp,
     collections::{BinaryHeap, HashMap},
     error::Error,
     fmt, io,
@@ -68,8 +70,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             let ref val = g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
-            let backward_cost =
-                25 + 10 * clog2(g.edges_directed(ix, petgraph::Direction::Outgoing).count());
+            let backward_cost = 25 + 10 * clog2(g.edges_directed(ix, Direction::Outgoing).count());
             (ix, (token, spacer, backward_cost))
         })
         .collect();
@@ -195,13 +196,13 @@ pub struct TransitionEvent {
 }
 
 impl PartialOrd for TransitionEvent {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for TransitionEvent {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.time.cmp(&other.time)
     }
 }
@@ -213,13 +214,13 @@ pub struct SlackedPlace {
 }
 
 impl PartialOrd for SlackedPlace {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl Ord for SlackedPlace {
-    fn cmp(&self, other: &Self) -> Ordering {
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
         self.slack.cmp(&other.slack)
     }
 }
@@ -227,6 +228,112 @@ impl Ord for SlackedPlace {
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
+
+pub fn find_critical_cycle(
+    hbcn: &HBCN,
+) -> Result<(usize, Vec<(usize, Vec<Transition>)>), Box<dyn Error>> {
+    let env = Env::new("hbcn_critical_cycle.log")?;
+    let mut m = Model::new("constraint", &env)?;
+
+    let factor = m.add_var("factor", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
+
+    let arr_var: HashMap<NodeIndex, Var> = hbcn
+        .node_indices()
+        .map(|x| {
+            (
+                x,
+                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                    .unwrap(),
+            )
+        })
+        .collect();
+
+    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+
+            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
+        })
+        .collect();
+
+    for v in delay_vars.values_mut() {
+        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[])?);
+    }
+
+    let edge_delay: HashMap<EdgeIndex, &Var> = hbcn
+        .edge_indices()
+        .filter_map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+            let place = &hbcn[ie];
+            let delay =
+                delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].as_ref()?;
+
+            m.add_constr(
+                "",
+                1.0 * delay + 1.0 * &arr_var[&src]
+                    - 1.0 * &arr_var[&dst]
+                    - if place.token { 1.0 } else { 0.0 } * &factor,
+                Equal,
+                0.0,
+            )
+            .ok()?;
+
+            Some((ie, delay))
+        })
+        .collect();
+
+    m.update()?;
+
+    m.set_objective(&factor, Minimize)?;
+
+    m.write("hbcn_critical_cycle.lp")?;
+
+    m.optimize()?;
+
+    match m.status()? {
+        Status::Optimal | Status::SubOptimal => {
+            let zeta = m.get_values(attr::X, &[factor]).ok().unwrap()[0] as usize;
+            let mut removed_places = Vec::new();
+
+            let filtered_hbcn = hbcn.filter_map(
+                |_, x| Some(x.clone()),
+                |ref ie, e| {
+                    let cost = m.get_values(attr::X, &[edge_delay[ie].clone()]).ok()?[0] as usize;
+                    if cost == 1 && !e.token {
+                        Some(e.clone())
+                    } else {
+                        if e.token {
+                            let p = hbcn.edge_endpoints(*ie)?;
+                            removed_places.push(p);
+                        }
+                        None
+                    }
+                },
+            );
+
+            let mut paths: Vec<(usize, Vec<Transition>)> = removed_places
+                .par_iter()
+                .filter_map(|(it, ir)| {
+                    let (dist, path) =
+                        petgraph::algo::astar(&filtered_hbcn, *ir, |ix| ix == *it, |_| 1, |_| 0)?;
+
+                    Some((
+                        dist + 1 as usize,
+                        path.into_iter()
+                            .map(|ix| filtered_hbcn[ix].clone())
+                            .collect(),
+                    ))
+                })
+                .collect();
+
+            paths.sort_by_key(|(d, _)| cmp::Reverse(*d));
+
+            Ok((zeta, paths))
+        }
+        _ => Err(Box::new(SolverError::Infeasible)),
+    }
+}
 
 pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Box<dyn Error>> {
     let env = Env::new("hbcn_constraining.log")?;

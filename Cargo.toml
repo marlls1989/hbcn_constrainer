@@ -13,7 +13,7 @@ lalrpop = "^0.19.2"
 #embedded_cbc = ["coin_cbc/embedded_cbc"]
 
 [dependencies]
-petgraph = "~0.4.13"
+petgraph = "~0.5.1"
 lalrpop-util = "~0.19.2"
 regex = "^1.4.2"
 clap = "^2.33.3"
@@ -23,3 +23,5 @@ gurobi = "~0.3.4"
 vcd = "~0.6.1"
 lazy_static = "~1.4.0"
 itertools = "~0.10.0"
+rayon = "~1.5.0"
+

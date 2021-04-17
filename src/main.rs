@@ -43,15 +43,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .index(1),
         )
         .setting(clap::AppSettings::SubcommandRequired)
-        //        .subcommand(
-        //            clap::SubCommand::with_name("lint")
-        //                .about("Perform slack matching to advise on buffer insertion and removal.")
-        //                .arg(
-        //                    clap::Arg::with_name("dot")
-        //                        .long("dot")
-        //                        .value_name("DOT FILE"),
-        //                ),
-        //        )
+        .subcommand(clap::SubCommand::with_name("critical").about("Find the critical cycle"))
         .subcommand(
             clap::SubCommand::with_name("analyse")
                 .about("Compute the virtual cycle time.")
@@ -107,8 +99,26 @@ fn main() -> Result<(), Box<dyn Error>> {
         //("lint", Some(args)) => lint_main(&g, args),
         ("analyse", Some(args)) => analyse_main(&g, args),
         ("constrain", Some(args)) => constrain_main(&g, args),
+        ("critical", _) => critical_path_main(&g),
         (x, _) => panic!("Subcommand {} not handled", x),
     }
+}
+
+fn critical_path_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
+    let hbcn = hbcn::from_structural_graph(g, false).unwrap();
+
+    let (zeta, cycles) = hbcn::find_critical_cycle(&hbcn)?;
+
+    println!("Critical Cycle Lenght: {}", zeta);
+    for (i, (distance, cycle)) in cycles.into_iter().enumerate() {
+        println!("Path {} ({} Transitions):", i, distance);
+        for transition in cycle {
+            println!("{}", transition);
+        }
+        println!("");
+    }
+
+    Ok(())
 }
 
 fn constrain_main(
