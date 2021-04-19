@@ -6,7 +6,7 @@ mod structural_graph;
 use clap;
 use petgraph::dot;
 use std::{
-    collections::{BinaryHeap, HashMap},
+    collections::HashMap,
     error::Error,
     fmt, fs,
     io::{BufWriter, Write},
@@ -43,7 +43,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 .index(1),
         )
         .setting(clap::AppSettings::SubcommandRequired)
-        .subcommand(clap::SubCommand::with_name("critical").about("Find the critical cycle"))
+        .subcommand(
+            clap::SubCommand::with_name("critical").about("Find the minimal pseudo-clock divisor"),
+        )
         .subcommand(
             clap::SubCommand::with_name("analyse")
                 .about("Compute the virtual cycle time.")
@@ -107,15 +109,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn critical_path_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
     let hbcn = hbcn::from_structural_graph(g, false).unwrap();
 
-    let (zeta, cycles) = hbcn::find_critical_cycle(&hbcn)?;
+    let (zeta, cycles) = hbcn::compute_min_zeta(&hbcn)?;
 
-    println!("Critical Cycle Lenght: {}", zeta);
-    for (i, (distance, cycle)) in cycles.into_iter().enumerate() {
-        println!("Path {} ({} Transitions):", i, distance);
+    println!("Minimal Divisor Value: {}", zeta);
+    for (i, cycle) in cycles.iter().enumerate() {
+        println!("\nCritical Path {}:", i);
         for transition in cycle {
-            println!("{}", transition);
+            println!("\t{}", transition);
         }
-        println!("");
     }
 
     Ok(())
@@ -125,7 +126,7 @@ fn constrain_main(
     g: &structural_graph::StructuralGraph,
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
+    let divisor: usize = args.value_of("divisor").unwrap().parse()?;
     let reflexive = args.is_present("reflexive");
 
     let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
@@ -142,7 +143,7 @@ fn constrain_main(
 
     if args.is_present("csv") {
         let mut csv_file = BufWriter::new(fs::File::create(args.value_of("csv").unwrap())?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), u32> = hbcn
+        let cost_map: HashMap<(CircuitNode, CircuitNode), usize> = hbcn
             .edge_indices()
             .filter_map(|ie| {
                 let (is, id) = hbcn.edge_endpoints(ie)?;
@@ -177,31 +178,26 @@ fn analyse_main(
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
     let hbcn = hbcn::from_structural_graph(g, false).unwrap();
-    let (ct, hbcn) = hbcn::compute_cycle_time(&hbcn)?;
-
-    let mut slack: BinaryHeap<_> = hbcn
-        .edge_indices()
-        .map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-            (hbcn[ie].slack, &hbcn[src].transition, &hbcn[dst].transition)
-        })
-        .collect();
-
-    while let Some((slack, src, dst)) = slack.pop() {
-        println!("{}ps of free slack on ({} -> {})", slack, src, dst);
-    }
-
-    println!("Cycletime: {}ps", ct);
+    let (ct, solved_hbcn) = hbcn::compute_cycle_time(&hbcn)?;
+    println!("Virtual Cycletime: {}ps", ct);
 
     if args.is_present("dot") {
         let filename = args.value_of("dot").unwrap();
-        fs::write(filename, format!("{:?}", dot::Dot::new(&hbcn)))?;
+        fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
     }
 
     if args.is_present("vcd") {
         let filename = args.value_of("vcd").unwrap();
         let mut file = std::io::BufWriter::new(fs::File::create(filename)?);
-        hbcn::write_vcd(&hbcn, &mut file)?;
+        hbcn::write_vcd(&solved_hbcn, &mut file)?;
+    }
+
+    let cycles = hbcn::find_cycles(&hbcn);
+    for (i, (cost, cycle)) in cycles.iter().enumerate() {
+        println!("\nPath {} ({} ps):", i, cost);
+        for transition in cycle {
+            println!("\t{}", transition);
+        }
     }
 
     Ok(())

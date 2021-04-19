@@ -20,9 +20,9 @@ use std::{
 };
 use vcd;
 
-fn clog2(x: usize) -> u32 {
-    const NUM_BITS: u32 = (std::mem::size_of::<usize>() as u32) * 8;
-    NUM_BITS - x.leading_zeros()
+fn clog2(x: usize) -> usize {
+    const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
+    NUM_BITS - (x.leading_zeros() as usize)
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
@@ -56,7 +56,7 @@ impl fmt::Display for Transition {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Place {
     pub token: bool,
-    pub weight: u32,
+    pub weight: usize,
     pub relative_endpoints: Vec<NodeIndex>,
 }
 
@@ -64,7 +64,7 @@ pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, u32)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, usize)> = g
         .node_indices()
         .map(|ix| {
             let ref val = g[ix];
@@ -209,7 +209,7 @@ impl Ord for TransitionEvent {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SlackedPlace {
-    pub slack: u64,
+    pub slack: usize,
     pub place: Place,
 }
 
@@ -227,15 +227,60 @@ impl Ord for SlackedPlace {
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), usize>;
 
-pub fn find_critical_cycle(
-    hbcn: &HBCN,
-) -> Result<(usize, Vec<(usize, Vec<Transition>)>), Box<dyn Error>> {
-    let env = Env::new("hbcn_critical_cycle.log")?;
-    let mut m = Model::new("constraint", &env)?;
+pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<Transition>)> {
+    let mut loop_breakers = Vec::new();
 
-    let factor = m.add_var("factor", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
+    let filtered_hbcn = hbcn.filter_map(
+        |_, x| Some(x.clone()),
+        |ie, e| {
+            if e.token {
+                let (u, v) = hbcn.edge_endpoints(ie)?;
+                loop_breakers.push((u, e.weight as f64, v));
+                None
+            } else {
+                Some(-(e.weight as f64))
+            }
+        },
+    );
+
+    let mut paths: Vec<(u64, Vec<Transition>)> = loop_breakers
+        .into_par_iter()
+        .filter_map(|(it, e, is)| {
+            let (costs, predecessors) = petgraph::algo::bellman_ford(&filtered_hbcn, is).unwrap();
+            let cost = e - costs[it.index()];
+            let path: Vec<_> = {
+                let mut current_node = it;
+                let mut path = vec![it];
+                while current_node != is {
+                    if let Some(node) = predecessors[current_node.index()] {
+                        path.push(node);
+                        current_node = node;
+                    } else {
+                        return None;
+                    }
+                }
+                path.reverse();
+
+                path.into_iter()
+                    .map(|ix| filtered_hbcn[ix].clone())
+                    .collect()
+            };
+            Some((cost as u64, path))
+        })
+        .collect();
+
+    paths.par_sort_unstable_by_key(|(x, _)| cmp::Reverse(*x));
+
+    paths
+}
+
+pub fn compute_min_zeta(hbcn: &HBCN) -> Result<(usize, Vec<Vec<Transition>>), Box<dyn Error>> {
+    let env = Env::new("hbcn.log")?;
+    let mut m = Model::new("critical", &env)?;
+
+    let zeta = m.add_var("zeta", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
 
     let arr_var: HashMap<NodeIndex, Var> = hbcn
         .node_indices()
@@ -248,7 +293,7 @@ pub fn find_critical_cycle(
         })
         .collect();
 
-    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+    let mut slack_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
         .edge_indices()
         .map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
@@ -257,77 +302,70 @@ pub fn find_critical_cycle(
         })
         .collect();
 
-    for v in delay_vars.values_mut() {
-        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[])?);
+    for v in slack_vars.values_mut() {
+        *v = Some(m.add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])?);
     }
 
-    let edge_delay: HashMap<EdgeIndex, &Var> = hbcn
+    let slack_vars: HashMap<EdgeIndex, Var> = hbcn
         .edge_indices()
         .filter_map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
             let place = &hbcn[ie];
-            let delay =
-                delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].as_ref()?;
+            let slack =
+                slack_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].clone()?;
 
             m.add_constr(
                 "",
-                1.0 * delay + 1.0 * &arr_var[&src]
-                    - 1.0 * &arr_var[&dst]
-                    - if place.token { 1.0 } else { 0.0 } * &factor,
+                1.0 * &arr_var[&dst] - 1.0 * &arr_var[&src] - 1.0 * &slack
+                    + if place.token { 1.0 } else { 0.0 } * &zeta,
                 Equal,
-                0.0,
+                1.0,
             )
             .ok()?;
 
-            Some((ie, delay))
+            Some((ie, slack))
         })
         .collect();
 
     m.update()?;
 
-    m.set_objective(&factor, Minimize)?;
-
-    m.write("hbcn_critical_cycle.lp")?;
+    m.set_objective(&zeta, Minimize)?;
 
     m.optimize()?;
 
     match m.status()? {
         Status::Optimal | Status::SubOptimal => {
-            let zeta = m.get_values(attr::X, &[factor]).ok().unwrap()[0] as usize;
-            let mut removed_places = Vec::new();
-
-            let filtered_hbcn = hbcn.filter_map(
-                |_, x| Some(x.clone()),
-                |ref ie, e| {
-                    let cost = m.get_values(attr::X, &[edge_delay[ie].clone()]).ok()?[0] as usize;
-                    if cost == 1 && !e.token {
-                        Some(e.clone())
-                    } else {
+            let zeta = m.get_values(attr::X, &[zeta]).ok().unwrap()[0] as usize;
+            let mut loop_breakers = vec![];
+            let filtered_hbcn = hbcn.map(
+                |_, x| x.clone(),
+                |ie, e| {
+                    let slack = m.get_values(attr::X, &[slack_vars[&ie].clone()]).ok()?[0];
+                    if slack == 0.0 {
                         if e.token {
-                            let p = hbcn.edge_endpoints(*ie)?;
-                            removed_places.push(p);
+                            loop_breakers.push(hbcn.edge_endpoints(ie)?);
+                            None
+                        } else {
+                            Some(e.clone())
                         }
+                    } else {
                         None
                     }
                 },
             );
 
-            let mut paths: Vec<(usize, Vec<Transition>)> = removed_places
-                .par_iter()
-                .filter_map(|(it, ir)| {
-                    let (dist, path) =
-                        petgraph::algo::astar(&filtered_hbcn, *ir, |ix| ix == *it, |_| 1, |_| 0)?;
-
-                    Some((
-                        dist + 1 as usize,
-                        path.into_iter()
-                            .map(|ix| filtered_hbcn[ix].clone())
-                            .collect(),
-                    ))
+            let paths: Vec<Vec<Transition>> = loop_breakers
+                .into_par_iter()
+                .filter_map(|(it, is)| {
+                    let (_, path) =
+                        petgraph::algo::astar(&filtered_hbcn, is, |ix| ix == it, |_| 1, |_| 0)?;
+                    let path: Vec<Transition> = path
+                        .into_iter()
+                        .map(|ix| filtered_hbcn[ix].clone())
+                        .collect();
+                    Some(path)
                 })
                 .collect();
-
-            paths.sort_by_key(|(d, _)| cmp::Reverse(*d));
 
             Ok((zeta, paths))
         }
@@ -335,8 +373,8 @@ pub fn find_critical_cycle(
     }
 }
 
-pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Box<dyn Error>> {
-    let env = Env::new("hbcn_constraining.log")?;
+pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, Box<dyn Error>> {
+    let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
 
     let factor = m.add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])?;
@@ -391,15 +429,13 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Bo
 
     m.set_objective(&factor, Maximize)?;
 
-    m.write("hbcn_constraining.lp")?;
-
     m.optimize()?;
 
     match m.status()? {
         Status::Optimal | Status::SubOptimal => Ok(delay_vars
             .into_iter()
             .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
+                let val = m.get_values(attr::X, &[var?]).ok()?[0] as usize;
                 Some(((src.clone(), dst.clone()), val))
             })
             .collect()),
@@ -408,11 +444,11 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Bo
 }
 
 pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Error>> {
-    let env = Env::new("hbcn_analysis.log")?;
+    let env = Env::new("hbcn.log")?;
     let mut m = Model::new("analysis", &env)?;
     let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
 
-    let mut arr_var: HashMap<NodeIndex, Var> = hbcn
+    let arr_var: HashMap<NodeIndex, Var> = hbcn
         .node_indices()
         .map(|x| {
             (
@@ -423,7 +459,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
         })
         .collect();
 
-    let mut slack_var: HashMap<EdgeIndex, Var> = hbcn
+    let slack_var: HashMap<EdgeIndex, Var> = hbcn
         .edge_indices()
         .map(|ie| {
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
@@ -446,8 +482,6 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
 
     m.set_objective(&cycle_time, Minimize)?;
 
-    m.write("hbcn_analysis.lp")?;
-
     m.optimize()?;
     if m.status()? == Status::InfOrUnbd {
         Err(Box::new(SolverError::Infeasible))
@@ -458,19 +492,15 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                 |ix, x| {
                     Some(TransitionEvent {
                         transition: x.clone(),
-                        time: m
-                            .get_values(attr::X, &[arr_var.remove(&ix).unwrap()])
-                            .ok()?[0]
-                            .round() as u64,
+                        time: m.get_values(attr::X, &[arr_var[&ix].clone()]).ok()?[0].round()
+                            as u64,
                     })
                 },
                 |ie, e| {
                     Some(SlackedPlace {
                         place: e.clone(),
-                        slack: m
-                            .get_values(attr::X, &[slack_var.remove(&ie).unwrap()])
-                            .ok()?[0]
-                            .round() as u64,
+                        slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0].round()
+                            as usize,
                     })
                 },
             ),

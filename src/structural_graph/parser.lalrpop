@@ -22,11 +22,11 @@ Str: Symbol = {
     <s:r#""[^"]*""#> => Symbol::from(&s[1 .. s.len()-1]),
 }
 
-Int: u32 = {
+Int: usize = {
     <i:r"[0-9]+"> => i.parse().unwrap(),
 }
 
-AdjencyTuple: (Symbol, u32) = {
+AdjencyTuple: (Symbol, usize) = {
     "(" <s:Str> "," <n:Int> ")" => (s, n),
 }
 
