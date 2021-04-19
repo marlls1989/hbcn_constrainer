@@ -20,9 +20,9 @@ use std::{
 };
 use vcd;
 
-fn clog2(x: usize) -> usize {
-    const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
-    NUM_BITS - (x.leading_zeros() as usize)
+fn clog2(x: usize) -> u64 {
+    const NUM_BITS: u64 = (std::mem::size_of::<usize>() as u64) * 8;
+    NUM_BITS - (x.leading_zeros() as u64)
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
@@ -56,7 +56,7 @@ impl fmt::Display for Transition {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Place {
     pub token: bool,
-    pub weight: usize,
+    pub weight: u64,
     pub relative_endpoints: Vec<NodeIndex>,
 }
 
@@ -64,7 +64,7 @@ pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, usize)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, u64)> = g
         .node_indices()
         .map(|ix| {
             let ref val = g[ix];
@@ -209,7 +209,7 @@ impl Ord for TransitionEvent {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SlackedPlace {
-    pub slack: usize,
+    pub slack: u64,
     pub place: Place,
 }
 
@@ -227,22 +227,23 @@ impl Ord for SlackedPlace {
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), usize>;
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
 
-pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> {
+pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> {
     let mut loop_breakers = Vec::new();
     let mut start_points = HashSet::new();
 
     let filtered_hbcn = hbcn.filter_map(
         |_, x| Some(x.clone()),
         |ie, e| {
+            let weight = if weighted { e.weight as f64 } else { 1.0 };
             if e.token {
                 let (u, v) = hbcn.edge_endpoints(ie)?;
-                loop_breakers.push((u, e.weight as f64, v));
+                loop_breakers.push((u, weight, v));
                 start_points.insert(v);
                 None
             } else {
-                Some(-(e.weight as f64))
+                Some(-weight)
             }
         },
     );
@@ -291,104 +292,7 @@ pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> {
     paths
 }
 
-pub fn compute_min_zeta(hbcn: &HBCN) -> Result<(usize, Vec<Vec<Transition>>), Box<dyn Error>> {
-    let env = Env::new("hbcn.log")?;
-    let mut m = Model::new("critical", &env)?;
-
-    let zeta = m.add_var("zeta", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
-
-    let arr_var: HashMap<NodeIndex, Var> = hbcn
-        .node_indices()
-        .map(|x| {
-            (
-                x,
-                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
-                    .unwrap(),
-            )
-        })
-        .collect();
-
-    let mut slack_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
-        .edge_indices()
-        .map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-
-            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
-        })
-        .collect();
-
-    for v in slack_vars.values_mut() {
-        *v = Some(m.add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])?);
-    }
-
-    let slack_vars: HashMap<EdgeIndex, Var> = hbcn
-        .edge_indices()
-        .filter_map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-            let place = &hbcn[ie];
-            let slack =
-                slack_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())].clone()?;
-
-            m.add_constr(
-                "",
-                1.0 * &arr_var[&dst] - 1.0 * &arr_var[&src] - 1.0 * &slack
-                    + if place.token { 1.0 } else { 0.0 } * &zeta,
-                Equal,
-                1.0,
-            )
-            .ok()?;
-
-            Some((ie, slack))
-        })
-        .collect();
-
-    m.update()?;
-
-    m.set_objective(&zeta, Minimize)?;
-
-    m.optimize()?;
-
-    match m.status()? {
-        Status::Optimal | Status::SubOptimal => {
-            let zeta = m.get_values(attr::X, &[zeta]).ok().unwrap()[0] as usize;
-            let mut loop_breakers = vec![];
-            let filtered_hbcn = hbcn.map(
-                |_, x| x.clone(),
-                |ie, e| {
-                    let slack = m.get_values(attr::X, &[slack_vars[&ie].clone()]).ok()?[0];
-                    if slack == 0.0 {
-                        if e.token {
-                            loop_breakers.push(hbcn.edge_endpoints(ie)?);
-                            None
-                        } else {
-                            Some(e.clone())
-                        }
-                    } else {
-                        None
-                    }
-                },
-            );
-
-            let paths: Vec<Vec<Transition>> = loop_breakers
-                .into_par_iter()
-                .filter_map(|(it, is)| {
-                    let (_, path) =
-                        petgraph::algo::astar(&filtered_hbcn, is, |ix| ix == it, |_| 1, |_| 0)?;
-                    let path: Vec<Transition> = path
-                        .into_iter()
-                        .map(|ix| filtered_hbcn[ix].clone())
-                        .collect();
-                    Some(path)
-                })
-                .collect();
-
-            Ok((zeta, paths))
-        }
-        _ => Err(Box::new(SolverError::Infeasible)),
-    }
-}
-
-pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, Box<dyn Error>> {
+pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Box<dyn Error>> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
 
@@ -450,7 +354,7 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, 
         Status::Optimal | Status::SubOptimal => Ok(delay_vars
             .into_iter()
             .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0] as usize;
+                let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
                 Some(((src.clone(), dst.clone()), val))
             })
             .collect()),
@@ -515,7 +419,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                     Some(SlackedPlace {
                         place: e.clone(),
                         slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0].round()
-                            as usize,
+                            as u64,
                     })
                 },
             ),

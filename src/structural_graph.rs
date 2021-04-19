@@ -56,7 +56,7 @@ pub enum ChannelPhase {
 pub struct Channel {
     pub initial_phase: ChannelPhase,
     pub is_internal: bool,
-    pub forward_cost: usize,
+    pub forward_cost: u64,
 }
 
 pub type StructuralGraph = StableGraph<CircuitNode, Channel>;

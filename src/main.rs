@@ -4,6 +4,7 @@ mod sdc;
 mod structural_graph;
 
 use clap;
+use gag::Gag;
 use hbcn::Transition;
 use petgraph::dot;
 use prettytable::*;
@@ -46,7 +47,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         )
         .setting(clap::AppSettings::SubcommandRequired)
         .subcommand(
-            clap::SubCommand::with_name("critical").about("Find the minimal pseudo-clock divisor"),
+            clap::SubCommand::with_name("depth").about("Find the minimal pseudo-clock divisor"),
         )
         .subcommand(
             clap::SubCommand::with_name("analyse")
@@ -103,22 +104,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         //("lint", Some(args)) => lint_main(&g, args),
         ("analyse", Some(args)) => analyse_main(&g, args),
         ("constrain", Some(args)) => constrain_main(&g, args),
-        ("critical", _) => critical_path_main(&g),
+        ("depth", _) => depth_main(&g),
         (x, _) => panic!("Subcommand {} not handled", x),
     }
 }
 
-fn critical_path_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
+fn depth_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
     let hbcn = hbcn::from_structural_graph(g, false).unwrap();
 
-    let (zeta, cycles) = hbcn::compute_min_zeta(&hbcn)?;
+    let cycles = hbcn::find_cycles(&hbcn, false);
 
-    println!("Minimal Divisor Value: {}", zeta);
-    for (i, cycle) in cycles.iter().enumerate() {
-        println!("\nCritical Path {}:", i);
-        for transition in cycle {
-            println!("\t{}", transition);
+    if let Some((deepest, _)) = cycles.first() {
+        println!("Greatest Cycle Depth (Mininal Divisor Value): {}", deepest);
+    }
+
+    for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
+        println!("\nCycle {} ({}):", i, cost);
+        let mut table = Table::new();
+        table.set_titles(row!["Source", "Target", "Type", "vDelay"]);
+        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+
+        for (is, it) in cycle.into_iter() {
+            let ie = hbcn.find_edge(is, it).unwrap();
+            let ref s = hbcn[is];
+            let ref t = hbcn[it];
+            let ref e = hbcn[ie];
+
+            let ttype = match (s, t) {
+                (Transition::Data(_), Transition::Data(_)) => "Data Prop",
+                (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
+                (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
+                (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
+            };
+            table.add_row(row![s.name(), t.name(), ttype, format!("{} ps", e.weight)]);
         }
+
+        table.printstd();
     }
 
     Ok(())
@@ -128,11 +149,15 @@ fn constrain_main(
     g: &structural_graph::StructuralGraph,
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
-    let divisor: usize = args.value_of("divisor").unwrap().parse()?;
+    let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
     let reflexive = args.is_present("reflexive");
 
     let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
-    let paths = hbcn::constraint_cycle_time(&hbcn, divisor)?;
+
+    let paths = {
+        let _gag_stdout = Gag::stdout();
+        hbcn::constraint_cycle_time(&hbcn, divisor)
+    }?;
 
     let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
 
@@ -145,7 +170,7 @@ fn constrain_main(
 
     if args.is_present("csv") {
         let mut csv_file = BufWriter::new(fs::File::create(args.value_of("csv").unwrap())?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), usize> = hbcn
+        let cost_map: HashMap<(CircuitNode, CircuitNode), u64> = hbcn
             .edge_indices()
             .filter_map(|ie| {
                 let (is, id) = hbcn.edge_endpoints(ie)?;
@@ -180,8 +205,13 @@ fn analyse_main(
     args: &clap::ArgMatches,
 ) -> Result<(), Box<dyn Error>> {
     let hbcn = hbcn::from_structural_graph(g, false).unwrap();
-    let (ct, solved_hbcn) = hbcn::compute_cycle_time(&hbcn)?;
-    println!("Virtual Cycletime: {}ps", ct);
+
+    let (ct, solved_hbcn) = {
+        let _gag_stdout = Gag::stdout();
+        hbcn::compute_cycle_time(&hbcn)
+    }?;
+
+    println!("Worst Virtual Cycletime: {} ps", ct);
 
     if args.is_present("dot") {
         let filename = args.value_of("dot").unwrap();
@@ -194,26 +224,36 @@ fn analyse_main(
         hbcn::write_vcd(&solved_hbcn, &mut file)?;
     }
 
-    let cycles = hbcn::find_cycles(&hbcn);
+    let cycles = hbcn::find_cycles(&hbcn, true);
     for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
-        println!("\nPath {} ({} ps):", i, cost);
+        println!("\nCycle {} ({} ps):", i, cost);
         let mut table = Table::new();
-        table.set_titles(row!["Source", "Target", "Type", "Delay"]);
+        table.set_titles(row![
+            "Source", "Target", "Type", "vDelay", "Slack", "Start", "Arrival",
+        ]);
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
         for (is, it) in cycle.into_iter() {
             let ie = hbcn.find_edge(is, it).unwrap();
-            let ref s = hbcn[is];
-            let ref t = hbcn[it];
-            let ref e = hbcn[ie];
+            let ref s = solved_hbcn[is];
+            let ref t = solved_hbcn[it];
+            let ref e = solved_hbcn[ie];
 
-            let ttype = match (s, t) {
-                (Transition::Data(_), Transition::Data(_)) => "Data Propagation",
-                (Transition::Spacer(_), Transition::Spacer(_)) => "Spacer Propagation",
-                (Transition::Data(_), Transition::Spacer(_)) => "Data Acknoledment",
-                (Transition::Spacer(_), Transition::Data(_)) => "Spacer Acknoledment",
+            let ttype = match (&s.transition, &t.transition) {
+                (Transition::Data(_), Transition::Data(_)) => "Data Prop",
+                (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
+                (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
+                (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
             };
-            table.add_row(row![s.name(), t.name(), ttype, format!("{} ps", e.weight)]);
+            table.add_row(row![
+                s.transition.name(),
+                t.transition.name(),
+                ttype,
+                format!("{} ps", e.place.weight),
+                format!("{} ps", e.slack),
+                format!("{} ps", s.time),
+                format!("{} ps", s.time + e.slack + e.place.weight),
+            ]);
         }
 
         table.printstd();
