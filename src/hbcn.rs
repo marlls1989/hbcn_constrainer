@@ -14,7 +14,7 @@ use rayon::prelude::*;
 use regex::Regex;
 use std::{
     cmp,
-    collections::{BinaryHeap, HashMap},
+    collections::{BinaryHeap, HashMap, HashSet},
     error::Error,
     fmt, io,
 };
@@ -229,8 +229,9 @@ pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), usize>;
 
-pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<Transition>)> {
+pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> {
     let mut loop_breakers = Vec::new();
+    let mut start_points = HashSet::new();
 
     let filtered_hbcn = hbcn.filter_map(
         |_, x| Some(x.clone()),
@@ -238,6 +239,7 @@ pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<Transition>)> {
             if e.token {
                 let (u, v) = hbcn.edge_endpoints(ie)?;
                 loop_breakers.push((u, e.weight as f64, v));
+                start_points.insert(v);
                 None
             } else {
                 Some(-(e.weight as f64))
@@ -245,16 +247,28 @@ pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<Transition>)> {
         },
     );
 
-    let mut paths: Vec<(u64, Vec<Transition>)> = loop_breakers
+    let bellman_distances: HashMap<NodeIndex, Vec<(f64, Option<NodeIndex>)>> = start_points
+        .into_par_iter()
+        .map(|ix| {
+            let (costs, predecessors) = petgraph::algo::bellman_ford(&filtered_hbcn, ix).unwrap();
+
+            (
+                ix,
+                costs.into_iter().zip_eq(predecessors.into_iter()).collect(),
+            )
+        })
+        .collect();
+
+    let mut paths: Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> = loop_breakers
         .into_par_iter()
         .filter_map(|(it, e, is)| {
-            let (costs, predecessors) = petgraph::algo::bellman_ford(&filtered_hbcn, is).unwrap();
-            let cost = e - costs[it.index()];
+            let ref predecessors = bellman_distances[&is];
+            let cost = e - predecessors[it.index()].0;
             let path: Vec<_> = {
                 let mut current_node = it;
                 let mut path = vec![it];
                 while current_node != is {
-                    if let Some(node) = predecessors[current_node.index()] {
+                    if let Some(node) = predecessors[current_node.index()].1 {
                         path.push(node);
                         current_node = node;
                     } else {
@@ -263,8 +277,9 @@ pub fn find_cycles(hbcn: &HBCN) -> Vec<(u64, Vec<Transition>)> {
                 }
                 path.reverse();
 
-                path.into_iter()
-                    .map(|ix| filtered_hbcn[ix].clone())
+                path.iter()
+                    .cloned()
+                    .zip(path.iter().skip(1).cloned().chain(std::iter::once(is)))
                     .collect()
             };
             Some((cost as u64, path))

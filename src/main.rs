@@ -4,7 +4,9 @@ mod sdc;
 mod structural_graph;
 
 use clap;
+use hbcn::Transition;
 use petgraph::dot;
+use prettytable::*;
 use std::{
     collections::HashMap,
     error::Error,
@@ -193,11 +195,28 @@ fn analyse_main(
     }
 
     let cycles = hbcn::find_cycles(&hbcn);
-    for (i, (cost, cycle)) in cycles.iter().enumerate() {
+    for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
         println!("\nPath {} ({} ps):", i, cost);
-        for transition in cycle {
-            println!("\t{}", transition);
+        let mut table = Table::new();
+        table.set_titles(row!["Source", "Target", "Type", "Delay"]);
+        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+
+        for (is, it) in cycle.into_iter() {
+            let ie = hbcn.find_edge(is, it).unwrap();
+            let ref s = hbcn[is];
+            let ref t = hbcn[it];
+            let ref e = hbcn[ie];
+
+            let ttype = match (s, t) {
+                (Transition::Data(_), Transition::Data(_)) => "Data Propagation",
+                (Transition::Spacer(_), Transition::Spacer(_)) => "Spacer Propagation",
+                (Transition::Data(_), Transition::Spacer(_)) => "Data Acknoledment",
+                (Transition::Spacer(_), Transition::Data(_)) => "Spacer Acknoledment",
+            };
+            table.add_row(row![s.name(), t.name(), ttype, format!("{} ps", e.weight)]);
         }
+
+        table.printstd();
     }
 
     Ok(())
