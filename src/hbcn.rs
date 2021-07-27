@@ -387,11 +387,14 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                 .add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])
                 .unwrap();
 
-            let mut expr = 1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &slack;
-            if place.token {
-                expr += 1.0 * &cycle_time;
-            }
-            m.add_constr("", expr, Equal, place.weight as f64).unwrap();
+            m.add_constr(
+                "",
+                1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &slack
+                    + if place.token { 1.0 } else { 0.0 } * &cycle_time,
+                Equal,
+                place.weight as f64,
+            )
+            .unwrap();
 
             (ie, slack)
         })
