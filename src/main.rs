@@ -3,7 +3,6 @@ mod sdc;
 //mod slack_match;
 mod structural_graph;
 
-use clap;
 use gag::Gag;
 use hbcn::Transition;
 use petgraph::dot;
@@ -13,104 +12,103 @@ use std::{
     error::Error,
     fmt, fs,
     io::{BufWriter, Write},
+    path::PathBuf,
 };
+use structopt::StructOpt;
 use structural_graph::CircuitNode;
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum SolverError {
+pub enum AppError {
     Infeasible,
+    NoOutput,
 }
 
-impl fmt::Display for SolverError {
+impl fmt::Display for AppError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Problem Infeasible")
+        match self {
+            AppError::NoOutput => write!(f, "At least one output must be selected."),
+            AppError::Infeasible => write!(f, "Problem Infeasible"),
+        }
     }
 }
 
-impl Error for SolverError {}
+impl Error for AppError {}
 
-fn read_file(file_name: &str) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
+#[derive(Debug, StructOpt)]
+#[structopt(name = "HBCN Tools", about = "Pulsar HBCN timing analysis tools")]
+enum CLIArguments {
+    /// Find longest path depth in the HBCN, it can be used to define the minimal delta.
+    Depth {
+        /// Structural graph input file
+        #[structopt(parse(from_os_str))]
+        input: PathBuf,
+    },
+    /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
+    Analyse {
+        #[structopt(parse(from_os_str))]
+        /// Structural graph input file
+        input: PathBuf,
+
+        /// VCD waveform file with virtual-delay arrival times
+        #[structopt(long, parse(from_os_str))]
+        vcd: Option<PathBuf>,
+
+        /// DOT file displaying the HBCN marked graph
+        #[structopt(long, parse(from_os_str))]
+        dot: Option<PathBuf>,
+    },
+    /// Produce the Genus SDC file used to constraint the circuit during synthesis
+    Constrain {
+        /// Structural graph input file
+        #[structopt(parse(from_os_str))]
+        input: PathBuf,
+
+        /// Cycle-time divisor factor delta
+        #[structopt(short, long)]
+        delta: u64,
+
+        /// Output SDC constraints file
+        #[structopt(long, parse(from_os_str))]
+        sdc: Option<PathBuf>,
+
+        /// Output CSV file comprising the constraints
+        #[structopt(long, parse(from_os_str))]
+        csv: Option<PathBuf>,
+
+        /// Enable reflexive paths for WInDS
+        #[structopt(short, long)]
+        reflexive_paths: bool,
+    },
+}
+
+fn read_file(file_name: &PathBuf) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
     let file = fs::read_to_string(file_name)?;
     Ok(structural_graph::parse(&file)?)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let main_args = clap::App::new("HBCN Tools")
-        .version(clap::crate_version!())
-        .author(clap::crate_authors!())
-        .about("Pulsar HBCN timing analysis tools")
-        .arg(
-            clap::Arg::with_name("input")
-                .help("Sets the input file to use")
-                .required(true)
-                .index(1),
-        )
-        .setting(clap::AppSettings::SubcommandRequired)
-        .subcommand(
-            clap::SubCommand::with_name("depth").about("Find the minimal pseudo-clock divisor"),
-        )
-        .subcommand(
-            clap::SubCommand::with_name("analyse")
-                .about("Compute the virtual cycle time.")
-                .arg(
-                    clap::Arg::with_name("dot")
-                        .long("dot")
-                        .value_name("dot file"),
-                )
-                .arg(
-                    clap::Arg::with_name("vcd")
-                        .long("vcd")
-                        .value_name("vcd file"),
-                ),
-        )
-        .subcommand(
-            clap::SubCommand::with_name("constrain")
-                .about("Create a multi-path SDC file to constrain the circuit cycle time")
-                .arg(
-                    clap::Arg::with_name("reflexive")
-                        .short("r")
-                        .help("Constraint Reflexive paths for WINDS")
-                        .takes_value(false)
-                        .multiple(false),
-                )
-                .arg(
-                    clap::Arg::with_name("divisor")
-                        .short("d")
-                        .help("pseudo-clock/cycle-time divisor")
-                        .required(true)
-                        .takes_value(true)
-                        .value_name("clock divisor"),
-                )
-                .arg(
-                    clap::Arg::with_name("output")
-                        .short("o")
-                        .help("Output SDC file")
-                        .required(true)
-                        .takes_value(true)
-                        .value_name("sdc file"),
-                )
-                .arg(
-                    clap::Arg::with_name("csv")
-                        .long("csv")
-                        .help("Output CSV file")
-                        .takes_value(true)
-                        .value_name("csv file"),
-                ),
-        )
-        .get_matches();
-    let g = read_file(main_args.value_of("input").unwrap())?;
+    let args = CLIArguments::from_args();
 
-    match main_args.subcommand() {
-        //("lint", Some(args)) => lint_main(&g, args),
-        ("analyse", Some(args)) => analyse_main(&g, args),
-        ("constrain", Some(args)) => constrain_main(&g, args),
-        ("depth", _) => depth_main(&g),
-        (x, _) => panic!("Subcommand {} not handled", x),
+    match args {
+        CLIArguments::Constrain {
+            ref input,
+            delta,
+            reflexive_paths,
+            ref sdc,
+            ref csv,
+        } => constrain_main(input, delta, reflexive_paths, sdc, csv),
+        CLIArguments::Analyse {
+            ref input,
+            ref dot,
+            ref vcd,
+        } => analyse_main(input, dot, vcd),
+        CLIArguments::Depth { ref input } => depth_main(input),
     }
 }
 
-fn depth_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error>> {
-    let hbcn = hbcn::from_structural_graph(g, false).unwrap();
+fn depth_main(input: &PathBuf) -> Result<(), Box<dyn Error>> {
+    let g = read_file(input)?;
+    let hbcn = hbcn::from_structural_graph(&g, false).unwrap();
 
     let cycles = hbcn::find_cycles(&hbcn, false);
 
@@ -146,30 +144,37 @@ fn depth_main(g: &structural_graph::StructuralGraph) -> Result<(), Box<dyn Error
 }
 
 fn constrain_main(
-    g: &structural_graph::StructuralGraph,
-    args: &clap::ArgMatches,
+    input: &PathBuf,
+    delta: u64,
+    reflexive: bool,
+    sdc: &Option<PathBuf>,
+    csv: &Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
-    let divisor: u64 = args.value_of("divisor").unwrap().parse()?;
-    let reflexive = args.is_present("reflexive");
+    let g = read_file(input)?;
 
-    let hbcn = hbcn::from_structural_graph(g, reflexive).unwrap();
+    if let (None, None) = (sdc, csv) {
+        return Err("At least one output format must be selected".into());
+    }
 
+    let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
     let paths = {
         let _gag_stdout = Gag::stdout();
-        hbcn::constraint_cycle_time(&hbcn, divisor)
+        hbcn::constraint_cycle_time(&hbcn, delta)
     }?;
 
-    let mut out_file = BufWriter::new(fs::File::create(args.value_of("output").unwrap())?);
+    if let Some(output) = sdc {
+        let mut out_file = BufWriter::new(fs::File::create(output)?);
 
-    writeln!(
-        out_file,
-        "create_clock -period [expr ${{PERIOD}} / {}.0] [get_port {{clk}}]",
-        divisor
-    )?;
-    sdc::write_path_constraints(&mut out_file, &paths)?;
+        writeln!(
+            out_file,
+            "create_clock -period [expr ${{PERIOD}} / {}.0] [get_port {{clk}}]",
+            delta
+        )?;
+        sdc::write_path_constraints(&mut out_file, &paths)?;
+    }
 
-    if args.is_present("csv") {
-        let mut csv_file = BufWriter::new(fs::File::create(args.value_of("csv").unwrap())?);
+    if let Some(output) = csv {
+        let mut csv_file = BufWriter::new(fs::File::create(output)?);
         let cost_map: HashMap<(CircuitNode, CircuitNode), u64> = hbcn
             .edge_indices()
             .filter_map(|ie| {
@@ -201,25 +206,25 @@ fn constrain_main(
 }
 
 fn analyse_main(
-    g: &structural_graph::StructuralGraph,
-    args: &clap::ArgMatches,
+    input: &PathBuf,
+    dot: &Option<PathBuf>,
+    vcd: &Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
-    let hbcn = hbcn::from_structural_graph(g, false).unwrap();
+    let g = read_file(input)?;
+    let hbcn = hbcn::from_structural_graph(&g, false).unwrap();
 
     let (ct, solved_hbcn) = {
         let _gag_stdout = Gag::stdout();
         hbcn::compute_cycle_time(&hbcn)
     }?;
 
-    println!("Worst Virtual Cycletime: {} ps", ct);
+    println!("Worst virtual cycle-time: {} ps", ct);
 
-    if args.is_present("dot") {
-        let filename = args.value_of("dot").unwrap();
+    if let Some(filename) = dot {
         fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
     }
 
-    if args.is_present("vcd") {
-        let filename = args.value_of("vcd").unwrap();
+    if let Some(filename) = vcd {
         let mut file = std::io::BufWriter::new(fs::File::create(filename)?);
         hbcn::write_vcd(&solved_hbcn, &mut file)?;
     }
@@ -261,46 +266,3 @@ fn analyse_main(
 
     Ok(())
 }
-
-//fn lint_main(
-//    g: &structural_graph::StructuralGraph,
-//    args: &clap::ArgMatches,
-//) -> Result<(), Box<dyn Error>> {
-//    let matched = slack_match::slack_match(g, 0.4, 4.)?;
-//
-//    if args.is_present("dot") {
-//        let filename = args.value_of("dot").unwrap();
-//        fs::write(filename, format!("{:?}", dot::Dot::new(&matched)))?;
-//    }
-//
-//    let removals = matched.node_indices().filter_map(|ix| {
-//        let (ref name, _, _, remove) = matched[ix];
-//        if remove {
-//            Some(name)
-//        } else {
-//            None
-//        }
-//    });
-//
-//    let insertions = matched.edge_indices().filter_map(|ix| {
-//        let (_, n) = matched[ix];
-//        if n > 0 {
-//            let (is, id) = matched.edge_endpoints(ix)?;
-//            let (ref sname, _, _, _) = matched[is];
-//            let (ref dname, _, _, _) = matched[id];
-//            Some((sname, dname, n))
-//        } else {
-//            None
-//        }
-//    });
-//
-//    for x in removals {
-//        println!("Remove {} ", x);
-//    }
-//
-//    for (s, d, n) in insertions {
-//        println!("Insert {} buffers between {} and {}", n, s, d);
-//    }
-//
-//    Ok(())
-//}

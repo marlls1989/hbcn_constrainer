@@ -1,6 +1,6 @@
 use super::{
     structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol},
-    SolverError,
+    AppError,
 };
 use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarType::*, INFINITY};
 use itertools::Itertools;
@@ -358,7 +358,7 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Bo
                 Some(((src.clone(), dst.clone()), val))
             })
             .collect()),
-        _ => Err(Box::new(SolverError::Infeasible)),
+        _ => Err(AppError::Infeasible.into()),
     }
 }
 
@@ -406,7 +406,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
 
     m.optimize()?;
     if m.status()? == Status::InfOrUnbd {
-        Err(Box::new(SolverError::Infeasible))
+        Err(AppError::Infeasible.into())
     } else {
         Ok((
             m.get(attr::ObjVal)?,
