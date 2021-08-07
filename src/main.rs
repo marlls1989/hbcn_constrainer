@@ -158,7 +158,7 @@ fn constrain_main(
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
     let paths = {
-        let _gag_stdout = Gag::stdout();
+        //let _gag_stdout = Gag::stdout();
         hbcn::constraint_cycle_time(&hbcn, delta)
     }?;
 
