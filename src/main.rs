@@ -1,6 +1,5 @@
 mod hbcn;
 mod sdc;
-//mod slack_match;
 mod structural_graph;
 
 use gag::Gag;
@@ -12,7 +11,7 @@ use std::{
     error::Error,
     fmt, fs,
     io::{BufWriter, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 use structopt::StructOpt;
 use structural_graph::CircuitNode;
@@ -81,7 +80,7 @@ enum CLIArguments {
     },
 }
 
-fn read_file(file_name: &PathBuf) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
+fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
     let file = fs::read_to_string(file_name)?;
     Ok(structural_graph::parse(&file)?)
 }
@@ -106,7 +105,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn depth_main(input: &PathBuf) -> Result<(), Box<dyn Error>> {
+fn depth_main(input: &Path) -> Result<(), Box<dyn Error>> {
     let g = read_file(input)?;
     let hbcn = hbcn::from_structural_graph(&g, false).unwrap();
 
@@ -124,9 +123,9 @@ fn depth_main(input: &PathBuf) -> Result<(), Box<dyn Error>> {
 
         for (is, it) in cycle.into_iter() {
             let ie = hbcn.find_edge(is, it).unwrap();
-            let ref s = hbcn[is];
-            let ref t = hbcn[it];
-            let ref e = hbcn[ie];
+            let s = &hbcn[is];
+            let t = &hbcn[it];
+            let e = &hbcn[ie];
 
             let ttype = match (s, t) {
                 (Transition::Data(_), Transition::Data(_)) => "Data Prop",
@@ -144,7 +143,7 @@ fn depth_main(input: &PathBuf) -> Result<(), Box<dyn Error>> {
 }
 
 fn constrain_main(
-    input: &PathBuf,
+    input: &Path,
     delta: u64,
     reflexive: bool,
     sdc: &Option<PathBuf>,
@@ -206,7 +205,7 @@ fn constrain_main(
 }
 
 fn analyse_main(
-    input: &PathBuf,
+    input: &Path,
     dot: &Option<PathBuf>,
     vcd: &Option<PathBuf>,
 ) -> Result<(), Box<dyn Error>> {
@@ -240,9 +239,9 @@ fn analyse_main(
 
         for (is, it) in cycle.into_iter() {
             let ie = hbcn.find_edge(is, it).unwrap();
-            let ref s = solved_hbcn[is];
-            let ref t = solved_hbcn[it];
-            let ref e = solved_hbcn[ie];
+            let s = &solved_hbcn[is];
+            let t = &solved_hbcn[it];
+            let e = &solved_hbcn[ie];
 
             let ttype = match (&s.transition, &t.transition) {
                 (Transition::Data(_), Transition::Data(_)) => "Data Prop",
