@@ -36,7 +36,7 @@ impl Error for AppError {}
 #[derive(Debug, StructOpt)]
 #[structopt(name = "HBCN Tools", about = "Pulsar HBCN timing analysis tools")]
 enum CLIArguments {
-    /// Find longest path depth in the HBCN, it can be used to define the minimal delta.
+    /// Find longest path depth in the HBCN, it can be used to define the minimal zeta.
     Depth {
         /// Structural graph input file
         #[structopt(parse(from_os_str))]
@@ -62,9 +62,9 @@ enum CLIArguments {
         #[structopt(parse(from_os_str))]
         input: PathBuf,
 
-        /// Cycle-time divisor factor delta
+        /// Cycle-time divisor factor zeta
         #[structopt(short, long)]
-        delta: u64,
+        zeta: Option<usize>,
 
         /// Output SDC constraints file
         #[structopt(long, parse(from_os_str))]
@@ -91,11 +91,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     match args {
         CLIArguments::Constrain {
             ref input,
-            delta,
+            zeta,
             reflexive_paths,
             ref sdc,
             ref csv,
-        } => constrain_main(input, delta, reflexive_paths, sdc, csv),
+        } => constrain_main(input, zeta, reflexive_paths, sdc, csv),
         CLIArguments::Analyse {
             ref input,
             ref dot,
@@ -112,7 +112,7 @@ fn depth_main(input: &Path) -> Result<(), Box<dyn Error>> {
     let cycles = hbcn::find_cycles(&hbcn, false);
 
     if let Some((deepest, _)) = cycles.first() {
-        println!("Greatest Cycle Depth (Mininal Divisor Value): {}", deepest);
+        println!("Greatest Cycle Depth (Minimal Zeta Value): {}", deepest);
     }
 
     for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
@@ -144,7 +144,7 @@ fn depth_main(input: &Path) -> Result<(), Box<dyn Error>> {
 
 fn constrain_main(
     input: &Path,
-    delta: u64,
+    zeta: Option<usize>,
     reflexive: bool,
     sdc: &Option<PathBuf>,
     csv: &Option<PathBuf>,
@@ -156,9 +156,12 @@ fn constrain_main(
     }
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
+
+    let zeta = zeta.unwrap_or(hbcn::best_zeta(&hbcn));
+
     let paths = {
         //let _gag_stdout = Gag::stdout();
-        hbcn::constraint_cycle_time(&hbcn, delta)
+        hbcn::constraint_cycle_time(&hbcn, zeta)
     }?;
 
     if let Some(output) = sdc {
@@ -167,14 +170,14 @@ fn constrain_main(
         writeln!(
             out_file,
             "create_clock -period [expr ${{PERIOD}} / {}.0] [get_port {{clk}}]",
-            delta
+            zeta
         )?;
         sdc::write_path_constraints(&mut out_file, &paths)?;
     }
 
     if let Some(output) = csv {
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), u64> = hbcn
+        let cost_map: HashMap<(CircuitNode, CircuitNode), usize> = hbcn
             .edge_indices()
             .filter_map(|ie| {
                 let (is, id) = hbcn.edge_endpoints(ie)?;
@@ -256,7 +259,7 @@ fn analyse_main(
                 format!("{} ps", e.place.weight),
                 format!("{} ps", e.slack),
                 format!("{} ps", s.time),
-                format!("{} ps", s.time + e.slack + e.place.weight),
+                format!("{} ps", s.time + (e.slack + e.place.weight) as u64),
             ]);
         }
 

@@ -3,7 +3,7 @@ use super::{
     AppError,
 };
 use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarType::*, INFINITY};
-use itertools::Itertools;
+use itertools::{Itertools, MinMaxResult::*};
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::*,
@@ -20,9 +20,9 @@ use std::{
 };
 use vcd;
 
-fn clog2(x: usize) -> u64 {
-    const NUM_BITS: u64 = (std::mem::size_of::<usize>() as u64) * 8;
-    NUM_BITS - (x.leading_zeros() as u64)
+fn clog2(x: usize) -> usize {
+    const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
+    NUM_BITS - (x.leading_zeros() as usize)
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
@@ -56,7 +56,7 @@ impl fmt::Display for Transition {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub struct Place {
     pub token: bool,
-    pub weight: u64,
+    pub weight: usize,
     pub relative_endpoints: Vec<NodeIndex>,
 }
 
@@ -64,7 +64,7 @@ pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, u64)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, usize)> = g
         .node_indices()
         .map(|ix| {
             let ref val = g[ix];
@@ -209,7 +209,7 @@ impl Ord for TransitionEvent {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct SlackedPlace {
-    pub slack: u64,
+    pub slack: usize,
     pub place: Place,
 }
 
@@ -227,9 +227,9 @@ impl Ord for SlackedPlace {
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), u64>;
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), usize>;
 
-pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> {
+pub fn cycles_cost(hbcn: &HBCN, weighted: bool) -> HashMap<(NodeIndex, NodeIndex), f64> {
     let mut loop_breakers = Vec::new();
     let mut start_points = HashSet::new();
 
@@ -248,6 +248,69 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, Nod
         },
     );
 
+    // creates a map with a distance from all start_points to all other nodes
+    let bellman_distances: HashMap<NodeIndex, Vec<f64>> = start_points
+        .into_par_iter()
+        .map(|ix| {
+            let (costs, _) = petgraph::algo::bellman_ford(&filtered_hbcn, ix).unwrap();
+
+            (ix, costs)
+        })
+        .collect();
+
+    loop_breakers
+        .into_par_iter()
+        .map(|(it, w, is)| {
+            let nodes = &bellman_distances[&is];
+
+            ((it, is), w - nodes[it.index()])
+        })
+        .collect()
+}
+
+pub fn best_zeta(hbcn: &HBCN) -> usize {
+    let (weights, depths) = rayon::join(|| cycles_cost(hbcn, true), || cycles_cost(hbcn, false));
+
+    let mean_weights: Vec<_> = weights.into_iter().map(|(k, w)| w / depths[&k]).collect();
+
+    let min_zeta = depths
+        .into_iter()
+        .map(|(_, x)| x)
+        .max_by(|a, b| a.partial_cmp(b).unwrap())
+        .unwrap();
+
+    let x = match mean_weights
+        .into_iter()
+        .minmax_by(|a, b| a.partial_cmp(b).unwrap())
+    {
+        MinMax(min, max) => max / min,
+        OneElement(x) => x,
+        _ => panic!(),
+    };
+
+    (min_zeta * x / 2.0).round() as usize * 2
+}
+
+pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(usize, Vec<(NodeIndex, NodeIndex)>)> {
+    let mut loop_breakers = Vec::new();
+    let mut start_points = HashSet::new();
+
+    let filtered_hbcn = hbcn.filter_map(
+        |_, x| Some(x.clone()),
+        |ie, e| {
+            let weight = if weighted { e.weight as f64 } else { 1.0 };
+            if e.token {
+                let (u, v) = hbcn.edge_endpoints(ie)?;
+                loop_breakers.push((u, weight, v));
+                start_points.insert(v);
+                None
+            } else {
+                Some(-weight)
+            }
+        },
+    );
+
+    // creates a map with a distance from all start_points to all other nodes
     let bellman_distances: HashMap<NodeIndex, Vec<(f64, Option<NodeIndex>)>> = start_points
         .into_par_iter()
         .map(|ix| {
@@ -255,21 +318,23 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, Nod
 
             (
                 ix,
+                // Zips together the distance and predecessor list
                 costs.into_iter().zip_eq(predecessors.into_iter()).collect(),
             )
         })
         .collect();
 
-    let mut paths: Vec<(u64, Vec<(NodeIndex, NodeIndex)>)> = loop_breakers
+    let mut paths: Vec<(usize, Vec<(NodeIndex, NodeIndex)>)> = loop_breakers
         .into_par_iter()
         .filter_map(|(it, e, is)| {
-            let ref predecessors = bellman_distances[&is];
-            let cost = e - predecessors[it.index()].0;
+            let nodes = &bellman_distances[&is];
+            let cost = e - nodes[it.index()].0;
+            // Recreates the path by traveling the predecessors list
             let path: Vec<_> = {
                 let mut current_node = it;
                 let mut path = vec![it];
                 while current_node != is {
-                    if let Some(node) = predecessors[current_node.index()].1 {
+                    if let (_, Some(node)) = nodes[current_node.index()] {
                         path.push(node);
                         current_node = node;
                     } else {
@@ -283,7 +348,7 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, Nod
                     .zip(path.iter().skip(1).cloned().chain(std::iter::once(is)))
                     .collect()
             };
-            Some((cost as u64, path))
+            Some((cost as usize, path))
         })
         .collect();
 
@@ -292,7 +357,7 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(u64, Vec<(NodeIndex, Nod
     paths
 }
 
-pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Box<dyn Error>> {
+pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, Box<dyn Error>> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
 
@@ -354,7 +419,7 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: u64) -> Result<PathConstraints, Bo
         Status::Optimal | Status::SubOptimal => Ok(delay_vars
             .into_iter()
             .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0] as u64;
+                let val = m.get_values(attr::X, &[var?]).ok()?[0] as usize;
                 Some(((src.clone(), dst.clone()), val))
             })
             .collect()),
@@ -422,7 +487,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                     Some(SlackedPlace {
                         place: e.clone(),
                         slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0].round()
-                            as u64,
+                            as usize,
                     })
                 },
             ),
