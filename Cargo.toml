@@ -2,7 +2,7 @@
 authors = ["Marcos Sartori <marcos.sartori@acad.pucrs.br>"]
 edition = "2018"
 name = "hbcn"
-version = "0.1.1"
+version = "0.1.2"
 [build-dependencies]
 lalrpop = "^0.19.2"
 

@@ -8,15 +8,17 @@ use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::*,
     stable_graph::StableGraph,
+    visit::IntoNodeReferences,
     EdgeDirection,
 };
 use rayon::prelude::*;
 use regex::Regex;
 use std::{
     cmp,
-    collections::{BinaryHeap, HashMap, HashSet},
+    collections::{HashMap, HashSet},
     error::Error,
     fmt, io,
+    iter::FromIterator,
 };
 use vcd;
 
@@ -53,24 +55,25 @@ impl fmt::Display for Transition {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Place {
     pub token: bool,
-    pub weight: usize,
-    pub relative_endpoints: Vec<NodeIndex>,
+    pub weight: f64,
+    pub relative_endpoints: HashSet<NodeIndex>,
 }
 
 pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, usize)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, f64)> = g
         .node_indices()
         .map(|ix| {
             let ref val = g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
-            let backward_cost = 25 + 10 * clog2(g.edges_directed(ix, Direction::Outgoing).count());
+            let backward_cost =
+                25.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
             (ix, (token, spacer, backward_cost))
         })
         .collect();
@@ -90,7 +93,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             *dst_token,
             Place {
                 token: initial_phase == ChannelPhase::ReqData,
-                relative_endpoints: Vec::new(),
+                relative_endpoints: HashSet::new(),
                 weight: forward_cost,
             },
         );
@@ -99,7 +102,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             *dst_spacer,
             Place {
                 token: initial_phase == ChannelPhase::ReqNull,
-                relative_endpoints: Vec::new(),
+                relative_endpoints: HashSet::new(),
                 weight: forward_cost,
             },
         );
@@ -108,7 +111,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             *src_spacer,
             Place {
                 token: initial_phase == ChannelPhase::AckData,
-                relative_endpoints: Vec::new(),
+                relative_endpoints: HashSet::new(),
                 weight: *backward_cost,
             },
         );
@@ -117,7 +120,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             *src_token,
             Place {
                 token: initial_phase == ChannelPhase::AckNull,
-                relative_endpoints: Vec::new(),
+                relative_endpoints: HashSet::new(),
                 weight: *backward_cost,
             },
         );
@@ -150,9 +153,12 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                     // If a path is established between is and id, update Place
                     // Else create a reflexive path between is and id
                     if let Some(ie) = ret.find_edge(*is_data, *id_null) {
-                        ret[ie].relative_endpoints.push(*ix_data);
-                        ret[ie].weight =
-                            std::cmp::max(ret[ie].weight, backward_cost + data_forward_cost);
+                        ret[ie].relative_endpoints.insert(*ix_data);
+                        ret[ie].weight = std::cmp::max_by(
+                            ret[ie].weight,
+                            backward_cost + data_forward_cost,
+                            |a, b| a.partial_cmp(b).unwrap(),
+                        );
                     } else {
                         ret.add_edge(
                             *is_data,
@@ -160,15 +166,18 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                             Place {
                                 token: ret[ret.find_edge(*is_data, *ix_data)?].token
                                     || ret[ret.find_edge(*ix_data, *id_null)?].token,
-                                relative_endpoints: vec![*ix_data],
+                                relative_endpoints: HashSet::from_iter([*ix_data]), //set![*ix_data],
                                 weight: backward_cost + data_forward_cost,
                             },
                         );
                     }
                     if let Some(ie) = ret.find_edge(*is_null, *id_data) {
-                        ret[ie].relative_endpoints.push(*ix_null);
-                        ret[ie].weight =
-                            std::cmp::max(ret[ie].weight, backward_cost + null_forward_cost);
+                        ret[ie].relative_endpoints.insert(*ix_null);
+                        ret[ie].weight = std::cmp::max_by(
+                            ret[ie].weight,
+                            backward_cost + null_forward_cost,
+                            |a, b| a.partial_cmp(b).unwrap(),
+                        );
                     } else {
                         ret.add_edge(
                             *is_null,
@@ -176,7 +185,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                             Place {
                                 token: ret[ret.find_edge(*is_null, *ix_null)?].token
                                     || ret[ret.find_edge(*ix_null, *id_data)?].token,
-                                relative_endpoints: vec![*ix_null],
+                                relative_endpoints: HashSet::from_iter([*ix_null]),
                                 weight: backward_cost + null_forward_cost,
                             },
                         );
@@ -189,45 +198,21 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
     Some(ret)
 }
 
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct TransitionEvent {
-    pub time: u64,
+    pub time: f64,
     pub transition: Transition,
 }
 
-impl PartialOrd for TransitionEvent {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for TransitionEvent {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.time.cmp(&other.time)
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Clone)]
+#[derive(Debug, Clone)]
 pub struct SlackedPlace {
-    pub slack: usize,
+    pub slack: f64,
     pub place: Place,
-}
-
-impl PartialOrd for SlackedPlace {
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for SlackedPlace {
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        self.slack.cmp(&other.slack)
-    }
 }
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), usize>;
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), f64>;
 
 pub fn cycles_cost(hbcn: &HBCN, weighted: bool) -> HashMap<(NodeIndex, NodeIndex), f64> {
     let mut loop_breakers = Vec::new();
@@ -271,11 +256,13 @@ pub fn cycles_cost(hbcn: &HBCN, weighted: bool) -> HashMap<(NodeIndex, NodeIndex
 pub fn best_zeta(hbcn: &HBCN) -> usize {
     let (weights, depths) = rayon::join(|| cycles_cost(hbcn, true), || cycles_cost(hbcn, false));
 
-    let mean_weights: Vec<_> = weights.into_iter().map(|(k, w)| w / depths[&k]).collect();
+    let mean_weights: Vec<_> = weights
+        .into_par_iter()
+        .map(|(k, w)| (w / depths[&k]).log2())
+        .collect();
 
     let min_zeta = depths
-        .into_iter()
-        .map(|(_, x)| x)
+        .into_values()
         .max_by(|a, b| a.partial_cmp(b).unwrap())
         .unwrap();
 
@@ -357,7 +344,81 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(usize, Vec<(NodeIndex, N
     paths
 }
 
-pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, Box<dyn Error>> {
+pub fn constraint_cycle_time(
+    hbcn: &HBCN,
+    ct: f64,
+    min_delay: f64,
+) -> Result<PathConstraints, Box<dyn Error>> {
+    assert!(ct > 0.0);
+
+    let env = Env::new("hbcn.log")?;
+    let mut m = Model::new("constraint", &env)?;
+
+    let factor = m.add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])?;
+
+    let arr_var: HashMap<NodeIndex, Var> = hbcn
+        .node_indices()
+        .map(|x| {
+            (
+                x,
+                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                    .unwrap(),
+            )
+        })
+        .collect();
+
+    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+
+            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
+        })
+        .collect();
+
+    for v in delay_vars.values_mut() {
+        *v = Some(m.add_var("", Continuous, 0.0, min_delay, INFINITY, &[], &[])?);
+    }
+
+    for ie in hbcn.edge_indices() {
+        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+        let place = &hbcn[ie];
+        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+            .as_ref()
+            .unwrap();
+
+        m.add_constr(
+            "",
+            1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
+            Equal,
+            if place.token { ct } else { 0.0 },
+        )?;
+
+        m.add_constr("", 1.0 * delay - place.weight * &factor, Greater, 0.0)?;
+    }
+
+    m.update()?;
+
+    m.set_objective(&factor, Maximize)?;
+
+    m.optimize()?;
+
+    match m.status()? {
+        Status::Optimal | Status::SubOptimal => Ok(delay_vars
+            .into_iter()
+            .filter_map(|((src, dst), var)| {
+                let val = m.get_values(attr::X, &[var?]).ok()?[0];
+                Some(((src.clone(), dst.clone()), val))
+            })
+            .collect()),
+        _ => Err(AppError::Infeasible.into()),
+    }
+}
+
+pub fn constraint_cycle_time_quantised(
+    hbcn: &HBCN,
+    zeta: usize,
+) -> Result<PathConstraints, Box<dyn Error>> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
 
@@ -398,15 +459,10 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, 
             "",
             1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
             Equal,
-            if place.token { ct as f64 } else { 0.0 },
+            if place.token { zeta as f64 } else { 0.0 },
         )?;
 
-        m.add_constr(
-            "",
-            1.0 * delay - (place.weight as f64) * &factor,
-            Greater,
-            0.0,
-        )?;
+        m.add_constr("", 1.0 * delay - place.weight * &factor, Greater, 0.0)?;
     }
 
     m.update()?;
@@ -419,7 +475,7 @@ pub fn constraint_cycle_time(hbcn: &HBCN, ct: usize) -> Result<PathConstraints, 
         Status::Optimal | Status::SubOptimal => Ok(delay_vars
             .into_iter()
             .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0] as usize;
+                let val = m.get_values(attr::X, &[var?]).ok()?[0];
                 Some(((src.clone(), dst.clone()), val))
             })
             .collect()),
@@ -437,7 +493,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
         .map(|x| {
             (
                 x,
-                m.add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])
+                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
                     .unwrap(),
             )
         })
@@ -449,7 +505,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let ref place = hbcn[ie];
             let slack = m
-                .add_var("", Integer, 0.0, 0.0, INFINITY, &[], &[])
+                .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
                 .unwrap();
 
             m.add_constr(
@@ -479,15 +535,13 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                 |ix, x| {
                     Some(TransitionEvent {
                         transition: x.clone(),
-                        time: m.get_values(attr::X, &[arr_var[&ix].clone()]).ok()?[0].round()
-                            as u64,
+                        time: m.get_values(attr::X, &[arr_var[&ix].clone()]).ok()?[0],
                     })
                 },
                 |ie, e| {
                     Some(SlackedPlace {
                         place: e.clone(),
-                        slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0].round()
-                            as usize,
+                        slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0],
                     })
                 },
             ),
@@ -503,34 +557,34 @@ pub fn write_vcd(hbcn: &SolvedHBCN, w: &mut dyn io::Write) -> io::Result<()> {
     writer.add_module("top")?;
 
     let mut variables = HashMap::new();
-    let mut event_heap = BinaryHeap::new();
 
-    for ix in hbcn.node_indices() {
-        let ref event = hbcn[ix];
-        event_heap.push(event.clone());
+    let events = {
+        let mut events: Vec<&TransitionEvent> = hbcn
+            .node_references()
+            .map(|(_, e)| {
+                let cnode = e.transition.name();
+                if !variables.contains_key(cnode) {
+                    variables.insert(
+                        cnode.clone(),
+                        writer.add_wire(1, &re.replace_all(cnode, "_")).unwrap(),
+                    );
+                }
 
-        let cnode = event.transition.name();
-        if !variables.contains_key(cnode) {
-            variables.insert(
-                cnode.clone(),
-                writer.add_wire(1, &re.replace_all(cnode, "_"))?,
-            );
-        }
-    }
+                e
+            })
+            .collect();
+        events.par_sort_unstable_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+        events
+    };
 
     for (_, var) in variables.iter() {
         writer.change_scalar(*var, vcd::Value::V0)?;
     }
 
-    for (time, events) in event_heap
-        .into_sorted_vec()
-        .into_iter()
-        .group_by(|x| x.time)
-        .into_iter()
-    {
-        writer.timestamp(time)?;
+    for (time, events) in events.into_iter().group_by(|x| x.time).into_iter() {
+        writer.timestamp(time as u64)?;
         for event in events {
-            match event.transition {
+            match &event.transition {
                 Transition::Data(id) => writer.change_scalar(variables[id.name()], vcd::Value::V1),
                 Transition::Spacer(id) => {
                     writer.change_scalar(variables[id.name()], vcd::Value::V0)

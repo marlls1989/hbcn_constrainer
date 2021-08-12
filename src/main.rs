@@ -56,8 +56,8 @@ enum CLIArguments {
         #[structopt(long, parse(from_os_str))]
         dot: Option<PathBuf>,
     },
-    /// Produce the Genus SDC file used to constraint the circuit during synthesis
-    Constrain {
+    /// Constrain the cycle-time using quantised steps
+    ConstrainQuantised {
         /// Structural graph input file
         #[structopt(parse(from_os_str))]
         input: PathBuf,
@@ -65,6 +65,32 @@ enum CLIArguments {
         /// Cycle-time divisor factor zeta
         #[structopt(short, long)]
         zeta: Option<usize>,
+
+        /// Output SDC constraints file
+        #[structopt(long, parse(from_os_str))]
+        sdc: Option<PathBuf>,
+
+        /// Output CSV file comprising the constraints
+        #[structopt(long, parse(from_os_str))]
+        csv: Option<PathBuf>,
+
+        /// Enable reflexive paths for WInDS
+        #[structopt(short, long)]
+        reflexive_paths: bool,
+    },
+    /// Constrain the cycle-time using continous proportional constraints.
+    Constrain {
+        /// Structural graph input file
+        #[structopt(parse(from_os_str))]
+        input: PathBuf,
+
+        /// Cycle-time constraint in nanoseconds
+        #[structopt(short("t"), long)]
+        cycle_time: f64,
+
+        /// Minimal propagation-path delay in nanoseconds
+        #[structopt(short, long)]
+        minimal_delay: f64,
 
         /// Output SDC constraints file
         #[structopt(long, parse(from_os_str))]
@@ -91,11 +117,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     match args {
         CLIArguments::Constrain {
             ref input,
+            cycle_time,
+            minimal_delay,
+            reflexive_paths,
+            ref sdc,
+            ref csv,
+        } => constrain_main(
+            input,
+            cycle_time,
+            minimal_delay,
+            reflexive_paths,
+            sdc.as_deref(),
+            csv.as_deref(),
+        ),
+        CLIArguments::ConstrainQuantised {
+            ref input,
             zeta,
             reflexive_paths,
             ref sdc,
             ref csv,
-        } => constrain_main(input, zeta, reflexive_paths, sdc, csv),
+        } => constrain_quantised_main(input, zeta, reflexive_paths, sdc.as_deref(), csv.as_deref()),
         CLIArguments::Analyse {
             ref input,
             ref dot,
@@ -144,10 +185,11 @@ fn depth_main(input: &Path) -> Result<(), Box<dyn Error>> {
 
 fn constrain_main(
     input: &Path,
-    zeta: Option<usize>,
+    cycle_time: f64,
+    minimal_delay: f64,
     reflexive: bool,
-    sdc: &Option<PathBuf>,
-    csv: &Option<PathBuf>,
+    sdc: Option<&Path>,
+    csv: Option<&Path>,
 ) -> Result<(), Box<dyn Error>> {
     let g = read_file(input)?;
 
@@ -157,11 +199,74 @@ fn constrain_main(
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
 
-    let zeta = zeta.unwrap_or(hbcn::best_zeta(&hbcn));
+    let paths = {
+        //let _gag_stdout = Gag::stdout();
+        hbcn::constraint_cycle_time(&hbcn, cycle_time, minimal_delay)
+    }?;
+
+    if let Some(output) = sdc {
+        let mut out_file = BufWriter::new(fs::File::create(output)?);
+
+        writeln!(out_file, "create_clock -period 0 [get_port {{clk}}]",)?;
+        sdc::write_path_constraints(&mut out_file, &paths)?;
+    }
+
+    if let Some(output) = csv {
+        let mut csv_file = BufWriter::new(fs::File::create(output)?);
+        let cost_map: HashMap<(CircuitNode, CircuitNode), f64> = hbcn
+            .edge_indices()
+            .filter_map(|ie| {
+                let (is, id) = hbcn.edge_endpoints(ie)?;
+
+                Some((
+                    (
+                        hbcn[is].circuit_node().clone(),
+                        hbcn[id].circuit_node().clone(),
+                    ),
+                    hbcn[ie].weight,
+                ))
+            })
+            .collect();
+        writeln!(csv_file, "src,dst,cost,constrain")?;
+        for ((src, dst), constrain) in paths.iter() {
+            writeln!(
+                csv_file,
+                "{},{},{:.0},{:.3}",
+                src.name(),
+                dst.name(),
+                cost_map[&(src.clone(), dst.clone())],
+                constrain
+            )?;
+        }
+    }
+
+    Ok(())
+}
+
+fn constrain_quantised_main(
+    input: &Path,
+    zeta: Option<usize>,
+    reflexive: bool,
+    sdc: Option<&Path>,
+    csv: Option<&Path>,
+) -> Result<(), Box<dyn Error>> {
+    let g = read_file(input)?;
+
+    if let (None, None) = (sdc, csv) {
+        return Err("At least one output format must be selected".into());
+    }
+
+    let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
+
+    let zeta = zeta.unwrap_or_else(|| {
+        let zeta = hbcn::best_zeta(&hbcn);
+        eprintln!("Found zeta value: {}", zeta);
+        zeta
+    });
 
     let paths = {
         //let _gag_stdout = Gag::stdout();
-        hbcn::constraint_cycle_time(&hbcn, zeta)
+        hbcn::constraint_cycle_time_quantised(&hbcn, zeta)
     }?;
 
     if let Some(output) = sdc {
@@ -172,12 +277,12 @@ fn constrain_main(
             "create_clock -period [expr ${{PERIOD}} / {}.0] [get_port {{clk}}]",
             zeta
         )?;
-        sdc::write_path_constraints(&mut out_file, &paths)?;
+        sdc::write_path_quantised_constraints(&mut out_file, &paths)?;
     }
 
     if let Some(output) = csv {
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), usize> = hbcn
+        let cost_map: HashMap<(CircuitNode, CircuitNode), f64> = hbcn
             .edge_indices()
             .filter_map(|ie| {
                 let (is, id) = hbcn.edge_endpoints(ie)?;
@@ -259,7 +364,7 @@ fn analyse_main(
                 format!("{} ps", e.place.weight),
                 format!("{} ps", e.slack),
                 format!("{} ps", s.time),
-                format!("{} ps", s.time + (e.slack + e.place.weight) as u64),
+                format!("{} ps", s.time + e.slack + e.place.weight),
             ]);
         }
 

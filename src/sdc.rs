@@ -50,7 +50,24 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
     for ((src, dst), val) in paths.iter() {
         writeln!(
             writer,
-            "set_multicycle_path {} -through {} -through {} -from [get_clock clk]",
+            "set_max_delay {:.3} -through {} -through {} -from [get_clock clk]",
+            val,
+            src_rails(&src),
+            dst_rails(&dst),
+        )?;
+    }
+
+    Ok(())
+}
+
+pub fn write_path_quantised_constraints(
+    writer: &mut dyn Write,
+    paths: &PathConstraints,
+) -> io::Result<()> {
+    for ((src, dst), val) in paths.iter() {
+        writeln!(
+            writer,
+            "set_multicycle_path {:.0} -through {} -through {} -from [get_clock clk]",
             val,
             src_rails(&src),
             dst_rails(&dst),
