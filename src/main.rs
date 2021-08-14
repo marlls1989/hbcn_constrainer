@@ -67,11 +67,11 @@ enum CLIArguments {
         zeta: Option<usize>,
 
         /// Output SDC constraints file
-        #[structopt(long, parse(from_os_str))]
+        #[structopt(long, parse(from_os_str), required_unless("csv"))]
         sdc: Option<PathBuf>,
 
         /// Output CSV file comprising the constraints
-        #[structopt(long, parse(from_os_str))]
+        #[structopt(long, parse(from_os_str), required_unless("sdc"))]
         csv: Option<PathBuf>,
 
         /// Enable reflexive paths for WInDS
@@ -93,11 +93,11 @@ enum CLIArguments {
         minimal_delay: f64,
 
         /// Output SDC constraints file
-        #[structopt(long, parse(from_os_str))]
+        #[structopt(long, parse(from_os_str), required_unless("csv"))]
         sdc: Option<PathBuf>,
 
         /// Output CSV file comprising the constraints
-        #[structopt(long, parse(from_os_str))]
+        #[structopt(long, parse(from_os_str), required_unless("sdc"))]
         csv: Option<PathBuf>,
 
         /// Enable reflexive paths for WInDS
