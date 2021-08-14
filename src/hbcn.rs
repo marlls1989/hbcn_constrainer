@@ -20,7 +20,7 @@ use std::{
     fmt, io,
     iter::FromIterator,
 };
-use vcd;
+
 
 fn clog2(x: usize) -> usize {
     const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
@@ -69,7 +69,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
     let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, f64)> = g
         .node_indices()
         .map(|ix| {
-            let ref val = g[ix];
+            let val = &g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
             let backward_cost =
@@ -503,7 +503,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
         .edge_indices()
         .map(|ie| {
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
-            let ref place = hbcn[ie];
+            let place = &hbcn[ie];
             let slack = m
                 .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
                 .unwrap();

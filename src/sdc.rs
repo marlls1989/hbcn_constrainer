@@ -22,7 +22,7 @@ fn dst_rails(s: &CircuitNode) -> String {
         CircuitNode::Port(name) => {
             format!(
                 "[get_ports [vfind {{{}}}] -filter {{direction == out}}]",
-                port_wildcard(&name)
+                port_wildcard(name)
             )
         }
         CircuitNode::Register { name, .. } => format!(
@@ -37,7 +37,7 @@ fn src_rails(s: &CircuitNode) -> String {
         CircuitNode::Port(name) => {
             format!(
                 "[get_ports [vfind {{{}}}] -filter {{direction == in}}]",
-                port_wildcard(&name)
+                port_wildcard(name)
             )
         }
         CircuitNode::Register { name, .. } => format!(

@@ -1,6 +1,6 @@
 mod ast;
 
-use lalrpop_util;
+
 lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
 
 use ast::{Entry, EntryType};
@@ -163,7 +163,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
             },
         };
         let ni = ret.add_node(c.clone());
-        if let Some(_) = lut.insert(c.name().clone(), ni) {
+        if lut.insert(c.name().clone(), ni).is_some() {
             return Err(ParseError::MultipleDefinitions(c));
         }
         adjacency.push((
@@ -187,7 +187,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
     for (ni, adjacency_list) in adjacency.into_iter() {
         for (x, channel) in adjacency_list.into_iter() {
             if let Some(xi) = lut.get(&x) {
-                ret.add_edge(ni, *xi, channel.clone());
+                ret.add_edge(ni, *xi, channel);
             } else {
                 return Err(ParseError::UndefinedElement(x.clone()));
             }
