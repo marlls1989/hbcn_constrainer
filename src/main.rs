@@ -207,7 +207,11 @@ fn constrain_main(
     if let Some(output) = sdc {
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
-        writeln!(out_file, "create_clock -period 0 [get_port {{clk}}]",)?;
+        writeln!(
+            out_file,
+            "create_clock -period {:.3} [get_port {{clk}}]",
+            minimal_delay
+        )?;
         sdc::write_path_constraints(&mut out_file, &paths)?;
     }
 
