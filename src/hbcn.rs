@@ -21,7 +21,6 @@ use std::{
     iter::FromIterator,
 };
 
-
 fn clog2(x: usize) -> usize {
     const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
     NUM_BITS - (x.leading_zeros() as usize)
@@ -66,27 +65,31 @@ pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, f64)> = g
+    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, f64, f64)> = g
         .node_indices()
         .map(|ix| {
             let val = &g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
             let backward_cost =
-                25.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
-            (ix, (token, spacer, backward_cost))
+                15.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
+            let forward_cost =
+                15.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
+            (ix, (token, spacer, backward_cost, forward_cost))
         })
         .collect();
 
     for ix in g.edge_indices() {
         let (ref src, ref dst) = g.edge_endpoints(ix)?;
-        let (src_token, src_spacer, backward_cost) = vertice_map.get(src)?;
-        let (dst_token, dst_spacer, _) = vertice_map.get(dst)?;
+        let (src_token, src_spacer, backward_cost, _) = vertice_map.get(src)?;
+        let (dst_token, dst_spacer, _, forward_base_cost) = vertice_map.get(dst)?;
         let Channel {
             initial_phase,
             forward_cost,
             ..
         } = g[ix];
+
+        let forward_cost = forward_cost.max(*forward_base_cost);
 
         ret.add_edge(
             *src_token,
@@ -129,36 +132,27 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
     if reflexive {
         // For all nodes ix in g
         for ix in g.node_indices() {
-            let (ix_data, ix_null, backward_cost) = vertice_map.get(&ix)?;
+            // get pair of transitions related to ix and the forward CD cost
+            let (ix_data, ix_null, _, forward_cost) = vertice_map.get(&ix)?;
 
             // Find all predecessors is of ix
             for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
                 // get pair of transitions related to is
-                let (is_data, is_null, _) = vertice_map.get(&is)?;
+                let (is_data, is_null, backward_cost, _) = vertice_map.get(&is)?;
 
-                // find the forward path places related to the transitions of is
-                let Place {
-                    weight: data_forward_cost,
-                    ..
-                } = ret[ret.find_edge(*is_data, *ix_data)?];
-                let Place {
-                    weight: null_forward_cost,
-                    ..
-                } = ret[ret.find_edge(*is_null, *ix_null)?];
+                // the cost of the reflexive path is the associated cost of both completion
+                // detection circitry plus an aditional c-element
+                let cost = backward_cost + forward_cost + 10.0;
 
                 // Find all predecessors id of ix
                 for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                    let (id_data, id_null, _) = vertice_map.get(&id)?;
+                    let (id_data, id_null, _, _) = vertice_map.get(&id)?;
 
                     // If a path is established between is and id, update Place
                     // Else create a reflexive path between is and id
                     if let Some(ie) = ret.find_edge(*is_data, *id_null) {
                         ret[ie].relative_endpoints.insert(*ix_data);
-                        ret[ie].weight = std::cmp::max_by(
-                            ret[ie].weight,
-                            backward_cost + data_forward_cost,
-                            |a, b| a.partial_cmp(b).unwrap(),
-                        );
+                        ret[ie].weight = ret[ie].weight.max(cost);
                     } else {
                         ret.add_edge(
                             *is_data,
@@ -167,17 +161,13 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                                 token: ret[ret.find_edge(*is_data, *ix_data)?].token
                                     || ret[ret.find_edge(*ix_data, *id_null)?].token,
                                 relative_endpoints: HashSet::from_iter([*ix_data]), //set![*ix_data],
-                                weight: backward_cost + data_forward_cost,
+                                weight: cost,
                             },
                         );
                     }
                     if let Some(ie) = ret.find_edge(*is_null, *id_data) {
                         ret[ie].relative_endpoints.insert(*ix_null);
-                        ret[ie].weight = std::cmp::max_by(
-                            ret[ie].weight,
-                            backward_cost + null_forward_cost,
-                            |a, b| a.partial_cmp(b).unwrap(),
-                        );
+                        ret[ie].weight = ret[ie].weight.max(cost);
                     } else {
                         ret.add_edge(
                             *is_null,
@@ -186,7 +176,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                                 token: ret[ret.find_edge(*is_null, *ix_null)?].token
                                     || ret[ret.find_edge(*ix_null, *id_data)?].token,
                                 relative_endpoints: HashSet::from_iter([*ix_null]),
-                                weight: backward_cost + null_forward_cost,
+                                weight: cost,
                             },
                         );
                     }
