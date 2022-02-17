@@ -133,12 +133,12 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
         // For all nodes ix in g
         for ix in g.node_indices() {
             // get pair of transitions related to ix and the forward CD cost
-            let (ix_data, ix_null, _, forward_cost) = vertice_map.get(&ix)?;
+            let (ix_data, ix_null, backward_cost, _) = vertice_map.get(&ix)?;
 
             // Find all predecessors is of ix
             for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
                 // get pair of transitions related to is
-                let (is_data, is_null, backward_cost, _) = vertice_map.get(&is)?;
+                let (is_data, is_null, _, forward_cost) = vertice_map.get(&is)?;
 
                 // the cost of the reflexive path is the associated cost of both completion
                 // detection circitry plus an aditional c-element
