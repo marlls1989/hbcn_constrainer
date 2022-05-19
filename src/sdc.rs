@@ -74,7 +74,7 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
         let sources = sources.map(|(_val, _dst, src)| src);
         writeln!(
             writer,
-            "set_max_delay {} -through {} -through {} -from [get_clock clk]",
+            "set_max_delay {} -through {} -through {}",
             val,
             src_list(sources),
             dst_rails(&dst),
@@ -102,7 +102,7 @@ pub fn write_path_quantised_constraints(
         let sources = sources.map(|(_val, _dst, src)| src);
         writeln!(
             writer,
-            "set_multicycle_path {} -through {} -through {} -from [get_clock clk]",
+            "set_multicycle_path {} -through {} -through {}",
             val,
             src_list(sources),
             dst_rails(&dst),
