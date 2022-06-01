@@ -209,7 +209,9 @@ fn constrain_main(
 
         writeln!(
             out_file,
-            "create_clock -period {:.3} [get_port {{clk}}]",
+            "create_clock -period {:.3} [get_port clk]\n
+            create_generated_clock -source [get_port clk] -multiply_by 1 -duty_cycle 0.1 [all::all_seqs -clock_pins]\n
+            set_false_path -from [get_port reset]",
             minimal_delay
         )?;
         sdc::write_path_constraints(&mut out_file, &paths)?;
