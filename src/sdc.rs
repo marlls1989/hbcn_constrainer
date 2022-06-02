@@ -4,10 +4,8 @@ use super::{
     hbcn::{PathConstraints, Transition},
     structural_graph::CircuitNode,
 };
-use itertools::Itertools;
 use lazy_static::*;
 use petgraph::visit::IntoNodeReferences;
-use rayon::prelude::*;
 use regex::Regex;
 use std::io::{self, Write};
 
@@ -83,37 +81,14 @@ pub fn write_create_generated_clock(writer: &mut dyn Write, hbcn: &HBCN) -> io::
     Ok(())
 }
 
-fn src_list<T>(sources: T) -> String
-where
-    T: IntoIterator<Item = CircuitNode>,
-{
-    let source_list: String = sources
-        .into_iter()
-        .map(|src| src_rails(&src))
-        .intersperse(" \\\n\t".into())
-        .collect();
-    format!("[concat \\\n\t{} \\\n]", source_list)
-}
-
 pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -> io::Result<()> {
-    let mut paths: Vec<(String, CircuitNode, CircuitNode)> = paths
-        .iter()
-        .map(|((src, dst), val)| (format!("{:.3}", val), dst.clone(), src.clone()))
-        .collect();
-    paths.par_sort_unstable();
-
-    for ((val, dst), sources) in paths
-        .into_iter()
-        .group_by(|(val, dst, _src)| (val.clone(), dst.clone()))
-        .into_iter()
-    {
-        let sources = sources.map(|(_val, _dst, src)| src);
+    for ((src, dst), &val) in paths.iter() {
         writeln!(
             writer,
-            "set_max_delay {} -through {} -through {}",
+            "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
             val,
-            src_list(sources),
-            dst_rails(&dst),
+            src_rails(src),
+            dst_rails(dst),
         )?;
     }
 
@@ -124,24 +99,13 @@ pub fn write_path_quantised_constraints(
     writer: &mut dyn Write,
     paths: &PathConstraints,
 ) -> io::Result<()> {
-    let mut paths: Vec<(String, CircuitNode, CircuitNode)> = paths
-        .iter()
-        .map(|((src, dst), val)| (format!("{:.0}", val), dst.clone(), src.clone()))
-        .collect();
-    paths.par_sort_unstable();
-
-    for ((val, dst), sources) in paths
-        .into_iter()
-        .group_by(|(val, dst, _src)| (val.clone(), dst.clone()))
-        .into_iter()
-    {
-        let sources = sources.map(|(_val, _dst, src)| src);
+    for ((src, dst), &val) in paths.iter() {
         writeln!(
             writer,
             "set_multicycle_path {} -through {} -through {}",
             val,
-            src_list(sources),
-            dst_rails(&dst),
+            src_rails(src),
+            dst_rails(dst),
         )?;
     }
 

@@ -334,6 +334,18 @@ pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(usize, Vec<(NodeIndex, N
     paths
 }
 
+pub fn constraint_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
+    let nodes: HashSet<CircuitNode> = paths
+        .iter()
+        .flat_map(move |((src, dst), _)| [src, dst])
+        .cloned()
+        .collect();
+
+    for n in nodes {
+        paths.insert((n.clone(), n), val);
+    }
+}
+
 pub fn constraint_cycle_time(
     hbcn: &HBCN,
     ct: f64,

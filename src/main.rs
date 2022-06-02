@@ -198,11 +198,8 @@ fn constrain_main(
     }
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive).unwrap();
-
-    let paths = {
-        //let _gag_stdout = Gag::stdout();
-        hbcn::constraint_cycle_time(&hbcn, cycle_time, minimal_delay)
-    }?;
+    let mut paths = hbcn::constraint_cycle_time(&hbcn, cycle_time, minimal_delay)?;
+    hbcn::constraint_selfreflexive_paths(&mut paths, minimal_delay);
 
     if let Some(output) = sdc {
         let mut out_file = BufWriter::new(fs::File::create(output)?);
@@ -233,15 +230,18 @@ fn constrain_main(
             })
             .collect();
         writeln!(csv_file, "src,dst,cost,constrain")?;
-        for ((src, dst), constrain) in paths.iter() {
-            writeln!(
-                csv_file,
-                "{},{},{:.0},{:.3}",
-                src.name(),
-                dst.name(),
-                cost_map[&(src.clone(), dst.clone())],
-                constrain
-            )?;
+        for (key, constrain) in paths.iter() {
+            if let Some(cost) = cost_map.get(key) {
+                let (src, dst) = key;
+                writeln!(
+                    csv_file,
+                    "{},{},{:.0},{:.3}",
+                    src.name(),
+                    dst.name(),
+                    cost,
+                    constrain
+                )?;
+            }
         }
     }
 
