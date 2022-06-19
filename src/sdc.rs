@@ -71,36 +71,6 @@ fn src_rails(s: &CircuitNode) -> String {
     }
 }
 
-pub fn write_create_generated_clock(writer: &mut dyn Write, hbcn: &HBCN) -> io::Result<()> {
-    let mut registers = hbcn
-        .node_references()
-        .filter_map(|(_, src)| match src {
-            Transition::Data(CircuitNode::Register { name, .. }) => Some(name),
-            _ => None,
-        })
-        .peekable();
-
-    // If the circuit does not have any registers, exit function early
-    if registers.peek().is_none() {
-        return Ok(());
-    }
-
-    writeln!(
-        writer,
-        "create_generated_clock -source [get_port clk] -multiply_by 1 -duty_cycle 0.1 [concat \\"
-    )?;
-
-    for src in registers {
-        writeln!(
-                writer,
-                "\t[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{is_clock == true}}] \\",
-                src)?;
-    }
-    writeln!(writer, "]")?;
-
-    Ok(())
-}
-
 pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -> io::Result<()> {
     for ((src, dst), &val) in paths.iter() {
         writeln!(

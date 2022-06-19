@@ -209,7 +209,6 @@ fn constrain_main(
             "create_clock -period {:.3} [get_port clk]",
             minimal_delay
         )?;
-        sdc::write_create_generated_clock(&mut out_file, &hbcn)?;
         sdc::write_path_constraints(&mut out_file, &paths)?;
     }
 
