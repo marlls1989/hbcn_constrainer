@@ -1,11 +1,5 @@
-use crate::hbcn::HBCN;
-
-use super::{
-    hbcn::{PathConstraints, Transition},
-    structural_graph::CircuitNode,
-};
+use super::{hbcn::PathConstraints, structural_graph::CircuitNode};
 use lazy_static::*;
-use petgraph::visit::IntoNodeReferences;
 use regex::Regex;
 use std::io::{self, Write};
 
@@ -34,9 +28,9 @@ fn port_instance(s: &str) -> String {
     };
 
     if let Some(c) = INDEX_RE.captures(&s) {
-        format!("{}_{}/*", &c[1], &c[2])
+        format!("{}_{}", &c[1], &c[2])
     } else {
-        format!("{}/*", s)
+        s
     }
 }
 
@@ -44,7 +38,7 @@ fn dst_rails(s: &CircuitNode) -> String {
     match s {
         CircuitNode::Port(name) => {
             format!(
-                "[list [get_ports [vfind {{{}}}] -filter {{direction == out}}] [get_pins -of_objects [get_cells [vfind {{{}}}] -filter {{is_sequential == true}}] -filter {{direction == in}}]]",
+                "[list [get_ports [vfind {{{}}}] -filter {{direction == out}}] [get_pins -of_objects [get_cells [vfind {{{}/*}}]] -filter {{direction == in}}]]",
                 port_wildcard(name),
                 port_instance(name),
             )
