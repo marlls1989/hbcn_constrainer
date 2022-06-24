@@ -71,10 +71,12 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             let val = &g[ix];
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
-            let backward_cost =
-                15.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
+            let base_cost = val.base_cost() as f64;
+            let backward_cost = base_cost
+                + 5.0
+                + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
             let forward_base_cost =
-                10.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
+                base_cost + 10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
             (ix, (token, spacer, backward_cost, forward_base_cost))
         })
         .collect();

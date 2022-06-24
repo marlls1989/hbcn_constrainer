@@ -1,6 +1,5 @@
 mod ast;
 
-
 lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
 
 use ast::{Entry, EntryType};
@@ -14,7 +13,7 @@ pub type Symbol = DefaultAtom;
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CircuitNode {
     Port(Symbol),
-    Register { name: Symbol, protected: bool },
+    Register { name: Symbol, cost: usize },
 }
 
 impl CircuitNode {
@@ -24,20 +23,22 @@ impl CircuitNode {
             CircuitNode::Register { name, .. } => name,
         }
     }
+
+    pub fn base_cost(&self) -> usize {
+        match self {
+            CircuitNode::Port(_) => 0,
+            CircuitNode::Register { cost, .. } => *cost,
+        }
+    }
 }
 
 impl fmt::Display for CircuitNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CircuitNode::Port(name) => write!(f, "Port \"{}\"", name),
-            CircuitNode::Register {
-                name,
-                protected: false,
-            } => write!(f, "Register \"{}\"", name),
-            CircuitNode::Register {
-                name,
-                protected: true,
-            } => write!(f, "Protected Register \"{}\"", name),
+            CircuitNode::Register { name, cost } => {
+                write!(f, "Register \"{}\" with cost {}", name, cost)
+            }
         }
     }
 }
@@ -113,14 +114,14 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
 
                 let cn = CircuitNode::Register {
                     name: name.clone(),
-                    protected: true,
+                    cost: 10,
                 };
                 let cni = ret.add_node(cn);
                 lut.insert(name, cni);
 
                 let s0n = CircuitNode::Register {
                     name: s0.clone(),
-                    protected: true,
+                    cost: 10,
                 };
                 let s0i = ret.add_node(s0n);
                 lut.insert(s0.clone(), s0i);
@@ -147,20 +148,11 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                     )],
                 ));
 
-                CircuitNode::Register {
-                    name: s1,
-                    protected: true,
-                }
+                CircuitNode::Register { name: s1, cost: 10 }
             }
             EntryType::Port => CircuitNode::Port(name),
-            EntryType::NullReg => CircuitNode::Register {
-                name,
-                protected: false,
-            },
-            EntryType::ControlReg => CircuitNode::Register {
-                name,
-                protected: true,
-            },
+            EntryType::NullReg => CircuitNode::Register { name, cost: 10 },
+            EntryType::ControlReg => CircuitNode::Register { name, cost: 50 },
         };
         let ni = ret.add_node(c.clone());
         if lut.insert(c.name().clone(), ni).is_some() {
