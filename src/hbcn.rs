@@ -65,7 +65,13 @@ pub type HBCN = StableGraph<Transition, Place>;
 
 pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
-    let vertice_map: HashMap<NodeIndex, (NodeIndex, NodeIndex, f64, f64)> = g
+    struct VertexItem {
+        token: NodeIndex,
+        spacer: NodeIndex,
+        backward_cost: f64,
+        forward_base_cost: f64,
+    }
+    let vertice_map: HashMap<NodeIndex, VertexItem> = g
         .node_indices()
         .map(|ix| {
             let val = &g[ix];
@@ -77,14 +83,32 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
             let forward_base_cost =
                 base_cost + 10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
-            (ix, (token, spacer, backward_cost, forward_base_cost))
+            (
+                ix,
+                VertexItem {
+                    token,
+                    spacer,
+                    backward_cost,
+                    forward_base_cost,
+                },
+            )
         })
         .collect();
 
     for ix in g.edge_indices() {
         let (ref src, ref dst) = g.edge_endpoints(ix)?;
-        let (src_token, src_spacer, backward_cost, _) = vertice_map.get(src)?;
-        let (dst_token, dst_spacer, _, forward_base_cost) = vertice_map.get(dst)?;
+        let VertexItem {
+            token: src_token,
+            spacer: src_spacer,
+            backward_cost,
+            ..
+        } = vertice_map.get(src)?;
+        let VertexItem {
+            token: dst_token,
+            spacer: dst_spacer,
+            forward_base_cost,
+            ..
+        } = vertice_map.get(dst)?;
         let Channel {
             initial_phase,
             forward_cost,
@@ -135,20 +159,34 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
         // For all nodes ix in g
         for ix in g.node_indices() {
             // get pair of transitions related to ix and the forward CD cost
-            let (ix_data, ix_null, backward_cost, _) = vertice_map.get(&ix)?;
+            let VertexItem {
+                token: ix_data,
+                spacer: ix_null,
+                backward_cost,
+                ..
+            } = vertice_map.get(&ix)?;
 
             // Find all predecessors is of ix
             for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
                 // get pair of transitions related to is
-                let (is_data, is_null, _, forward_cost) = vertice_map.get(&is)?;
+                let VertexItem {
+                    token: is_data,
+                    spacer: is_null,
+                    forward_base_cost,
+                    ..
+                } = vertice_map.get(&is)?;
 
                 // the cost of the reflexive path is the associated cost of both completion
                 // detection circitry plus an aditional c-element
-                let cost = backward_cost + forward_cost + 10.0;
+                let cost = backward_cost + forward_base_cost + 10.0;
 
                 // Find all predecessors id of ix
                 for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                    let (id_data, id_null, _, _) = vertice_map.get(&id)?;
+                    let VertexItem {
+                        token: id_data,
+                        spacer: id_null,
+                        ..
+                    } = vertice_map.get(&id)?;
 
                     // If a path is established between is and id, update Place
                     // Else create a reflexive path between is and id
