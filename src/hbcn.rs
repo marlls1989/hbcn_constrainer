@@ -58,6 +58,7 @@ impl fmt::Display for Transition {
 pub struct Place {
     pub token: bool,
     pub weight: f64,
+    pub is_internal: bool,
     pub relative_endpoints: HashSet<NodeIndex>,
 }
 
@@ -96,6 +97,8 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
         .collect();
 
     for ix in g.edge_indices() {
+        let Channel { is_internal, .. } = g[ix];
+
         let (ref src, ref dst) = g.edge_endpoints(ix)?;
         let VertexItem {
             token: src_token,
@@ -124,6 +127,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 token: initial_phase == ChannelPhase::ReqData,
                 relative_endpoints: HashSet::new(),
                 weight: forward_cost,
+                is_internal,
             },
         );
         ret.add_edge(
@@ -133,6 +137,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 token: initial_phase == ChannelPhase::ReqNull,
                 relative_endpoints: HashSet::new(),
                 weight: forward_cost,
+                is_internal,
             },
         );
         ret.add_edge(
@@ -142,6 +147,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 token: initial_phase == ChannelPhase::AckData,
                 relative_endpoints: HashSet::new(),
                 weight: *backward_cost,
+                is_internal,
             },
         );
         ret.add_edge(
@@ -151,6 +157,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 token: initial_phase == ChannelPhase::AckNull,
                 relative_endpoints: HashSet::new(),
                 weight: *backward_cost,
+                is_internal,
             },
         );
     }
@@ -202,6 +209,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                                     || ret[ret.find_edge(*ix_data, *id_null)?].token,
                                 relative_endpoints: HashSet::from_iter([*ix_data]), //set![*ix_data],
                                 weight: cost,
+                                is_internal: false,
                             },
                         );
                     }
@@ -217,6 +225,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                                     || ret[ret.find_edge(*ix_null, *id_data)?].token,
                                 relative_endpoints: HashSet::from_iter([*ix_null]),
                                 weight: cost,
+                                is_internal: false,
                             },
                         );
                     }
@@ -386,11 +395,99 @@ pub fn constraint_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
     }
 }
 
-pub fn constraint_cycle_time(
+pub fn constraint_cycle_time_pseudoclock(
     hbcn: &HBCN,
     ct: f64,
     min_delay: f64,
-) -> Result<PathConstraints, Box<dyn Error>> {
+) -> Result<(f64, PathConstraints), Box<dyn Error>> {
+    assert!(ct > 0.0);
+
+    let env = Env::new("hbcn.log")?;
+    let mut m = Model::new("constraint", &env)?;
+
+    let pseudo_clock = m.add_var(
+        "pseudo_clock",
+        Continuous,
+        0.0,
+        min_delay,
+        INFINITY,
+        &[],
+        &[],
+    )?;
+
+    let arr_var: HashMap<NodeIndex, Var> = hbcn
+        .node_indices()
+        .map(|x| {
+            (
+                x,
+                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                    .unwrap(),
+            )
+        })
+        .collect();
+
+    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+        .edge_indices()
+        .map(|ie| {
+            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+
+            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
+        })
+        .collect();
+
+    for v in delay_vars.values_mut() {
+        *v = Some(m.add_var("", Continuous, 0.0, min_delay, INFINITY, &[], &[])?);
+    }
+
+    for ie in hbcn.edge_indices() {
+        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+        let place = &hbcn[ie];
+        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+            .as_ref()
+            .unwrap();
+
+        m.add_constr(
+            "",
+            1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
+            Equal,
+            if place.token { ct } else { 0.0 },
+        )?;
+
+        if place.is_internal {
+            m.add_constr("", 1.0 * delay, Greater, min_delay)?;
+        } else {
+            m.add_constr("", 1.0 * delay - 1.0 * &pseudo_clock, Greater, 0.0)?;
+        }
+    }
+
+    m.update()?;
+
+    m.set_objective(&pseudo_clock, Maximize)?;
+
+    m.optimize()?;
+
+    let pseudo_clock = m.get_values(attr::X, &[pseudo_clock])?[0];
+
+    match m.status()? {
+        Status::Optimal | Status::SubOptimal => Ok((
+            pseudo_clock,
+            delay_vars
+                .into_iter()
+                .filter_map(|((src, dst), var)| {
+                    let val = m.get_values(attr::X, &[var?]).ok()?[0];
+                    Some(((src.clone(), dst.clone()), val))
+                })
+                .collect(),
+        )),
+        _ => Err(AppError::Infeasible.into()),
+    }
+}
+
+pub fn constraint_cycle_time_proportional(
+    hbcn: &HBCN,
+    ct: f64,
+    min_delay: f64,
+) -> Result<(f64, PathConstraints), Box<dyn Error>> {
     assert!(ct > 0.0);
 
     let env = Env::new("hbcn.log")?;
@@ -446,13 +543,16 @@ pub fn constraint_cycle_time(
     m.optimize()?;
 
     match m.status()? {
-        Status::Optimal | Status::SubOptimal => Ok(delay_vars
-            .into_iter()
-            .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                Some(((src.clone(), dst.clone()), val))
-            })
-            .collect()),
+        Status::Optimal | Status::SubOptimal => Ok((
+            min_delay,
+            delay_vars
+                .into_iter()
+                .filter_map(|((src, dst), var)| {
+                    let val = m.get_values(attr::X, &[var?]).ok()?[0];
+                    Some(((src.clone(), dst.clone()), val))
+                })
+                .collect(),
+        )),
         _ => Err(AppError::Infeasible.into()),
     }
 }

@@ -48,16 +48,24 @@ pub struct ConstrainArgs {
     minimal_delay: f64,
 
     /// Output SDC constraints file
-    #[clap(long, parse(from_os_str), required_unless("csv"))]
+    #[clap(long, parse(from_os_str), required_unless_present("csv"))]
     sdc: Option<PathBuf>,
 
     /// Output CSV file comprising the constraints
-    #[clap(long, parse(from_os_str), required_unless("sdc"))]
+    #[clap(long, parse(from_os_str), required_unless_present("sdc"))]
     csv: Option<PathBuf>,
 
     /// Enable reflexive paths for WInDS
     #[clap(short, long)]
     reflexive_paths: bool,
+
+    /// Constraint tight self loops (for MouseTrap)
+    #[clap(long)]
+    tight_self_loops: Option<f64>,
+
+    /// Use pseudo-clock to constrain paths
+    #[clap(long)]
+    no_proportinal: bool,
 }
 
 pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
@@ -68,6 +76,8 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         ref sdc,
         ref csv,
         reflexive_paths,
+        tight_self_loops,
+        no_proportinal,
     } = args;
     let g = read_file(&input)?;
 
@@ -76,18 +86,15 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
     }
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive_paths).unwrap();
-    let mut paths = hbcn::constraint_cycle_time(&hbcn, cycle_time, minimal_delay)?;
-    hbcn::constraint_selfreflexive_paths(&mut paths, minimal_delay);
 
-    if let Some(output) = sdc {
-        let mut out_file = BufWriter::new(fs::File::create(output)?);
+    let (pseudo_clock, mut paths) = if no_proportinal {
+        hbcn::constraint_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+    } else {
+        hbcn::constraint_cycle_time_proportional(&hbcn, cycle_time, minimal_delay)?
+    };
 
-        writeln!(
-            out_file,
-            "create_clock -period {:.3} [get_port clk]",
-            minimal_delay
-        )?;
-        sdc::write_path_constraints(&mut out_file, &paths)?;
+    if let Some(val) = tight_self_loops {
+        hbcn::constraint_selfreflexive_paths(&mut paths, val);
     }
 
     if let Some(output) = csv {
@@ -120,6 +127,23 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                 )?;
             }
         }
+    }
+
+    if let Some(output) = sdc {
+        let mut out_file = BufWriter::new(fs::File::create(output)?);
+
+        writeln!(
+            out_file,
+            "create_clock -period {:.3} [get_port clk]",
+            pseudo_clock
+        )?;
+
+        let paths: HashMap<_,_> = paths
+            .into_iter()
+            .filter(|(_k, v)| ((*v - pseudo_clock).abs() / pseudo_clock) > 0.01)
+            .collect();
+
+        sdc::write_path_constraints(&mut out_file, &paths)?;
     }
 
     Ok(())
