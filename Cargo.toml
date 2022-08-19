@@ -1,18 +1,15 @@
 [package]
 authors = ["Marcos Sartori <marcos.sartori@acad.pucrs.br>"]
-edition = "2018"
+edition = "2021"
 name = "hbcn"
 version = "0.1.2"
 [build-dependencies]
-lalrpop = "^0.19.2"
+lalrpop = "0.19.8"
 
 [dependencies]
-clap = "^2.33.3"
-lalrpop-util = "~0.19.2"
 petgraph = "~0.5.1"
 regex = "^1.4.2"
 string_cache = "~0.8.1"
-structopt = "*"
 gurobi = "~0.3.4"
 vcd = "~0.6.1"
 lazy_static = "~1.4.0"
@@ -20,3 +17,5 @@ itertools = "~0.10.0"
 rayon = "~1.5.0"
 gag = "~0.1.10"
 prettytable-rs = "~0.8.0"
+clap = { version = "3.2.17", features = ["derive"] }
+lalrpop-util = { version = "0.19.8", features = ["lexer"] }
