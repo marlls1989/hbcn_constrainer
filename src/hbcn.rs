@@ -64,7 +64,11 @@ pub struct Place {
 
 pub type HBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBCN> {
+pub fn from_structural_graph(
+    g: &StructuralGraph,
+    reflexive: bool,
+    forward_completion: bool,
+) -> Option<HBCN> {
     let mut ret = HBCN::new();
     struct VertexItem {
         token: NodeIndex,
@@ -121,7 +125,11 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             ..
         } = g[ix];
 
-        let forward_cost = virtual_delay.max(*forward_cost + *src_base_cost);
+        let forward_cost = if forward_completion {
+            virtual_delay.max(*forward_cost + *src_base_cost)
+        } else {
+            virtual_delay
+        };
         let backward_cost = *backward_cost + *dst_base_cost;
 
         ret.add_edge(

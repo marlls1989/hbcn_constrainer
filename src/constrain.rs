@@ -31,6 +31,10 @@ pub struct ConstrainQuantisedArgs {
     /// Enable reflexive paths for WInDS
     #[clap(short, long)]
     reflexive_paths: bool,
+
+    /// Use forward completion delay if greater than path virtual delay
+    #[clap(long)]
+    forward_completion: bool,
 }
 
 #[derive(Parser, Debug)]
@@ -66,6 +70,10 @@ pub struct ConstrainArgs {
     /// Use pseudo-clock to constrain paths
     #[clap(long)]
     no_proportinal: bool,
+
+    /// Use forward completion delay if greater than path virtual delay
+    #[clap(long)]
+    forward_completion: bool,
 }
 
 pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
@@ -78,6 +86,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         reflexive_paths,
         tight_self_loops,
         no_proportinal,
+        forward_completion,
     } = args;
     let g = read_file(&input)?;
 
@@ -85,7 +94,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         return Err("At least one output format must be selected".into());
     }
 
-    let hbcn = hbcn::from_structural_graph(&g, reflexive_paths).unwrap();
+    let hbcn = hbcn::from_structural_graph(&g, reflexive_paths, forward_completion).unwrap();
 
     let (pseudo_clock, mut paths) = if no_proportinal {
         hbcn::constraint_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
@@ -138,7 +147,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
             pseudo_clock
         )?;
 
-        let paths: HashMap<_,_> = paths
+        let paths: HashMap<_, _> = paths
             .into_iter()
             .filter(|(_k, v)| ((*v - pseudo_clock).abs() / pseudo_clock) > 0.01)
             .collect();
@@ -156,6 +165,7 @@ pub fn constrain_quantised_main(args: ConstrainQuantisedArgs) -> Result<(), Box<
         ref sdc,
         ref csv,
         reflexive_paths,
+        forward_completion,
     } = args;
 
     let g = read_file(&input)?;
@@ -164,7 +174,7 @@ pub fn constrain_quantised_main(args: ConstrainQuantisedArgs) -> Result<(), Box<
         return Err("At least one output format must be selected".into());
     }
 
-    let hbcn = hbcn::from_structural_graph(&g, reflexive_paths).unwrap();
+    let hbcn = hbcn::from_structural_graph(&g, reflexive_paths, forward_completion).unwrap();
 
     let zeta = zeta.unwrap_or_else(|| {
         let zeta = hbcn::best_zeta(&hbcn);

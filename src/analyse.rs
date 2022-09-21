@@ -35,7 +35,7 @@ pub struct DepthArgs {
 pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
     let AnalyseArgs { input, vcd, dot } = args;
     let g = read_file(&input)?;
-    let hbcn = hbcn::from_structural_graph(&g, false).unwrap();
+    let hbcn = hbcn::from_structural_graph(&g, false, false).unwrap();
 
     let (ct, solved_hbcn) = {
         let _gag_stdout = Gag::stdout();
@@ -94,7 +94,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
 pub fn depth_main(args: DepthArgs) -> Result<(), Box<dyn Error>> {
     let DepthArgs { input } = args;
     let g = read_file(&input)?;
-    let hbcn = hbcn::from_structural_graph(&g, false).unwrap();
+    let hbcn = hbcn::from_structural_graph(&g, false, false).unwrap();
 
     let cycles = hbcn::find_cycles(&hbcn, false);
 
