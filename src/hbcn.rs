@@ -70,7 +70,8 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
         token: NodeIndex,
         spacer: NodeIndex,
         backward_cost: f64,
-        forward_base_cost: f64,
+        forward_cost: f64,
+        base_cost: f64,
     }
     let vertice_map: HashMap<NodeIndex, VertexItem> = g
         .node_indices()
@@ -79,18 +80,18 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             let token = ret.add_node(Transition::Data(val.clone()));
             let spacer = ret.add_node(Transition::Spacer(val.clone()));
             let base_cost = val.base_cost() as f64;
-            let backward_cost = base_cost
-                + 5.0
-                + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
-            let forward_base_cost =
-                base_cost + 10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
+            let backward_cost =
+                5.0 + 10.0 * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
+            let forward_cost =
+                10.0 * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
             (
                 ix,
                 VertexItem {
                     token,
                     spacer,
                     backward_cost,
-                    forward_base_cost,
+                    forward_cost,
+                    base_cost,
                 },
             )
         })
@@ -104,21 +105,24 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             token: src_token,
             spacer: src_spacer,
             backward_cost,
+            base_cost: src_base_cost,
             ..
         } = vertice_map.get(src)?;
         let VertexItem {
             token: dst_token,
             spacer: dst_spacer,
-            forward_base_cost,
+            forward_cost,
+            base_cost: dst_base_cost,
             ..
         } = vertice_map.get(dst)?;
         let Channel {
             initial_phase,
-            forward_cost,
+            virtual_delay,
             ..
         } = g[ix];
 
-        let forward_cost = forward_cost.max(*forward_base_cost);
+        let forward_cost = virtual_delay.max(*forward_cost + *src_base_cost);
+        let backward_cost = *backward_cost + *dst_base_cost;
 
         ret.add_edge(
             *src_token,
@@ -146,7 +150,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             Place {
                 token: initial_phase == ChannelPhase::AckData,
                 relative_endpoints: HashSet::new(),
-                weight: *backward_cost,
+                weight: backward_cost,
                 is_internal,
             },
         );
@@ -156,7 +160,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             Place {
                 token: initial_phase == ChannelPhase::AckNull,
                 relative_endpoints: HashSet::new(),
-                weight: *backward_cost,
+                weight: backward_cost,
                 is_internal,
             },
         );
@@ -169,7 +173,7 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
             let VertexItem {
                 token: ix_data,
                 spacer: ix_null,
-                backward_cost,
+                forward_cost,
                 ..
             } = vertice_map.get(&ix)?;
 
@@ -179,21 +183,22 @@ pub fn from_structural_graph(g: &StructuralGraph, reflexive: bool) -> Option<HBC
                 let VertexItem {
                     token: is_data,
                     spacer: is_null,
-                    forward_base_cost,
+                    base_cost,
                     ..
                 } = vertice_map.get(&is)?;
-
-                // the cost of the reflexive path is the associated cost of both completion
-                // detection circitry plus an aditional c-element
-                let cost = backward_cost + forward_base_cost + 10.0;
 
                 // Find all predecessors id of ix
                 for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
                     let VertexItem {
                         token: id_data,
                         spacer: id_null,
+                        backward_cost,
                         ..
                     } = vertice_map.get(&id)?;
+
+                    // the cost of the reflexive path is the associated cost of both completion
+                    // detection circitry plus an aditional c-element
+                    let cost = base_cost + backward_cost + forward_cost + 10.0;
 
                     // If a path is established between is and id, update Place
                     // Else create a reflexive path between is and id

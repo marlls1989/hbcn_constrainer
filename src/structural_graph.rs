@@ -57,7 +57,7 @@ pub enum ChannelPhase {
 pub struct Channel {
     pub initial_phase: ChannelPhase,
     pub is_internal: bool,
-    pub forward_cost: f64,
+    pub virtual_delay: f64,
 }
 
 pub type StructuralGraph = StableGraph<CircuitNode, Channel>;
@@ -132,7 +132,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                         Channel {
                             initial_phase: ChannelPhase::ReqNull,
                             is_internal: true,
-                            forward_cost: 10.0,
+                            virtual_delay: 10.0,
                         },
                     )],
                 ));
@@ -143,7 +143,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                         Channel {
                             initial_phase: ChannelPhase::ReqData,
                             is_internal: true,
-                            forward_cost: 10.0,
+                            virtual_delay: 10.0,
                         },
                     )],
                 ));
@@ -168,7 +168,7 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                         Channel {
                             initial_phase: ChannelPhase::AckNull,
                             is_internal: false,
-                            forward_cost: n,
+                            virtual_delay: n,
                         },
                     )
                 })
