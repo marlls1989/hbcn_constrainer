@@ -264,7 +264,13 @@ pub struct SlackedPlace {
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), f64>;
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+pub struct ConstrainValues {
+    pub min: Option<f64>,
+    pub max: f64,
+}
+
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), ConstrainValues>;
 
 pub fn cycles_cost(hbcn: &HBCN, weighted: bool) -> HashMap<(NodeIndex, NodeIndex), f64> {
     let mut loop_breakers = Vec::new();
@@ -404,7 +410,13 @@ pub fn constraint_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
         .collect();
 
     for n in nodes {
-        paths.insert((n.clone(), n), val);
+        paths.insert(
+            (n.clone(), n),
+            ConstrainValues {
+                min: None,
+                max: val,
+            },
+        );
     }
 }
 
@@ -488,7 +500,13 @@ pub fn constraint_cycle_time_pseudoclock(
                 .into_iter()
                 .filter_map(|((src, dst), var)| {
                     let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                    Some(((src.clone(), dst.clone()), val))
+                    Some((
+                        (src.clone(), dst.clone()),
+                        ConstrainValues {
+                            min: None,
+                            max: val,
+                        },
+                    ))
                 })
                 .collect(),
         )),
@@ -502,6 +520,7 @@ pub fn constraint_cycle_time_proportional(
     min_delay: f64,
 ) -> Result<(f64, PathConstraints), Box<dyn Error>> {
     assert!(ct > 0.0);
+    assert!(min_delay >= 0.0);
 
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
@@ -562,7 +581,13 @@ pub fn constraint_cycle_time_proportional(
                 .into_iter()
                 .filter_map(|((src, dst), var)| {
                     let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                    Some(((src.clone(), dst.clone()), val))
+                    Some((
+                        (src.clone(), dst.clone()),
+                        ConstrainValues {
+                            min: None,
+                            max: val,
+                        },
+                    ))
                 })
                 .collect(),
         )),
@@ -631,7 +656,13 @@ pub fn constraint_cycle_time_quantised(
             .into_iter()
             .filter_map(|((src, dst), var)| {
                 let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                Some(((src.clone(), dst.clone()), val))
+                Some((
+                    (src.clone(), dst.clone()),
+                    ConstrainValues {
+                        min: None,
+                        max: val,
+                    },
+                ))
             })
             .collect()),
         _ => Err(AppError::Infeasible.into()),

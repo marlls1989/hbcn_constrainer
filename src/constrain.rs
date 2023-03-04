@@ -132,7 +132,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                     src.name(),
                     dst.name(),
                     cost,
-                    constrain
+                    constrain.max
                 )?;
             }
         }
@@ -149,7 +149,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
 
         let paths: HashMap<_, _> = paths
             .into_iter()
-            .filter(|(_k, v)| ((*v - pseudo_clock).abs() / pseudo_clock) > 0.01)
+            .filter(|(_k, v)| ((v.max - pseudo_clock).abs() / pseudo_clock) > 0.01)
             .collect();
 
         sdc::write_path_constraints(&mut out_file, &paths)?;
@@ -222,7 +222,7 @@ pub fn constrain_quantised_main(args: ConstrainQuantisedArgs) -> Result<(), Box<
                 src.name(),
                 dst.name(),
                 cost_map[&(src.clone(), dst.clone())],
-                constrain
+                constrain.max
             )?;
         }
     }
