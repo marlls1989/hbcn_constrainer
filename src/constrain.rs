@@ -72,8 +72,8 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         backward_margin,
     } = args;
     let g = read_file(&input)?;
-    let forward_margin = forward_margin.map(|x| x as f64 / 100.0);
-    let backward_margin = backward_margin.map(|x| x as f64 / 100.0);
+    let forward_margin = forward_margin.map(|x| 1.0 - (x as f64 / 100.0));
+    let backward_margin = backward_margin.map(|x| 1.0 - (x as f64 / 100.0));
 
     if let (None, None) = (sdc, csv) {
         return Err("At least one output format must be selected".into());

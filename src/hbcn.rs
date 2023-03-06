@@ -526,39 +526,42 @@ pub fn constraint_cycle_time_proportional(
             0.0,
         )?;
 
-        if place.backward {
-            if forward_margin.is_some() {
-                let matching_delay = delay_vars
-                    .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
-                    .expect("malformed HBCN");
-                m.add_constr(
-                    "",
-                    1.0 * &delay_var.min - 1.0 * &matching_delay.max + 1.0 * &matching_delay.min,
-                    Greater,
-                    0.0,
-                )?;
+        if !place.is_internal {
+            if place.backward {
+                if forward_margin.is_some() {
+                    let matching_delay = delay_vars
+                        .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
+                        .expect("malformed HBCN");
+                    m.add_constr(
+                        "",
+                        1.0 * &delay_var.min - 1.0 * &matching_delay.max
+                            + 1.0 * &matching_delay.min,
+                        Greater,
+                        0.0,
+                    )?;
+                }
+                if let Some(bm) = backward_margin {
+                    m.add_constr(
+                        "",
+                        bm * &delay_var.max - 1.0 * &delay_var.min,
+                        if forward_margin.is_some() {
+                            Greater
+                        } else {
+                            Equal
+                        },
+                        0.0,
+                    )?;
+                } else if forward_margin.is_some() {
+                    m.add_constr(
+                        "",
+                        1.0 * &delay_var.max - 1.0 * &delay_var.min,
+                        Greater,
+                        0.0,
+                    )?;
+                }
+            } else if let Some(fm) = forward_margin {
+                m.add_constr("", fm * &delay_var.max - 1.0 * &delay_var.min, Equal, 0.0)?;
             }
-            if let Some(bm) = backward_margin {
-                m.add_constr(
-                    "",
-                    bm * &delay_var.max - 1.0 * &delay_var.min,
-                    if forward_margin.is_some() {
-                        Greater
-                    } else {
-                        Equal
-                    },
-                    0.0,
-                )?;
-            } else if forward_margin.is_some() {
-                m.add_constr(
-                    "",
-                    1.0 * &delay_var.max - 1.0 * &delay_var.min,
-                    Greater,
-                    0.0,
-                )?;
-            }
-        } else if let Some(fm) = forward_margin {
-            m.add_constr("", fm * &delay_var.max - 1.0 * &delay_var.min, Equal, 0.0)?;
         }
     }
 
@@ -574,8 +577,16 @@ pub fn constraint_cycle_time_proportional(
             delay_vars
                 .into_iter()
                 .map(|((src, dst), var)| {
-                    let min = m.get_values(attr::X, &[var.min]).ok().map(|x| x[0]);
-                    let max = m.get_values(attr::X, &[var.max]).ok().map(|x| x[0]);
+                    let min = m
+                        .get_values(attr::X, &[var.min])
+                        .ok()
+                        .map(|x| x[0])
+                        .filter(|x| *x > 0.001);
+                    let max = m
+                        .get_values(attr::X, &[var.max])
+                        .ok()
+                        .map(|x| x[0])
+                        .filter(|x| (*x - min_delay) / min_delay > 0.001);
                     ((src.clone(), dst.clone()), ConstrainValues { min, max })
                 })
                 .collect(),
