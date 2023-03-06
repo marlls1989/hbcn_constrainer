@@ -536,7 +536,7 @@ pub fn constraint_cycle_time_proportional(
                         "",
                         1.0 * &delay_var.min - 1.0 * &matching_delay.max
                             + 1.0 * &matching_delay.min,
-                        Greater,
+                        Equal,
                         0.0,
                     )?;
                 }
