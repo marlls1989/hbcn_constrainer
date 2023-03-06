@@ -3,7 +3,7 @@ use super::{
     AppError,
 };
 use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarType::*, INFINITY};
-use itertools::{Itertools, MinMaxResult::*};
+use itertools::Itertools;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     prelude::*,
@@ -56,6 +56,7 @@ impl fmt::Display for Transition {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct Place {
+    pub backward: bool,
     pub token: bool,
     pub weight: f64,
     pub is_internal: bool,
@@ -136,6 +137,7 @@ pub fn from_structural_graph(
             *src_token,
             *dst_token,
             Place {
+                backward: false,
                 token: initial_phase == ChannelPhase::ReqData,
                 relative_endpoints: HashSet::new(),
                 weight: forward_cost,
@@ -146,6 +148,7 @@ pub fn from_structural_graph(
             *src_spacer,
             *dst_spacer,
             Place {
+                backward: false,
                 token: initial_phase == ChannelPhase::ReqNull,
                 relative_endpoints: HashSet::new(),
                 weight: forward_cost,
@@ -156,6 +159,7 @@ pub fn from_structural_graph(
             *dst_token,
             *src_spacer,
             Place {
+                backward: true,
                 token: initial_phase == ChannelPhase::AckData,
                 relative_endpoints: HashSet::new(),
                 weight: backward_cost,
@@ -166,6 +170,7 @@ pub fn from_structural_graph(
             *dst_spacer,
             *src_token,
             Place {
+                backward: true,
                 token: initial_phase == ChannelPhase::AckNull,
                 relative_endpoints: HashSet::new(),
                 weight: backward_cost,
@@ -223,6 +228,7 @@ pub fn from_structural_graph(
                                 relative_endpoints: HashSet::from_iter([*ix_data]), //set![*ix_data],
                                 weight: cost,
                                 is_internal: false,
+                                backward: false,
                             },
                         );
                     }
@@ -239,6 +245,7 @@ pub fn from_structural_graph(
                                 relative_endpoints: HashSet::from_iter([*ix_null]),
                                 weight: cost,
                                 is_internal: false,
+                                backward: false,
                             },
                         );
                     }
@@ -264,77 +271,13 @@ pub struct SlackedPlace {
 
 pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
-#[derive(Debug, Clone, Copy, PartialEq, PartialOrd, Default)]
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct ConstrainValues {
     pub min: Option<f64>,
-    pub max: f64,
+    pub max: Option<f64>,
 }
 
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), ConstrainValues>;
-
-pub fn cycles_cost(hbcn: &HBCN, weighted: bool) -> HashMap<(NodeIndex, NodeIndex), f64> {
-    let mut loop_breakers = Vec::new();
-    let mut start_points = HashSet::new();
-
-    let filtered_hbcn = hbcn.filter_map(
-        |_, x| Some(x.clone()),
-        |ie, e| {
-            let weight = if weighted { e.weight as f64 } else { 1.0 };
-            if e.token {
-                let (u, v) = hbcn.edge_endpoints(ie)?;
-                loop_breakers.push((u, weight, v));
-                start_points.insert(v);
-                None
-            } else {
-                Some(-weight)
-            }
-        },
-    );
-
-    // creates a map with a distance from all start_points to all other nodes
-    let bellman_distances: HashMap<NodeIndex, Vec<f64>> = start_points
-        .into_par_iter()
-        .map(|ix| {
-            let (costs, _) = petgraph::algo::bellman_ford(&filtered_hbcn, ix).unwrap();
-
-            (ix, costs)
-        })
-        .collect();
-
-    loop_breakers
-        .into_par_iter()
-        .map(|(it, w, is)| {
-            let nodes = &bellman_distances[&is];
-
-            ((it, is), w - nodes[it.index()])
-        })
-        .collect()
-}
-
-pub fn best_zeta(hbcn: &HBCN) -> usize {
-    let (weights, depths) = rayon::join(|| cycles_cost(hbcn, true), || cycles_cost(hbcn, false));
-
-    let mean_weights: Vec<_> = weights
-        .into_par_iter()
-        .map(|(k, w)| (w / depths[&k]).log2())
-        .collect();
-
-    let min_zeta = depths
-        .into_values()
-        .max_by(|a, b| a.partial_cmp(b).unwrap())
-        .unwrap();
-
-    let x = match mean_weights
-        .into_iter()
-        .minmax_by(|a, b| a.partial_cmp(b).unwrap())
-    {
-        MinMax(min, max) => max / min,
-        OneElement(x) => x,
-        _ => panic!(),
-    };
-
-    (min_zeta * x / 2.0).round() as usize * 2
-}
 
 pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(usize, Vec<(NodeIndex, NodeIndex)>)> {
     let mut loop_breakers = Vec::new();
@@ -414,7 +357,7 @@ pub fn constraint_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
             (n.clone(), n),
             ConstrainValues {
                 min: None,
-                max: val,
+                max: Some(val),
             },
         );
     }
@@ -504,7 +447,7 @@ pub fn constraint_cycle_time_pseudoclock(
                         (src.clone(), dst.clone()),
                         ConstrainValues {
                             min: None,
-                            max: val,
+                            max: Some(val),
                         },
                     ))
                 })
@@ -518,9 +461,16 @@ pub fn constraint_cycle_time_proportional(
     hbcn: &HBCN,
     ct: f64,
     min_delay: f64,
+    backward_margin: Option<f64>,
+    forward_margin: Option<f64>,
 ) -> Result<(f64, PathConstraints), Box<dyn Error>> {
     assert!(ct > 0.0);
     assert!(min_delay >= 0.0);
+
+    struct DelayVarPair {
+        max: Var,
+        min: Var,
+    }
 
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("constraint", &env)?;
@@ -538,34 +488,78 @@ pub fn constraint_cycle_time_proportional(
         })
         .collect();
 
-    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
+    let delay_vars: HashMap<(&CircuitNode, &CircuitNode), DelayVarPair> = hbcn
         .edge_indices()
-        .map(|ie| {
+        .filter_map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
-            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
+            let max = m
+                .add_var("", Continuous, 0.0, min_delay, INFINITY, &[], &[])
+                .ok()?;
+            let min: Var = m
+                .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                .ok()?;
+
+            Some((
+                (hbcn[src].circuit_node(), hbcn[dst].circuit_node()),
+                DelayVarPair { max, min },
+            ))
         })
         .collect();
-
-    for v in delay_vars.values_mut() {
-        *v = Some(m.add_var("", Continuous, 0.0, min_delay, INFINITY, &[], &[])?);
-    }
 
     for ie in hbcn.edge_indices() {
         let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
         let place = &hbcn[ie];
-        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
-            .as_ref()
-            .unwrap();
+        let delay_var = &delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())];
 
         m.add_constr(
             "",
-            1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
+            1.0 * &delay_var.max + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
             Equal,
             if place.token { ct } else { 0.0 },
         )?;
 
-        m.add_constr("", 1.0 * delay - place.weight * &factor, Greater, 0.0)?;
+        m.add_constr(
+            "",
+            1.0 * &delay_var.max - place.weight * &factor,
+            Greater,
+            0.0,
+        )?;
+
+        if place.backward {
+            if forward_margin.is_some() {
+                let matching_delay = delay_vars
+                    .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
+                    .expect("malformed HBCN");
+                m.add_constr(
+                    "",
+                    1.0 * &delay_var.min - 1.0 * &matching_delay.max + 1.0 * &matching_delay.min,
+                    Greater,
+                    0.0,
+                )?;
+            }
+            if let Some(bm) = backward_margin {
+                m.add_constr(
+                    "",
+                    bm * &delay_var.max - 1.0 * &delay_var.min,
+                    if forward_margin.is_some() {
+                        Greater
+                    } else {
+                        Equal
+                    },
+                    0.0,
+                )?;
+            } else if forward_margin.is_some() {
+                m.add_constr(
+                    "",
+                    1.0 * &delay_var.max - 1.0 * &delay_var.min,
+                    Greater,
+                    0.0,
+                )?;
+            }
+        } else if let Some(fm) = forward_margin {
+            m.add_constr("", fm * &delay_var.max - 1.0 * &delay_var.min, Equal, 0.0)?;
+        }
     }
 
     m.update()?;
@@ -579,92 +573,13 @@ pub fn constraint_cycle_time_proportional(
             min_delay,
             delay_vars
                 .into_iter()
-                .filter_map(|((src, dst), var)| {
-                    let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                    Some((
-                        (src.clone(), dst.clone()),
-                        ConstrainValues {
-                            min: None,
-                            max: val,
-                        },
-                    ))
+                .map(|((src, dst), var)| {
+                    let min = m.get_values(attr::X, &[var.min]).ok().map(|x| x[0]);
+                    let max = m.get_values(attr::X, &[var.max]).ok().map(|x| x[0]);
+                    ((src.clone(), dst.clone()), ConstrainValues { min, max })
                 })
                 .collect(),
         )),
-        _ => Err(AppError::Infeasible.into()),
-    }
-}
-
-pub fn constraint_cycle_time_quantised(
-    hbcn: &HBCN,
-    zeta: usize,
-) -> Result<PathConstraints, Box<dyn Error>> {
-    let env = Env::new("hbcn.log")?;
-    let mut m = Model::new("constraint", &env)?;
-
-    let factor = m.add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])?;
-
-    let arr_var: HashMap<NodeIndex, Var> = hbcn
-        .node_indices()
-        .map(|x| {
-            (
-                x,
-                m.add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
-                    .unwrap(),
-            )
-        })
-        .collect();
-
-    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<Var>> = hbcn
-        .edge_indices()
-        .map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-
-            ((hbcn[src].circuit_node(), hbcn[dst].circuit_node()), None)
-        })
-        .collect();
-
-    for v in delay_vars.values_mut() {
-        *v = Some(m.add_var("", Integer, 0.0, 1.0, INFINITY, &[], &[])?);
-    }
-
-    for ie in hbcn.edge_indices() {
-        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-        let place = &hbcn[ie];
-        let delay = delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
-            .as_ref()
-            .unwrap();
-
-        m.add_constr(
-            "",
-            1.0 * delay + 1.0 * &arr_var[&src] - 1.0 * &arr_var[&dst],
-            Equal,
-            if place.token { zeta as f64 } else { 0.0 },
-        )?;
-
-        m.add_constr("", 1.0 * delay - place.weight * &factor, Greater, 0.0)?;
-    }
-
-    m.update()?;
-
-    m.set_objective(&factor, Maximize)?;
-
-    m.optimize()?;
-
-    match m.status()? {
-        Status::Optimal | Status::SubOptimal => Ok(delay_vars
-            .into_iter()
-            .filter_map(|((src, dst), var)| {
-                let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                Some((
-                    (src.clone(), dst.clone()),
-                    ConstrainValues {
-                        min: None,
-                        max: val,
-                    },
-                ))
-            })
-            .collect()),
         _ => Err(AppError::Infeasible.into()),
     }
 }

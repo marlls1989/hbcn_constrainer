@@ -66,31 +66,26 @@ fn src_rails(s: &CircuitNode) -> String {
 }
 
 pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -> io::Result<()> {
-    for ((src, dst), &val) in paths.iter() {
-        writeln!(
-            writer,
-            "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
-            val,
-            src_rails(src),
-            dst_rails(dst),
-        )?;
-    }
+    for ((src, dst), val) in paths.iter() {
+        if let Some(val) = val.min {
+            writeln!(
+                writer,
+                "set_min_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
+                val,
+                src_rails(src),
+                dst_rails(dst),
+            )?;
+        }
 
-    Ok(())
-}
-
-pub fn write_path_quantised_constraints(
-    writer: &mut dyn Write,
-    paths: &PathConstraints,
-) -> io::Result<()> {
-    for ((src, dst), &val) in paths.iter() {
-        writeln!(
-            writer,
-            "set_multicycle_path {} -through {} -through {}",
-            val,
-            src_rails(src),
-            dst_rails(dst),
-        )?;
+        if let Some(val) = val.max {
+            writeln!(
+                writer,
+                "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
+                val,
+                src_rails(src),
+                dst_rails(dst),
+            )?;
+        }
     }
 
     Ok(())

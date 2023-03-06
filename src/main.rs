@@ -29,12 +29,10 @@ impl Error for AppError {}
 #[derive(Debug, Parser)]
 #[clap(name = "HBCN Tools", about = "Pulsar HBCN timing analysis tools")]
 enum CLIArguments {
-    /// Find longest path depth in the HBCN, it can be used to define the minimal zeta.
+    /// Find longest path depth in the HBCN
     Depth(DepthArgs),
     /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
     Analyse(AnalyseArgs),
-    /// Constrain the cycle-time using quantised steps
-    ConstrainQuantised(ConstrainQuantisedArgs),
     /// Constrain the cycle-time using continous proportional constraints.
     Constrain(ConstrainArgs),
 }
@@ -49,7 +47,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     match args {
         CLIArguments::Constrain(args) => constrain_main(args),
-        CLIArguments::ConstrainQuantised(args) => constrain_quantised_main(args),
         CLIArguments::Analyse(args) => analyse_main(args),
         CLIArguments::Depth(args) => depth_main(args),
     }

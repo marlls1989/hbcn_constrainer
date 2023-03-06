@@ -99,7 +99,7 @@ pub fn depth_main(args: DepthArgs) -> Result<(), Box<dyn Error>> {
     let cycles = hbcn::find_cycles(&hbcn, false);
 
     if let Some((deepest, _)) = cycles.first() {
-        println!("Greatest Cycle Depth (Minimal Zeta Value): {}", deepest);
+        println!("Greatest Cycle Depth: {}", deepest);
     }
 
     for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
