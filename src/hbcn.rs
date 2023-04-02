@@ -787,7 +787,7 @@ pub fn write_vcd<T>(hbcn: &TimedHBCN<T>, w: &mut dyn io::Write) -> io::Result<()
     }
 
     for (time, events) in events.into_iter().group_by(|x| x.time).into_iter() {
-        writer.timestamp(time as u64)?;
+        writer.timestamp((time.abs() * 1000.0) as u64)?;
         for event in events {
             match &event.transition {
                 Transition::Data(id) => writer.change_scalar(variables[id.name()], vcd::Value::V1),
