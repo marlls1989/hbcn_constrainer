@@ -32,6 +32,10 @@ pub struct ConstrainArgs {
     #[clap(long, parse(from_os_str), required_unless_present("sdc"))]
     csv: Option<PathBuf>,
 
+    /// Output VCD file with arrival times
+    #[clap(long, parse(from_os_str))]
+    vcd: Option<PathBuf>,
+
     /// Enable reflexive paths for WInDS (deprecated)
     #[clap(short, long)]
     reflexive_paths: bool,
@@ -64,6 +68,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         minimal_delay,
         ref sdc,
         ref csv,
+        ref vcd,
         reflexive_paths,
         tight_self_loops,
         no_proportinal,
@@ -81,7 +86,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
 
     let hbcn = hbcn::from_structural_graph(&g, reflexive_paths, forward_completion).unwrap();
 
-    let (pseudo_clock, mut paths) = if no_proportinal {
+    let mut constraints = if no_proportinal {
         hbcn::constraint_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
     } else {
         hbcn::constraint_cycle_time_proportional(
@@ -94,7 +99,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
     };
 
     if let Some(val) = tight_self_loops {
-        hbcn::constraint_selfreflexive_paths(&mut paths, val);
+        hbcn::constraint_selfreflexive_paths(&mut constraints.path_constraints, val);
     }
 
     if let Some(output) = csv {
@@ -114,7 +119,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
             })
             .collect();
         writeln!(csv_file, "src,dst,cost,max_delay,min_delay")?;
-        for (key, constrain) in paths.iter() {
+        for (key, constrain) in constraints.path_constraints.iter() {
             if let Some(cost) = cost_map.get(key) {
                 let (src, dst) = key;
                 write!(csv_file, "{},{},{:.0},", src.name(), dst.name(), cost,)?;
@@ -138,10 +143,16 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         writeln!(
             out_file,
             "create_clock -period {:.3} [get_port clk]",
-            pseudo_clock
+            constraints.pseudoclock_period
         )?;
 
-        sdc::write_path_constraints(&mut out_file, &paths)?;
+        sdc::write_path_constraints(&mut out_file, &constraints.path_constraints)?;
+    }
+
+    if let Some(output) = vcd {
+        let mut out_file = BufWriter::new(fs::File::create(output)?);
+
+        hbcn::write_vcd(&constraints.hbcn, &mut out_file)?;
     }
 
     Ok(())

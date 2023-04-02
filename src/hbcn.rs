@@ -21,6 +21,7 @@ use std::{
     iter::FromIterator,
 };
 
+// this is the most engineery way to compute the ceiling of the log base 2 of a number
 fn clog2(x: usize) -> usize {
     const NUM_BITS: usize = (std::mem::size_of::<usize>() as usize) * 8;
     NUM_BITS - (x.leading_zeros() as usize)
@@ -54,7 +55,7 @@ impl fmt::Display for Transition {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct Place {
     pub backward: bool,
     pub token: bool,
@@ -257,27 +258,44 @@ pub fn from_structural_graph(
     Some(ret)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct TransitionEvent {
     pub time: f64,
     pub transition: Transition,
 }
 
-#[derive(Debug, Clone)]
-pub struct SlackedPlace {
-    pub slack: f64,
-    pub place: Place,
-}
-
-pub type SolvedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
-
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
-pub struct ConstrainValues {
+pub struct DelayPair {
     pub min: Option<f64>,
     pub max: Option<f64>,
 }
 
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), ConstrainValues>;
+#[derive(Debug, Clone, Default)]
+pub struct DelayedPlace {
+    pub place: Place,
+    pub delay: DelayPair,
+}
+
+pub type DelayedHBCN = StableGraph<TransitionEvent, DelayedPlace>;
+
+#[derive(Debug, Clone, Default)]
+pub struct SlackedPlace {
+    pub place: Place,
+    pub slack: f64,
+}
+
+pub type SlackedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
+
+pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), DelayPair>;
+
+pub type TimedHBCN<T> = StableGraph<TransitionEvent, T>;
+
+#[derive(Debug, Clone)]
+pub struct ConstrainerResult {
+    pub pseudoclock_period: f64,
+    pub hbcn: DelayedHBCN,
+    pub path_constraints: PathConstraints,
+}
 
 pub fn find_cycles(hbcn: &HBCN, weighted: bool) -> Vec<(usize, Vec<(NodeIndex, NodeIndex)>)> {
     let mut loop_breakers = Vec::new();
@@ -355,7 +373,7 @@ pub fn constraint_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
     for n in nodes {
         paths.insert(
             (n.clone(), n),
-            ConstrainValues {
+            DelayPair {
                 min: None,
                 max: Some(val),
             },
@@ -367,7 +385,7 @@ pub fn constraint_cycle_time_pseudoclock(
     hbcn: &HBCN,
     ct: f64,
     min_delay: f64,
-) -> Result<(f64, PathConstraints), Box<dyn Error>> {
+) -> Result<ConstrainerResult, Box<dyn Error>> {
     assert!(ct > 0.0);
 
     let env = Env::new("hbcn.log")?;
@@ -437,22 +455,53 @@ pub fn constraint_cycle_time_pseudoclock(
     let pseudo_clock = m.get_values(attr::X, &[pseudo_clock])?[0];
 
     match m.status()? {
-        Status::Optimal | Status::SubOptimal => Ok((
-            pseudo_clock,
-            delay_vars
-                .into_iter()
+        Status::Optimal | Status::SubOptimal => Ok(ConstrainerResult {
+            pseudoclock_period: pseudo_clock,
+            path_constraints: delay_vars
+                .iter()
                 .filter_map(|((src, dst), var)| {
-                    let val = m.get_values(attr::X, &[var?]).ok()?[0];
-                    Some((
-                        (src.clone(), dst.clone()),
-                        ConstrainValues {
-                            min: None,
-                            max: Some(val),
-                        },
-                    ))
+                    m.get_values(attr::X, &[var.clone()?]).ok().map(|x| {
+                        (
+                            (CircuitNode::clone(src), CircuitNode::clone(dst)),
+                            DelayPair {
+                                min: None,
+                                max: Some(x[0]),
+                            },
+                        )
+                    })
                 })
                 .collect(),
-        )),
+            hbcn: hbcn.map(
+                |ix, x| TransitionEvent {
+                    transition: x.clone(),
+                    time: m
+                        .get_values(attr::X, &[arr_var[&ix].clone()])
+                        .ok()
+                        .map(|x| x[0])
+                        .unwrap_or(0.0),
+                },
+                |ie, e| {
+                    let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+                    DelayedPlace {
+                        place: e.clone(),
+                        delay: DelayPair {
+                            min: None,
+                            max: m
+                                .get_values(
+                                    attr::X,
+                                    &[delay_vars
+                                        [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+                                        .clone()
+                                        .unwrap()],
+                                )
+                                .ok()
+                                .map(|x| x[0])
+                                .filter(|x| (*x - min_delay) / min_delay > 0.001),
+                        },
+                    }
+                },
+            ),
+        }),
         _ => Err(AppError::Infeasible.into()),
     }
 }
@@ -463,7 +512,7 @@ pub fn constraint_cycle_time_proportional(
     min_delay: f64,
     backward_margin: Option<f64>,
     forward_margin: Option<f64>,
-) -> Result<(f64, PathConstraints), Box<dyn Error>> {
+) -> Result<ConstrainerResult, Box<dyn Error>> {
     assert!(ct > 0.0);
     assert!(min_delay >= 0.0);
 
@@ -490,20 +539,20 @@ pub fn constraint_cycle_time_proportional(
 
     let delay_vars: HashMap<(&CircuitNode, &CircuitNode), DelayVarPair> = hbcn
         .edge_indices()
-        .filter_map(|ie| {
+        .map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
             let max = m
                 .add_var("", Continuous, 0.0, min_delay, INFINITY, &[], &[])
-                .ok()?;
+                .unwrap();
             let min: Var = m
                 .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
-                .ok()?;
+                .unwrap();
 
-            Some((
+            (
                 (hbcn[src].circuit_node(), hbcn[dst].circuit_node()),
                 DelayVarPair { max, min },
-            ))
+            )
         })
         .collect();
 
@@ -572,30 +621,73 @@ pub fn constraint_cycle_time_proportional(
     m.optimize()?;
 
     match m.status()? {
-        Status::Optimal | Status::SubOptimal => Ok((
-            min_delay,
-            delay_vars
-                .into_iter()
+        Status::Optimal | Status::SubOptimal => Ok(ConstrainerResult {
+            pseudoclock_period: min_delay,
+            path_constraints: delay_vars
+                .iter()
                 .map(|((src, dst), var)| {
                     let min = m
-                        .get_values(attr::X, &[var.min])
+                        .get_values(attr::X, &[var.min.clone()])
                         .ok()
                         .map(|x| x[0])
                         .filter(|x| *x > 0.001);
                     let max = m
-                        .get_values(attr::X, &[var.max])
+                        .get_values(attr::X, &[var.max.clone()])
                         .ok()
                         .map(|x| x[0])
                         .filter(|x| (*x - min_delay) / min_delay > 0.001);
-                    ((src.clone(), dst.clone()), ConstrainValues { min, max })
+                    (
+                        (CircuitNode::clone(src), CircuitNode::clone(dst)),
+                        DelayPair { min, max },
+                    )
                 })
                 .collect(),
-        )),
+            hbcn: hbcn.map(
+                |ix, x| TransitionEvent {
+                    transition: x.clone(),
+                    time: m
+                        .get_values(attr::X, &[arr_var[&ix].clone()])
+                        .ok()
+                        .map(|x| x[0])
+                        .unwrap_or(0.0),
+                },
+                |ie, e| {
+                    let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+                    DelayedPlace {
+                        place: e.clone(),
+                        delay: DelayPair {
+                            min: m
+                                .get_values(
+                                    attr::X,
+                                    &[delay_vars
+                                        [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+                                        .min
+                                        .clone()],
+                                )
+                                .ok()
+                                .map(|x| x[0])
+                                .filter(|x| *x > 0.001),
+                            max: m
+                                .get_values(
+                                    attr::X,
+                                    &[delay_vars
+                                        [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+                                        .max
+                                        .clone()],
+                                )
+                                .ok()
+                                .map(|x| x[0])
+                                .filter(|x| (*x - min_delay) / min_delay > 0.001),
+                        },
+                    }
+                },
+            ),
+        }),
         _ => Err(AppError::Infeasible.into()),
     }
 }
 
-pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Error>> {
+pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SlackedHBCN), Box<dyn Error>> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("analysis", &env)?;
     let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
@@ -654,6 +746,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
                     Some(SlackedPlace {
                         place: e.clone(),
                         slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0],
+                        ..Default::default()
                     })
                 },
             ),
@@ -661,7 +754,7 @@ pub fn compute_cycle_time(hbcn: &HBCN) -> Result<(f64, SolvedHBCN), Box<dyn Erro
     }
 }
 
-pub fn write_vcd(hbcn: &SolvedHBCN, w: &mut dyn io::Write) -> io::Result<()> {
+pub fn write_vcd<T>(hbcn: &TimedHBCN<T>, w: &mut dyn io::Write) -> io::Result<()> {
     let mut writer = vcd::Writer::new(w);
     let re = Regex::new(r"[^a-zA-Z0-9_]").unwrap();
 
@@ -673,7 +766,7 @@ pub fn write_vcd(hbcn: &SolvedHBCN, w: &mut dyn io::Write) -> io::Result<()> {
     let events = {
         let mut events: Vec<&TransitionEvent> = hbcn
             .node_references()
-            .map(|(_, e)| {
+            .map(|(_idx, e)| {
                 let cnode = e.transition.name();
                 if !variables.contains_key(cnode) {
                     variables.insert(
