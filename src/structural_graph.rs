@@ -150,6 +150,36 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
 
                 CircuitNode::Register { name: s1, cost: 10 }
             }
+            EntryType::UnsafeReg => {
+                let s0: Symbol = format!("{}/s0", name.as_ref()).into();
+
+                let cn = CircuitNode::Register {
+                    name: name.clone(),
+                    cost: 10,
+                };
+                let cni = ret.add_node(cn);
+                lut.insert(name, cni);
+
+                let s0n = CircuitNode::Register {
+                    name: s0.clone(),
+                    cost: 10,
+                };
+                let s0i = ret.add_node(s0n);
+                lut.insert(s0.clone(), s0i);
+                adjacency.push((
+                    cni,
+                    vec![(
+                        s0.clone(),
+                        Channel {
+                            initial_phase: ChannelPhase::ReqNull,
+                            is_internal: true,
+                            virtual_delay: 10.0,
+                        },
+                    )],
+                ));
+
+                CircuitNode::Register { name: s0, cost: 10 }
+            }
             EntryType::Port => CircuitNode::Port(name),
             EntryType::NullReg => CircuitNode::Register { name, cost: 10 },
             EntryType::ControlReg => CircuitNode::Register { name, cost: 50 },
@@ -165,10 +195,18 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                 .map(|(s, n)| {
                     (
                         s,
-                        Channel {
-                            initial_phase: ChannelPhase::AckNull,
-                            is_internal: false,
-                            virtual_delay: n,
+                        if entry_type == EntryType::UnsafeReg {
+                            Channel {
+                                initial_phase: ChannelPhase::ReqData,
+                                is_internal: true,
+                                virtual_delay: n,
+                            }
+                        } else {
+                            Channel {
+                                initial_phase: ChannelPhase::AckNull,
+                                is_internal: false,
+                                virtual_delay: n,
+                            }
                         },
                     )
                 })

@@ -6,6 +6,7 @@ pub enum EntryType {
     DataReg,
     NullReg,
     ControlReg,
+    UnsafeReg,
 }
 
 #[derive(PartialEq, Debug)]

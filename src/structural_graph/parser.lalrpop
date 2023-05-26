@@ -16,6 +16,7 @@ Type: EntryType = {
     "DataReg" => EntryType::DataReg,
     "NullReg" => EntryType::NullReg,
     "ControlReg" => EntryType::ControlReg,
+    "UnsafeReg" => EntryType::UnsafeReg,
 }
 
 Str: Symbol = {
