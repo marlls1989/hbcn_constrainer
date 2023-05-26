@@ -222,6 +222,8 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                     format!("{:.3}", t.time),
                 ]);
             }
+
+            table.print(&mut out_file)?;
         }
     }
 
