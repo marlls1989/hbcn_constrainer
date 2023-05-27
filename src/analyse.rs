@@ -2,12 +2,13 @@ use std::{cmp, error::Error, fs, path::PathBuf};
 
 use clap::Parser;
 use gag::Gag;
+use ordered_float::OrderedFloat;
 use petgraph::dot;
 use prettytable::*;
 use rayon::prelude::*;
 
 use crate::{
-    hbcn::{self, Transition},
+    hbcn::{self, *},
     read_file,
 };
 
@@ -43,7 +44,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
         hbcn::compute_cycle_time(&hbcn, true)
     }?;
 
-    println!("Worst virtual cycle-time: {} ps", ct);
+    println!("Worst virtual cycle-time: {}", ct);
 
     if let Some(filename) = dot {
         fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
@@ -54,25 +55,27 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
         hbcn::write_vcd(&solved_hbcn, &mut file)?;
     }
 
-    let mut cycles = hbcn::find_cycles(&solved_hbcn)
+    let mut cycles = hbcn::find_critical_cycles(&solved_hbcn)
         .into_par_iter()
         .map(|cycle| {
-            let mut cost = 0;
-            for (is, it) in cycle.iter() {
-                let ie = solved_hbcn.find_edge(*is, *it).unwrap();
-                cost += solved_hbcn[ie].place.weight as usize;
-            }
+            let cost: f64 = cycle
+                .iter()
+                .map(|(is, it)| {
+                    let ie = solved_hbcn.find_edge(*is, *it).unwrap();
+                    solved_hbcn[ie].delay.max.unwrap_or(0.0)
+                })
+                .sum();
             (cost, cycle)
         })
         .collect::<Vec<_>>();
 
-    cycles.par_sort_unstable_by_key(|(cost, _)| cmp::Reverse(*cost));
+    cycles.par_sort_unstable_by_key(|(cost, _)| cmp::Reverse(OrderedFloat(*cost)));
 
     for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
-        println!("\nCycle {} ({} ps):", i, cost);
         let mut table = Table::new();
+        let mut tokens = 0;
         table.set_titles(row![
-            "Source", "Target", "Type", "vDelay", "Slack", "Start", "Arrival",
+            "T", "Source", "Target", "Type", "Cost", "Slack", "Delay", "Start", "Arrival",
         ]);
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
@@ -89,16 +92,24 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
                 (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
             };
             table.add_row(row![
+                if e.is_marked() {
+                    tokens += 1;
+                    "*"
+                } else {
+                    ""
+                },
                 s.transition.name(),
                 t.transition.name(),
                 ttype,
-                format!("{} ps", e.place.weight),
-                format!("{} ps", e.slack),
-                format!("{} ps", s.time),
-                format!("{} ps", s.time + e.slack + e.place.weight),
+                format!("{}", e.place.weight),
+                format!("{}", e.slack()),
+                format!("{}", e.delay.max.unwrap_or(0.0)),
+                format!("{}", s.time),
+                format!("{}", t.time),
             ]);
         }
 
+        println!("\nCycle {} ({}/{}):", i, cost, tokens);
         table.printstd();
     }
 
@@ -115,17 +126,17 @@ pub fn depth_main(args: DepthArgs) -> Result<(), Box<dyn Error>> {
         hbcn::compute_cycle_time(&hbcn, false)
     }?;
 
-    println!("Greatest Cycle Depth: {}", ct);
+    println!("Critical Cycle (Depth/Tokens): {}", ct);
 
-    let mut cycles = hbcn::find_cycles(&solved_hbcn);
+    let mut cycles = hbcn::find_critical_cycles(&solved_hbcn);
 
     cycles.par_sort_unstable_by_key(|cycle| cmp::Reverse(cycle.len()));
 
     for (i, cycle) in cycles.into_iter().enumerate() {
         let cost = cycle.len();
-        println!("\nCycle {} ({}):", i, cost);
         let mut table = Table::new();
-        table.set_titles(row!["Source", "Target", "Type", "slack"]);
+        let mut tokens = 0;
+        table.set_titles(row!["T", "Source", "Target", "Type", "Slack"]);
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
         for (is, it) in cycle.into_iter() {
@@ -141,13 +152,20 @@ pub fn depth_main(args: DepthArgs) -> Result<(), Box<dyn Error>> {
                 (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
             };
             table.add_row(row![
+                if e.is_marked() {
+                    tokens += 1;
+                    "*"
+                } else {
+                    " "
+                },
                 s.transition.name(),
                 t.transition.name(),
                 ttype,
-                format!("{}", e.slack as usize)
+                format!("{}", e.slack() as usize)
             ]);
         }
 
+        println!("\nCycle {} ({}/{}):", i, cost, tokens);
         table.printstd();
     }
 

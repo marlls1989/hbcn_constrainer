@@ -1,4 +1,5 @@
 use std::{
+    cmp,
     collections::HashMap,
     error::Error,
     fs,
@@ -11,7 +12,11 @@ use ordered_float::OrderedFloat;
 use prettytable::*;
 use rayon::prelude::*;
 
-use crate::{hbcn, hbcn::Transition, read_file, sdc, structural_graph::CircuitNode};
+use crate::{
+    hbcn::{self, *},
+    read_file, sdc,
+    structural_graph::CircuitNode,
+};
 
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
@@ -55,9 +60,9 @@ pub struct ConstrainArgs {
     #[clap(long)]
     no_proportinal: bool,
 
-    /// Use forward completion delay if greater than path virtual delay
+    /// Don't use forward completion delay if greater than path virtual delay
     #[clap(long)]
-    forward_completion: bool,
+    no_forward_completion: bool,
 
     /// Percentual margin between maximum and minimum delay in the forward path
     #[clap(long, short('f'), value_parser = clap::value_parser!(u8).range(0 .. 100))]
@@ -80,30 +85,37 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
         reflexive_paths,
         tight_self_loops,
         no_proportinal,
-        forward_completion,
+        no_forward_completion,
         forward_margin,
         backward_margin,
     } = args;
-    let g = read_file(&input)?;
+    let forward_completion = !no_forward_completion;
     let forward_margin = forward_margin.map(|x| 1.0 - (x as f64 / 100.0));
     let backward_margin = backward_margin.map(|x| 1.0 - (x as f64 / 100.0));
 
-    let hbcn = hbcn::from_structural_graph(&g, reflexive_paths, forward_completion).unwrap();
+    let mut constraints = {
+        let hbcn = {
+            let g = read_file(&input)?;
+            from_structural_graph(&g, reflexive_paths, forward_completion).unwrap()
+        };
 
-    let mut constraints = if no_proportinal {
-        hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
-    } else {
-        hbcn::constrain_cycle_time_proportional(
-            &hbcn,
-            cycle_time,
-            minimal_delay,
-            backward_margin,
-            forward_margin,
-        )?
+        if no_proportinal {
+            constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+        } else {
+            constrain_cycle_time_proportional(
+                &hbcn,
+                cycle_time,
+                minimal_delay,
+                backward_margin,
+                forward_margin,
+            )?
+        }
     };
 
+    let hbcn = &constraints.hbcn;
+
     if let Some(val) = tight_self_loops {
-        hbcn::constrain_selfreflexive_paths(&mut constraints.path_constraints, val);
+        constrain_selfreflexive_paths(&mut constraints.path_constraints, val);
     }
 
     if let Some(output) = csv {
@@ -118,7 +130,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                         hbcn[is].circuit_node().clone(),
                         hbcn[id].circuit_node().clone(),
                     ),
-                    hbcn[ie].weight,
+                    hbcn[ie].place.weight,
                 ))
             })
             .collect();
@@ -160,26 +172,34 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
     if let Some(output) = rpt {
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
-        let mut cycles = hbcn::find_cycles(&constraints.hbcn)
+        let mut cycles = hbcn::find_critical_cycles(&constraints.hbcn)
             .into_par_iter()
             .map(|cycle| {
-                let slack: f64 = cycle
+                let cost: f64 = cycle
                     .iter()
                     .map(|(is, it)| {
                         let ie = constraints.hbcn.find_edge(*is, *it).unwrap();
-                        constraints.hbcn[ie].slack.unwrap_or(0.0)
+                        let e = &constraints.hbcn[ie];
+
+                        e.weight() - e.slack()
                     })
                     .sum();
-                (slack, cycle)
+                (cost, cycle)
             })
             .collect::<Vec<_>>();
-        writeln!(out_file, "Cycles: {}\n", cycles.len())?;
-        cycles.par_sort_unstable_by_key(|(slack, _)| OrderedFloat(*slack));
+        writeln!(
+            out_file,
+            "Cycle time constraint: {:.3} ns - {} cycles",
+            cycle_time,
+            cycles.len()
+        )?;
+        cycles.par_sort_unstable_by_key(|(cost, _)| cmp::Reverse(OrderedFloat(*cost)));
 
-        for (i, (slack, cycle)) in cycles.into_iter().enumerate() {
-            writeln!(out_file, "Cycle {} total slack {:.3} ps", i, slack)?;
+        for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
             let mut table = Table::new();
+            let mut tokens = 0;
             table.set_titles(row![
+                "T",
                 "Source",
                 "Target",
                 "Type",
@@ -211,8 +231,14 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                 let max_delay = e.delay.max.unwrap_or(0.0);
 
                 table.add_row(row![
-                    s.transition.name(),
-                    t.transition.name(),
+                    if e.is_marked() {
+                        tokens += 1;
+                        "*"
+                    } else {
+                        ""
+                    },
+                    s.name(),
+                    t.name(),
                     ttype,
                     format!("{:.3}", vdelay),
                     format!("{:.3}", min_delay),
@@ -223,6 +249,11 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
                 ]);
             }
 
+            writeln!(
+                out_file,
+                "\nCycle {}: {:.3} ns (total delay - total slack) / {} tokens",
+                i, cost, tokens
+            )?;
             table.print(&mut out_file)?;
         }
     }

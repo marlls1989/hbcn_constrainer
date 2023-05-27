@@ -26,22 +26,46 @@ fn clog2(x: usize) -> usize {
     NUM_BITS - (x.leading_zeros() as usize)
 }
 
+pub trait HasTransition {
+    fn transition(&self) -> &Transition;
+}
+
+pub trait Named {
+    fn name(&self) -> &Symbol;
+}
+
+pub trait HasCircuitNode {
+    fn circuit_node(&self) -> &CircuitNode;
+}
+
+pub trait TimedEvent {
+    fn time(&self) -> f64;
+}
+
+impl<T: HasTransition> HasCircuitNode for T {
+    fn circuit_node(&self) -> &CircuitNode {
+        self.transition().circuit_node()
+    }
+}
+
+impl<T: HasCircuitNode> Named for T {
+    fn name(&self) -> &Symbol {
+        self.circuit_node().name()
+    }
+}
+
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
 pub enum Transition {
     Spacer(CircuitNode),
     Data(CircuitNode),
 }
 
-impl Transition {
-    pub fn circuit_node(&self) -> &CircuitNode {
+impl HasCircuitNode for Transition {
+    fn circuit_node(&self) -> &CircuitNode {
         match self {
             Transition::Data(id) => id,
             Transition::Spacer(id) => id,
         }
-    }
-
-    pub fn name(&self) -> &Symbol {
-        self.circuit_node().name()
     }
 }
 
@@ -68,13 +92,42 @@ pub trait MarkablePlace {
     fn is_marked(&self) -> bool;
 }
 
-impl MarkablePlace for Place {
+pub trait SlackablePlace {
+    fn slack(&self) -> f64;
+}
+
+pub trait WeightedPlace {
+    fn weight(&self) -> f64;
+}
+
+pub trait HasPlace {
+    fn place(&self) -> &Place;
+    fn place_mut(&mut self) -> &mut Place;
+}
+
+impl WeightedPlace for Place {
+    fn weight(&self) -> f64 {
+        self.weight
+    }
+}
+
+impl HasPlace for Place {
+    fn place(&self) -> &Place {
+        self
+    }
+
+    fn place_mut(&mut self) -> &mut Place {
+        self
+    }
+}
+
+impl<P: HasPlace> MarkablePlace for P {
     fn mark(&mut self, mark: bool) {
-        self.token = mark;
+        self.place_mut().token = mark;
     }
 
     fn is_marked(&self) -> bool {
-        self.token
+        self.place().token
     }
 }
 
@@ -278,6 +331,18 @@ pub struct TransitionEvent {
     pub transition: Transition,
 }
 
+impl HasTransition for TransitionEvent {
+    fn transition(&self) -> &Transition {
+        &self.transition
+    }
+}
+
+impl TimedEvent for TransitionEvent {
+    fn time(&self) -> f64 {
+        self.time
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct DelayPair {
     pub min: Option<f64>,
@@ -291,33 +356,29 @@ pub struct DelayedPlace {
     pub slack: Option<f64>,
 }
 
-impl MarkablePlace for DelayedPlace {
-    fn mark(&mut self, mark: bool) {
-        self.place.mark(mark)
+impl WeightedPlace for DelayedPlace {
+    fn weight(&self) -> f64 {
+        self.delay.max.unwrap_or(self.place.weight)
     }
-    fn is_marked(&self) -> bool {
-        self.place.is_marked()
+}
+
+impl HasPlace for DelayedPlace {
+    fn place(&self) -> &Place {
+        &self.place
+    }
+
+    fn place_mut(&mut self) -> &mut Place {
+        &mut self.place
+    }
+}
+
+impl SlackablePlace for DelayedPlace {
+    fn slack(&self) -> f64 {
+        self.slack.unwrap_or(0.0)
     }
 }
 
 pub type DelayedHBCN = StableGraph<TransitionEvent, DelayedPlace>;
-
-#[derive(Debug, Clone, Default)]
-pub struct SlackedPlace {
-    pub place: Place,
-    pub slack: f64,
-}
-
-impl MarkablePlace for SlackedPlace {
-    fn mark(&mut self, mark: bool) {
-        self.place.mark(mark)
-    }
-    fn is_marked(&self) -> bool {
-        self.place.is_marked()
-    }
-}
-
-pub type SlackedHBCN = StableGraph<TransitionEvent, SlackedPlace>;
 
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), DelayPair>;
 
@@ -330,7 +391,9 @@ pub struct ConstrainerResult {
     pub path_constraints: PathConstraints,
 }
 
-pub fn find_cycles<T: MarkablePlace>(hbcn: &TimedHBCN<T>) -> Vec<Vec<(NodeIndex, NodeIndex)>> {
+pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
+    hbcn: &StableGraph<N, P>,
+) -> Vec<Vec<(NodeIndex, NodeIndex)>> {
     let mut loop_breakers = Vec::new();
     let mut start_points = HashSet::new();
 
@@ -338,13 +401,13 @@ pub fn find_cycles<T: MarkablePlace>(hbcn: &TimedHBCN<T>) -> Vec<Vec<(NodeIndex,
         |_, x| Some(x.clone()),
         |ie, e| {
             let (u, v) = hbcn.edge_endpoints(ie)?;
-            let weight = hbcn[v].time;
+            let weight = hbcn[ie].slack();
             if e.is_marked() {
-                loop_breakers.push((u, weight, v));
+                loop_breakers.push((u, v));
                 start_points.insert(v);
-                None
+                Some(weight)
             } else {
-                Some(-weight)
+                Some(weight)
             }
         },
     );
@@ -365,7 +428,7 @@ pub fn find_cycles<T: MarkablePlace>(hbcn: &TimedHBCN<T>) -> Vec<Vec<(NodeIndex,
 
     let paths: Vec<Vec<(NodeIndex, NodeIndex)>> = loop_breakers
         .into_par_iter()
-        .filter_map(|(it, _, is)| {
+        .filter_map(|(it, is)| {
             let nodes = &bellman_distances[&is];
             // Recreates the path by traveling the predecessors list
             let path: Vec<_> = {
@@ -595,6 +658,9 @@ pub fn constrain_cycle_time_proportional(
         let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
         let place = &hbcn[ie];
         let delay_var = &delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())];
+        let matching_delay = delay_vars
+            .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
+            .expect("malformed HBCN");
 
         m.add_constr(
             "",
@@ -613,9 +679,6 @@ pub fn constrain_cycle_time_proportional(
         if !place.is_internal {
             if place.backward {
                 if forward_margin.is_some() {
-                    let matching_delay = delay_vars
-                        .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
-                        .expect("malformed HBCN");
                     m.add_constr(
                         "",
                         1.0 * &delay_var.min - 1.0 * &matching_delay.max
@@ -733,7 +796,7 @@ pub fn constrain_cycle_time_proportional(
 pub fn compute_cycle_time(
     hbcn: &HBCN,
     weighted: bool,
-) -> Result<(f64, SlackedHBCN), Box<dyn Error>> {
+) -> Result<(f64, DelayedHBCN), Box<dyn Error>> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("analysis", &env)?;
     let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
@@ -749,25 +812,38 @@ pub fn compute_cycle_time(
         })
         .collect();
 
-    let slack_var: HashMap<EdgeIndex, Var> = hbcn
+    let delay_slack_var: HashMap<EdgeIndex, (Var, Var)> = hbcn
         .edge_indices()
         .map(|ie| {
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let place = &hbcn[ie];
+
             let slack = m
+                .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
+                .unwrap();
+
+            let delay = m
                 .add_var("", Continuous, 0.0, 0.0, INFINITY, &[], &[])
                 .unwrap();
 
             m.add_constr(
                 "",
-                1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &slack
-                    + if place.token { 1.0 } else { 0.0 } * &cycle_time,
+                1.0 * &delay - 1.0 * &slack,
                 Equal,
                 if weighted { place.weight as f64 } else { 1.0 },
             )
             .unwrap();
 
-            (ie, slack)
+            m.add_constr(
+                "",
+                1.0 * &arr_var[dst] - 1.0 * &arr_var[src] - 1.0 * &delay
+                    + if place.token { 1.0 } else { 0.0 } * &cycle_time,
+                Equal,
+                0.0,
+            )
+            .unwrap();
+
+            (ie, (delay, slack))
         })
         .collect();
 
@@ -789,9 +865,20 @@ pub fn compute_cycle_time(
                     })
                 },
                 |ie, e| {
-                    Some(SlackedPlace {
+                    let (delay_var, slack_var) = &delay_slack_var[&ie];
+                    Some(DelayedPlace {
                         place: e.clone(),
-                        slack: m.get_values(attr::X, &[slack_var[&ie].clone()]).ok()?[0],
+                        delay: DelayPair {
+                            min: None,
+                            max: m
+                                .get_values(attr::X, &[delay_var.clone()])
+                                .ok()
+                                .map(|x| x[0]),
+                        },
+                        slack: m
+                            .get_values(attr::X, &[slack_var.clone()])
+                            .ok()
+                            .map(|x| x[0]),
                         ..Default::default()
                     })
                 },
