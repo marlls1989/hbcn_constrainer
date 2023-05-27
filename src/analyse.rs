@@ -62,7 +62,8 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
                 .iter()
                 .map(|(is, it)| {
                     let ie = solved_hbcn.find_edge(*is, *it).unwrap();
-                    solved_hbcn[ie].delay.max.unwrap_or(0.0)
+                    let e = &solved_hbcn[ie];
+                    e.weight() - e.slack()
                 })
                 .sum();
             (cost, cycle)
@@ -109,7 +110,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
             ]);
         }
 
-        println!("\nCycle {} ({}/{}):", i, cost, tokens);
+        println!("\nCycle {} {} (total cost) / {} (tokens):", i, cost, tokens);
         table.printstd();
     }
 
