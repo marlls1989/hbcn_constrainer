@@ -160,12 +160,6 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                 let cni = ret.add_node(cn);
                 lut.insert(name, cni);
 
-                let s0n = CircuitNode::Register {
-                    name: s0.clone(),
-                    cost: 10,
-                };
-                let s0i = ret.add_node(s0n);
-                lut.insert(s0.clone(), s0i);
                 adjacency.push((
                     cni,
                     vec![(
