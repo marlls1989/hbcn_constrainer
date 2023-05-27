@@ -20,6 +20,7 @@ prettytable-rs = "0.10"
 clap = { version = "3.2", features = ["derive"] }
 lalrpop-util = { version = "0.19.8", features = ["lexer"] }
 ordered-float = "3.7.0"
+anyhow = "1.0.71"
 
 [profile.dev]
 opt-level = 1

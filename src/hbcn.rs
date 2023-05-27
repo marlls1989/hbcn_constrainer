@@ -2,6 +2,14 @@ use super::{
     structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol},
     AppError,
 };
+
+use std::{
+    collections::{HashMap, HashSet},
+    fmt, io,
+    iter::FromIterator,
+};
+
+use anyhow::*;
 use gurobi::{attr, ConstrSense::*, Env, Model, ModelSense::*, Status, Var, VarType::*, INFINITY};
 use itertools::Itertools;
 use petgraph::{
@@ -13,12 +21,6 @@ use petgraph::{
 };
 use rayon::prelude::*;
 use regex::Regex;
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    fmt, io,
-    iter::FromIterator,
-};
 
 // this is the most engineery way to compute the ceiling log base 2 of a number
 fn clog2(x: usize) -> usize {
@@ -478,7 +480,7 @@ pub fn constrain_cycle_time_pseudoclock(
     hbcn: &HBCN,
     ct: f64,
     min_delay: f64,
-) -> Result<ConstrainerResult, Box<dyn Error>> {
+) -> Result<ConstrainerResult> {
     assert!(ct > 0.0);
 
     let env = Env::new("hbcn.log")?;
@@ -606,7 +608,7 @@ pub fn constrain_cycle_time_proportional(
     min_delay: f64,
     backward_margin: Option<f64>,
     forward_margin: Option<f64>,
-) -> Result<ConstrainerResult, Box<dyn Error>> {
+) -> Result<ConstrainerResult> {
     assert!(ct > 0.0);
     assert!(min_delay >= 0.0);
 
@@ -793,10 +795,7 @@ pub fn constrain_cycle_time_proportional(
     }
 }
 
-pub fn compute_cycle_time(
-    hbcn: &HBCN,
-    weighted: bool,
-) -> Result<(f64, DelayedHBCN), Box<dyn Error>> {
+pub fn compute_cycle_time(hbcn: &HBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
     let env = Env::new("hbcn.log")?;
     let mut m = Model::new("analysis", &env)?;
     let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
@@ -887,7 +886,7 @@ pub fn compute_cycle_time(
     }
 }
 
-pub fn write_vcd<T>(hbcn: &TimedHBCN<T>, w: &mut dyn io::Write) -> io::Result<()> {
+pub fn write_vcd<T>(hbcn: &TimedHBCN<T>, w: &mut dyn io::Write) -> Result<()> {
     let mut writer = vcd::Writer::new(w);
     let re = Regex::new(r"[^a-zA-Z0-9_]").unwrap();
 

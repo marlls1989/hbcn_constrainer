@@ -4,10 +4,12 @@ mod hbcn;
 mod sdc;
 mod structural_graph;
 
+use std::{error::Error, fmt, fs, path::Path};
+
 use crate::analyse::*;
 use crate::constrain::*;
+use anyhow::*;
 use clap::Parser;
-use std::{error::Error, fmt, fs, path::Path};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum AppError {
@@ -37,12 +39,12 @@ enum CLIArguments {
     Constrain(ConstrainArgs),
 }
 
-fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph, Box<dyn Error>> {
+fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> {
     let file = fs::read_to_string(file_name)?;
     Ok(structural_graph::parse(&file)?)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     let args = CLIArguments::from_args();
 
     match args {

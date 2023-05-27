@@ -1,12 +1,12 @@
 use std::{
     cmp,
     collections::HashMap,
-    error::Error,
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
 };
 
+use anyhow::*;
 use clap::Parser;
 use ordered_float::OrderedFloat;
 use prettytable::*;
@@ -73,7 +73,7 @@ pub struct ConstrainArgs {
     backward_margin: Option<u8>,
 }
 
-pub fn constrain_main(args: ConstrainArgs) -> Result<(), Box<dyn Error>> {
+pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let ConstrainArgs {
         input,
         cycle_time,

@@ -1,5 +1,6 @@
-use std::{cmp, error::Error, fs, path::PathBuf};
+use std::{cmp, fs, path::PathBuf};
 
+use anyhow::*;
 use clap::Parser;
 use gag::Gag;
 use ordered_float::OrderedFloat;
@@ -34,7 +35,7 @@ pub struct DepthArgs {
     input: PathBuf,
 }
 
-pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
+pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     let AnalyseArgs { input, vcd, dot } = args;
 
     let (ct, solved_hbcn) = {
@@ -117,7 +118,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-pub fn depth_main(args: DepthArgs) -> Result<(), Box<dyn Error>> {
+pub fn depth_main(args: DepthArgs) -> Result<()> {
     let DepthArgs { input } = args;
 
     let (ct, solved_hbcn) = {
