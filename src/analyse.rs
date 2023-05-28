@@ -76,8 +76,15 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
         let mut table = Table::new();
         let mut tokens = 0;
+        let count = cycle.len();
         table.set_titles(row![
-            "T", "Source", "Target", "Type", "Cost", "Slack", "Delay", "Start", "Arrival",
+            "T",
+            "Node",
+            "Transition",
+            "Cost",
+            "Slack",
+            "Delay",
+            "Time",
         ]);
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
@@ -98,20 +105,25 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
                     tokens += 1;
                     "*"
                 } else {
-                    ""
+                    " "
                 },
-                s.transition.name(),
-                t.transition.name(),
+                s.name(),
                 ttype,
-                format!("{}", e.place.weight),
+                format!("{}", e.place.weight()),
                 format!("{}", e.slack()),
-                format!("{}", e.delay.max.unwrap_or(0.0)),
+                format!("{}", e.weight()),
                 format!("{}", s.time),
-                format!("{}", t.time),
             ]);
         }
 
-        println!("\nCycle {} {} (total cost) / {} (tokens):", i, cost, tokens);
+        println!(
+            "\nCycle {}: cost - slack = {} ({} transitions / {} {}):",
+            i,
+            cost,
+            count,
+            tokens,
+            if tokens == 1 { "token" } else { "tokens" }
+        );
         table.printstd();
     }
 
@@ -137,8 +149,9 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
     for (i, cycle) in cycles.into_iter().enumerate() {
         let cost = cycle.len();
         let mut table = Table::new();
+        let count = cycle.len();
         let mut tokens = 0;
-        table.set_titles(row!["T", "Source", "Target", "Type", "Slack"]);
+        table.set_titles(row!["T", "Node", "Transition", "Slack", "Time"]);
         table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
         for (is, it) in cycle.into_iter() {
@@ -161,13 +174,20 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
                     " "
                 },
                 s.transition.name(),
-                t.transition.name(),
                 ttype,
-                format!("{}", e.slack() as usize)
+                format!("{}", e.slack() as usize),
+                format!("{}", s.time),
             ]);
         }
 
-        println!("\nCycle {} ({}/{}):", i, cost, tokens);
+        println!(
+            "\nCycle {}: total cost = {} ({} transitions / {} {}):",
+            i,
+            cost,
+            count,
+            tokens,
+            if tokens == 1 { "token" } else { "tokens" }
+        );
         table.printstd();
     }
 

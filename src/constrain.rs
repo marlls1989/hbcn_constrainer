@@ -1,5 +1,4 @@
 use std::{
-    cmp,
     collections::HashMap,
     fs,
     io::{BufWriter, Write},
@@ -175,40 +174,35 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         let mut cycles = hbcn::find_critical_cycles(&constraints.hbcn)
             .into_par_iter()
             .map(|cycle| {
-                let cost: f64 = cycle
+                let slack: f64 = cycle
                     .iter()
                     .map(|(is, it)| {
                         let ie = constraints.hbcn.find_edge(*is, *it).unwrap();
                         let e = &constraints.hbcn[ie];
 
-                        e.weight() - e.slack()
+                        e.slack()
                     })
                     .sum();
-                (cost, cycle)
+                (slack, cycle)
             })
             .collect::<Vec<_>>();
-        writeln!(
-            out_file,
-            "Cycle time constraint: {:.3} ns - {} cycles",
-            cycle_time,
-            cycles.len()
-        )?;
-        cycles.par_sort_unstable_by_key(|(cost, _)| cmp::Reverse(OrderedFloat(*cost)));
+        writeln!(out_file, "Cycle time constraint: {:.3} ns", cycle_time,)?;
+        writeln!(out_file, "Cycles: {}", cycles.len())?;
+        cycles.par_sort_unstable_by_key(|(slack, _)| OrderedFloat(*slack));
 
-        for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
+        for (i, (slack, cycle)) in cycles.into_iter().enumerate() {
             let mut table = Table::new();
+            let count = cycle.len();
             let mut tokens = 0;
             table.set_titles(row![
                 "T",
-                "Source",
-                "Target",
-                "Type",
-                "vDelay",
+                "Node",
+                "Transition",
+                "Cost",
                 "Min Delay",
                 "Max Delay",
                 "Slack",
-                "Start",
-                "Arrival"
+                "Time",
             ]);
             table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
             for (is, it) in cycle {
@@ -235,24 +229,26 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                         tokens += 1;
                         "*"
                     } else {
-                        ""
+                        " "
                     },
                     s.name(),
-                    t.name(),
                     ttype,
                     format!("{:.3}", vdelay),
                     format!("{:.3}", min_delay),
                     format!("{:.3}", max_delay),
                     format!("{:.3}", slack),
                     format!("{:.3}", s.time),
-                    format!("{:.3}", t.time),
                 ]);
             }
 
             writeln!(
                 out_file,
-                "\nCycle {}: {:.3} ns (total delay - total slack) / {} tokens",
-                i, cost, tokens
+                "\nCycle {}: total slack = {:.3} ns ({} transitions / {} {})",
+                i,
+                slack,
+                count,
+                tokens,
+                if tokens == 1 { "token" } else { "tokens" }
             )?;
             table.print(&mut out_file)?;
         }
