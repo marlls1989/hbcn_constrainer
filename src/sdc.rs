@@ -9,7 +9,7 @@ fn port_wildcard(s: &str) -> String {
     }
 
     if let Some(c) = INDEX_RE.captures(s) {
-        format!("{}_*{}", &c[1], &c[2])
+        format!("{}_*{} {}_*ack", &c[1], &c[2], &c[1])
     } else {
         format!("{}_*", s)
     }
@@ -55,7 +55,7 @@ fn src_rails(s: &CircuitNode) -> String {
         CircuitNode::Port(name) => {
             format!(
                 "[get_ports [vfind {{{}}}] -filter {{direction == in}}]",
-                port_wildcard(name)
+                port_wildcard(name),
             )
         }
         CircuitNode::Register { name, .. } => format!(

@@ -400,7 +400,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
     let mut start_points = HashSet::new();
 
     let filtered_hbcn = hbcn.filter_map(
-        |_, x| Some(x.clone()),
+        |_, x| Some(x),
         |ie, e| {
             let (u, v) = hbcn.edge_endpoints(ie)?;
             let weight = hbcn[ie].slack();
