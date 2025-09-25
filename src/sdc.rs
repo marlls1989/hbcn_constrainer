@@ -9,7 +9,7 @@ fn port_wildcard(s: &str) -> String {
     }
 
     if let Some(c) = INDEX_RE.captures(s) {
-        format!("{}_*{} {}_*ack", &c[1], &c[2], &c[1])
+        format!("{}_*{} {}_ack", &c[1], &c[2], &c[1])
     } else {
         format!("{}_*", s)
     }
