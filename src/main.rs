@@ -45,7 +45,7 @@ fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> {
 }
 
 fn main() -> Result<()> {
-    let args = CLIArguments::from_args();
+    let args = CLIArguments::parse();
 
     match args {
         CLIArguments::Constrain(args) => constrain_main(args),
