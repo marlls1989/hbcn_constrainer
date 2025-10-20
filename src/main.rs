@@ -1,7 +1,6 @@
 mod analyse;
 mod constrain;
 mod hbcn;
-mod sdc;
 mod structural_graph;
 
 use std::{error::Error, fmt, fs, path::Path};

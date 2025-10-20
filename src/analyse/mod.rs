@@ -38,7 +38,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
-        let hbcn = hbcn::from_structural_graph(&g, false, false)
+        let hbcn = hbcn::from_structural_graph(&g, false)
             .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?;
         let _gag_stdout = Gag::stdout();
         hbcn::compute_cycle_time(&hbcn, true)
@@ -134,7 +134,7 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
-        let hbcn = hbcn::from_structural_graph(&g, false, false)
+        let hbcn = hbcn::from_structural_graph(&g, false)
             .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?;
         let _gag_stdout = Gag::stdout();
         hbcn::compute_cycle_time(&hbcn, false)

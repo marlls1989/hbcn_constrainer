@@ -6,14 +6,12 @@ use super::{
 use std::{
     collections::{HashMap, HashSet},
     fmt, io,
-    iter::FromIterator,
 };
 
 use anyhow::*;
 use gurobi::{ConstrSense::*, Env, INFINITY, Model, ModelSense::*, Status, Var, VarType::*, attr};
 use itertools::Itertools;
 use petgraph::{
-    EdgeDirection,
     graph::{EdgeIndex, NodeIndex},
     prelude::*,
     stable_graph::StableGraph,
@@ -29,7 +27,6 @@ fn clog2(x: usize) -> u32 {
 
 // Timing constants for delay/cost calculations
 const DEFAULT_REGISTER_DELAY: f64 = 10.0;
-const C_ELEMENT_DELAY: f64 = 10.0;
 
 pub trait HasTransition {
     fn transition(&self) -> &Transition;
@@ -138,11 +135,7 @@ impl<P: HasPlace> MarkablePlace for P {
 
 pub type HBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(
-    g: &StructuralGraph,
-    reflexive: bool,
-    forward_completion: bool,
-) -> Option<HBCN> {
+pub fn from_structural_graph(g: &StructuralGraph, forward_completion: bool) -> Option<HBCN> {
     let mut ret = HBCN::new();
     struct VertexItem {
         token: NodeIndex,
@@ -250,81 +243,6 @@ pub fn from_structural_graph(
                 is_internal,
             },
         );
-    }
-
-    if reflexive {
-        // For all nodes ix in g
-        for ix in g.node_indices() {
-            // get pair of transitions related to ix and the forward CD cost
-            let VertexItem {
-                token: ix_data,
-                spacer: ix_null,
-                forward_cost,
-                ..
-            } = vertice_map.get(&ix)?;
-
-            // Find all predecessors is of ix
-            for is in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                // get pair of transitions related to is
-                let VertexItem {
-                    token: is_data,
-                    spacer: is_null,
-                    base_cost,
-                    ..
-                } = vertice_map.get(&is)?;
-
-                // Find all predecessors id of ix
-                for id in g.neighbors_directed(ix, EdgeDirection::Incoming) {
-                    let VertexItem {
-                        token: id_data,
-                        spacer: id_null,
-                        backward_cost,
-                        ..
-                    } = vertice_map.get(&id)?;
-
-                    // the cost of the reflexive path is the associated cost of both completion
-                    // detection circitry plus an aditional c-element
-                    let cost = base_cost + backward_cost + forward_cost + C_ELEMENT_DELAY;
-
-                    // If a path is established between is and id, update Place
-                    // Else create a reflexive path between is and id
-                    if let Some(ie) = ret.find_edge(*is_data, *id_null) {
-                        ret[ie].relative_endpoints.insert(*ix_data);
-                        ret[ie].weight = ret[ie].weight.max(cost);
-                    } else {
-                        ret.add_edge(
-                            *is_data,
-                            *id_null,
-                            Place {
-                                token: ret[ret.find_edge(*is_data, *ix_data)?].token
-                                    || ret[ret.find_edge(*ix_data, *id_null)?].token,
-                                relative_endpoints: HashSet::from_iter([*ix_data]), //set![*ix_data],
-                                weight: cost,
-                                is_internal: false,
-                                backward: false,
-                            },
-                        );
-                    }
-                    if let Some(ie) = ret.find_edge(*is_null, *id_data) {
-                        ret[ie].relative_endpoints.insert(*ix_null);
-                        ret[ie].weight = ret[ie].weight.max(cost);
-                    } else {
-                        ret.add_edge(
-                            *is_null,
-                            *id_data,
-                            Place {
-                                token: ret[ret.find_edge(*is_null, *ix_null)?].token
-                                    || ret[ret.find_edge(*ix_null, *id_data)?].token,
-                                relative_endpoints: HashSet::from_iter([*ix_null]),
-                                weight: cost,
-                                is_internal: false,
-                                backward: false,
-                            },
-                        );
-                    }
-                }
-            }
-        }
     }
 
     Some(ret)
@@ -459,24 +377,6 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
         .collect();
 
     paths
-}
-
-pub fn constrain_selfreflexive_paths(paths: &mut PathConstraints, val: f64) {
-    let nodes: HashSet<CircuitNode> = paths
-        .iter()
-        .flat_map(move |((src, dst), _)| [src, dst])
-        .cloned()
-        .collect();
-
-    for n in nodes {
-        paths.insert(
-            (n.clone(), n),
-            DelayPair {
-                min: None,
-                max: Some(val),
-            },
-        );
-    }
 }
 
 pub fn constrain_cycle_time_pseudoclock(
@@ -940,7 +840,6 @@ pub fn write_vcd<T>(hbcn: &TimedHBCN<T>, w: &mut dyn io::Write) -> Result<()> {
 mod tests {
     use super::*;
     use crate::structural_graph::parse;
-
     #[test]
     fn test_simple_two_node_conversion() {
         // Test basic conversion with two connected nodes
@@ -950,8 +849,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Should have 4 nodes: Data and Spacer transitions for each original node
         assert_eq!(hbcn.node_count(), 4);
@@ -986,8 +885,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Should have 10 nodes: Data and Spacer for each of the 5 circuit nodes
         // (input port, reg data, reg control, reg output, output port)
@@ -1005,8 +904,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check that transitions have correct circuit node references
         for node_idx in hbcn.node_indices() {
@@ -1027,8 +926,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check place properties
         for edge_idx in hbcn.edge_indices() {
@@ -1041,48 +940,8 @@ mod tests {
             assert!(place.backward || !place.backward); // Just checking it's a boolean
 
             // relative_endpoints should be initialized
-            assert!(place.relative_endpoints.is_empty()); // Should be empty for non-reflexive
+            assert!(place.relative_endpoints.is_empty()); // Should be empty since reflexive paths are removed
         }
-    }
-
-    #[test]
-    fn test_reflexive_paths_disabled() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" [("c", 150)]
-            Port "c" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn_no_reflexive = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
-
-        // With reflexive=false, should have basic structure only
-        assert_eq!(hbcn_no_reflexive.node_count(), 6); // 2 transitions per node
-        assert_eq!(hbcn_no_reflexive.edge_count(), 8); // 4 places per edge
-    }
-
-    #[test]
-    fn test_reflexive_paths_enabled() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" [("c", 150)]
-            Port "c" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn_with_reflexive = from_structural_graph(&structural_graph, true, false)
-            .expect("Failed to convert to HBCN");
-
-        let hbcn_no_reflexive = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
-
-        // With reflexive=true, should have additional edges for reflexive paths
-        assert_eq!(
-            hbcn_with_reflexive.node_count(),
-            hbcn_no_reflexive.node_count()
-        );
-        assert!(hbcn_with_reflexive.edge_count() >= hbcn_no_reflexive.edge_count());
     }
 
     #[test]
@@ -1093,8 +952,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check that weights are based on virtual_delay when forward_completion=false
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -1114,8 +973,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, true)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, true).expect("Failed to convert to HBCN");
 
         // With forward_completion=true, weights should consider forward costs
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -1136,8 +995,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Should handle multiple connections properly
         assert!(hbcn.node_count() > 4); // More nodes due to DataReg internal structure
@@ -1163,8 +1022,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check that token markings are set according to channel phases
         let mut req_data_count = 0;
@@ -1204,8 +1063,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check weight calculations
         for edge_idx in hbcn.edge_indices() {
@@ -1230,8 +1089,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Should have 2 nodes (Data and Spacer for the single port) and no edges
         assert_eq!(hbcn.node_count(), 2);
@@ -1250,8 +1109,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn = from_structural_graph(&structural_graph, false, false)
-            .expect("Failed to convert to HBCN");
+        let hbcn =
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Should successfully convert all register types
         assert!(hbcn.node_count() > 0);
