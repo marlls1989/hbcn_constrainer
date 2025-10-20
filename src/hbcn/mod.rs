@@ -930,18 +930,32 @@ mod tests {
             from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
 
         // Check place properties
+        let mut forward_places = 0;
+        let mut backward_places = 0;
+
         for edge_idx in hbcn.edge_indices() {
             let place = &hbcn[edge_idx];
 
             // Weight should be positive
             assert!(place.weight >= 0.0);
 
-            // Should have valid backward flag
-            assert!(place.backward || !place.backward); // Just checking it's a boolean
+            // Count forward and backward places
+            if place.backward {
+                backward_places += 1;
+            } else {
+                forward_places += 1;
+            }
 
             // relative_endpoints should be initialized
             assert!(place.relative_endpoints.is_empty()); // Should be empty since reflexive paths are removed
         }
+
+        // For this simple two-port graph, we should have equal numbers of forward and backward places
+        // Each channel creates 2 forward places (token->token, spacer->spacer) and 2 backward places (token->spacer, spacer->token)
+        assert_eq!(
+            forward_places, backward_places,
+            "Forward and backward places should be equal in a simple chain"
+        );
     }
 
     #[test]
