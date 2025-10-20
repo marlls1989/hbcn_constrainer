@@ -15,23 +15,21 @@ use crate::{
 
 #[derive(Parser, Debug)]
 pub struct AnalyseArgs {
-    #[clap(value_parser = clap::value_parser!(std::path::PathBuf))]
     /// Structural graph input file
     input: PathBuf,
 
     /// VCD waveform file with virtual-delay arrival times
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     vcd: Option<PathBuf>,
 
     /// DOT file displaying the HBCN marked graph
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     dot: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
 pub struct DepthArgs {
     /// Structural graph input file
-    #[clap(value_parser = clap::value_parser!(std::path::PathBuf))]
     input: PathBuf,
 }
 
