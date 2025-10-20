@@ -8,3 +8,6 @@
 *.lp
 *.graph
 *.sol
+*.rpt
+*.vcd
+*.ipynb
