@@ -244,10 +244,10 @@ mod tests {
     #[test]
     fn parse_valid() {
         let input = r#"
-            Port "a" ["result"]
-            Port "b" ["result"]
-            NullReg "result" ["acc", "output"]
-            DataReg "acc" ["result"]
+            Port "a" [("result", 10)]
+            Port "b" [("result", 20)]
+            NullReg "result" [("acc", 30), ("output", 40)]
+            DataReg "acc" [("result", 50)]
             Port "output" []
             "#;
         let result = parse(input);
@@ -261,10 +261,10 @@ mod tests {
     #[test]
     fn parse_err_undefined() {
         let input = r#"
-            Port "a" ["result"]
-            Port "b" ["result"]
-            NullReg "result" ["acc", "output"]
-            DataReg "acc" ["result"]
+            Port "a" [("result", 10)]
+            Port "b" [("result", 20)]
+            NullReg "result" [("acc", 30), ("output", 40)]
+            DataReg "acc" [("result", 50)]
             "#;
         let result = parse(input);
         assert!(matches!(result, Err(ParseError::UndefinedElement(_))));
@@ -276,13 +276,104 @@ mod tests {
     #[test]
     fn parse_err_syntax() {
         let input = r#"
-            Port "a" ["result"]
-            Port "b" ["result"]
-            NullReg "result" ["acc" "output"]
-            DataReg "acc" ["result"]
+            Port "a" [("result", 10)]
+            Port "b" [("result", 20)]
+            NullReg "result" [("acc", 30) ("output", 40)]
+            DataReg "acc" [("result", 50)]
             Port "output" []
             "#;
         let result = parse(input);
         assert!(matches!(result, Err(ParseError::SyntaxError(_))));
+    }
+
+    #[test]
+    fn parse_realistic_port_names() {
+        let input = r#"
+            Port "port:ARV/instruction[31]" [("inst:ARV/decode_retime_s1_94_reg", 130), ("inst:ARV/decode_retime_s1_137_reg", 100)]
+            Port "port:ARV/mem_data_in[0]" []
+            DataReg "inst:ARV/decode_retime_s1_94_reg" [("inst:ARV/some_output_reg", 75)]
+            DataReg "inst:ARV/decode_retime_s1_137_reg" [("inst:ARV/some_output_reg", 85)]
+            DataReg "inst:ARV/some_output_reg" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let g = result.unwrap();
+        // 2 Ports (2 nodes) + 3 DataRegs (9 nodes, 3 each) = 11 nodes total
+        assert_eq!(g.node_count(), 11);
+        // Two ports connecting to two DataRegs, which both connect to one output DataReg
+        // Plus internal connections for DataRegs: 2 + 2 + 2 + 2 + 2 = 10 edges
+        assert_eq!(g.edge_count(), 10);
+    }
+
+    #[test]
+    fn parse_complex_adjacency_list() {
+        let input = r#"
+            Port "input" [("reg1", 10), ("reg2", 20), ("reg3", 30), ("reg4", 40)]
+            DataReg "reg1" [("output", 50)]
+            DataReg "reg2" [("output", 60)]
+            DataReg "reg3" [("output", 70)]
+            DataReg "reg4" [("output", 80)]
+            Port "output" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let g = result.unwrap();
+        // 2 Ports (2 nodes) + 4 DataRegs (12 nodes, 3 each) = 14 nodes total
+        assert_eq!(g.node_count(), 14);
+        // 4 connections from input to DataRegs + 4 connections from DataRegs to output + 8 internal DataReg connections (2 each) = 16 edges
+        assert_eq!(g.edge_count(), 16);
+    }
+
+    #[test]
+    fn parse_all_register_types() {
+        let input = r#"
+            Port "input" [("data_reg", 100)]
+            DataReg "data_reg" [("null_reg", 200)]
+            NullReg "null_reg" [("control_reg", 300)]
+            ControlReg "control_reg" [("unsafe_reg", 400)]
+            UnsafeReg "unsafe_reg" [("output", 500)]
+            Port "output" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let g = result.unwrap();
+        // 2 Ports + 1 DataReg (3 nodes) + 1 NullReg + 1 ControlReg + 1 UnsafeReg (2 nodes) = 9 nodes total
+        assert_eq!(g.node_count(), 9);
+        // 5 explicit connections + 2 internal DataReg connections + 1 internal UnsafeReg connection = 8 edges
+        assert_eq!(g.edge_count(), 8);
+    }
+
+    #[test]
+    fn parse_floating_point_weights() {
+        let input = r#"
+            Port "input" [("reg1", 10.5), ("reg2", 20.75)]
+            DataReg "reg1" [("output", 100.0)]
+            DataReg "reg2" [("output", 150.25)]
+            Port "output" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let g = result.unwrap();
+        // 2 Ports + 2 DataRegs (6 nodes, 3 each) = 8 nodes total
+        assert_eq!(g.node_count(), 8);
+        // 2 connections from input to DataRegs + 2 connections from DataRegs to output + 4 internal DataReg connections = 8 edges
+        assert_eq!(g.edge_count(), 8);
+    }
+
+    #[test]
+    fn parse_test_graph_format() {
+        // Test the exact format from test.graph file
+        let input = r#"Port "a" [("b", 20)]
+Port "b" []"#;
+        let result = parse(input);
+        assert!(matches!(result, Ok(_)));
+
+        let g = result.unwrap();
+        assert_eq!(g.node_count(), 2); // Two ports
+        assert_eq!(g.edge_count(), 1); // One connection from a to b
     }
 }
