@@ -1,4 +1,4 @@
-use super::{hbcn::PathConstraints, structural_graph::CircuitNode};
+use crate::{hbcn::PathConstraints, structural_graph::CircuitNode};
 use lazy_static::*;
 use regex::Regex;
 use std::io::{self, Write};

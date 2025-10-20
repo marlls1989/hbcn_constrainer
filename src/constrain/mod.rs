@@ -13,9 +13,11 @@ use rayon::prelude::*;
 
 use crate::{
     hbcn::{self, *},
-    read_file, sdc,
+    read_file,
     structural_graph::CircuitNode,
 };
+
+mod sdc;
 
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
@@ -46,14 +48,6 @@ pub struct ConstrainArgs {
     #[clap(long)]
     vcd: Option<PathBuf>,
 
-    /// Enable reflexive paths for WInDS (deprecated)
-    #[clap(short, long)]
-    reflexive_paths: bool,
-
-    /// Constraint tight self loops (for MouseTrap)
-    #[clap(long)]
-    tight_self_loops: Option<f64>,
-
     /// Use pseudo-clock to constrain paths
     #[clap(long)]
     no_proportinal: bool,
@@ -80,8 +74,6 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         ref csv,
         ref rpt,
         ref vcd,
-        reflexive_paths,
-        tight_self_loops,
         no_proportinal,
         no_forward_completion,
         forward_margin,
@@ -91,10 +83,10 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let forward_margin = forward_margin.map(|x| 1.0 - (x as f64 / 100.0));
     let backward_margin = backward_margin.map(|x| 1.0 - (x as f64 / 100.0));
 
-    let mut constraints = {
+    let constraints = {
         let hbcn = {
             let g = read_file(&input)?;
-            from_structural_graph(&g, reflexive_paths, forward_completion)
+            from_structural_graph(&g, forward_completion)
                 .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?
         };
 
@@ -113,9 +105,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
     let hbcn = &constraints.hbcn;
 
-    if let Some(val) = tight_self_loops {
-        constrain_selfreflexive_paths(&mut constraints.path_constraints, val);
-    }
+    // Note: Self-reflexive path constraints have been removed
 
     if let Some(output) = csv {
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
