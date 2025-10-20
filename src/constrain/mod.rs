@@ -20,11 +20,10 @@ use crate::{
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
     /// Structural graph input file
-    #[clap(value_parser = clap::value_parser!(std::path::PathBuf))]
     input: PathBuf,
 
     /// Output SDC constraints file
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     sdc: PathBuf,
 
     /// Cycle-time constraint
@@ -36,15 +35,15 @@ pub struct ConstrainArgs {
     minimal_delay: f64,
 
     /// Output CSV file
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     csv: Option<PathBuf>,
 
     /// Output report file
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     rpt: Option<PathBuf>,
 
     /// Output VCD file with arrival times
-    #[clap(long, value_parser = clap::value_parser!(std::path::PathBuf))]
+    #[clap(long)]
     vcd: Option<PathBuf>,
 
     /// Enable reflexive paths for WInDS (deprecated)
