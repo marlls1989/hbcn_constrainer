@@ -18,6 +18,8 @@ use crate::{
 };
 
 mod sdc;
+#[cfg(test)]
+mod tests;
 
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {

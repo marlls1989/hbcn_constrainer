@@ -28,7 +28,10 @@ impl fmt::Display for AppError {
 impl Error for AppError {}
 
 #[derive(Debug, Parser)]
-#[clap(name = "HBCN Tools", about = "Pulsar HBCN timing analysis tools")]
+#[clap(
+    name = "HBCN Tools",
+    about = "Pulsar Half-buffer Channel Network timing analysis tools"
+)]
 enum CLIArguments {
     /// Find longest path depth in the HBCN
     Depth(DepthArgs),
