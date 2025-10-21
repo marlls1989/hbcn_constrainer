@@ -1,9 +1,10 @@
 //! Linear Programming (LP) solver abstraction layer
 //! 
 //! This module provides a trait-based abstraction for LP solvers, allowing the codebase
-//! to be independent of specific solver implementations like Gurobi.
+//! to be independent of specific solver implementations like Gurobi and coin_cbc.
 
 use anyhow::Result;
+use std::env;
 
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,6 +54,54 @@ pub enum OptimizationStatus {
     InfeasibleOrUnbounded,
     /// Other status (solver-specific)
     Other(&'static str),
+}
+
+/// Available LP solver backends
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SolverBackend {
+    /// Gurobi commercial solver
+    Gurobi,
+    /// Coin CBC open-source solver
+    CoinCbc,
+}
+
+impl SolverBackend {
+    /// Get the solver backend from environment variable or use fallback logic
+    pub fn from_env_or_default() -> Result<Self> {
+        // Check if HBCN_LP_SOLVER environment variable is set
+        if let Ok(solver_name) = env::var("HBCN_LP_SOLVER") {
+            match solver_name.to_lowercase().as_str() {
+                "gurobi" => {
+                    #[cfg(feature = "gurobi")]
+                    return Ok(SolverBackend::Gurobi);
+                    #[cfg(not(feature = "gurobi"))]
+                    return Err(anyhow::anyhow!("Gurobi solver requested via HBCN_LP_SOLVER but gurobi feature not enabled"));
+                }
+                "coin_cbc" | "coin-cbc" | "cbc" => {
+                    #[cfg(feature = "coin_cbc")]
+                    return Ok(SolverBackend::CoinCbc);
+                    #[cfg(not(feature = "coin_cbc"))]
+                    return Err(anyhow::anyhow!("Coin CBC solver requested via HBCN_LP_SOLVER but coin_cbc feature not enabled"));
+                }
+                _ => {
+                    return Err(anyhow::anyhow!("Invalid solver '{}' in HBCN_LP_SOLVER. Valid options: gurobi, coin_cbc", solver_name));
+                }
+            }
+        }
+        
+        // Fallback logic: prefer gurobi if available, then coin_cbc
+        #[cfg(all(feature = "gurobi", not(feature = "coin_cbc")))]
+        return Ok(SolverBackend::Gurobi);
+        
+        #[cfg(all(feature = "coin_cbc", not(feature = "gurobi")))]
+        return Ok(SolverBackend::CoinCbc);
+        
+        #[cfg(all(feature = "gurobi", feature = "coin_cbc"))]
+        return Ok(SolverBackend::Gurobi); // Prefer gurobi when both are available
+        
+        #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
+        Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"))
+    }
 }
 
 /// A linear expression term: coefficient * variable
@@ -139,13 +188,99 @@ pub struct VariableId(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConstraintId(usize);
 
-/// Trait for LP solver implementations
+/// Result of solving an LP model
+#[derive(Debug, Clone)]
+pub struct LPSolution {
+    pub status: OptimizationStatus,
+    pub objective_value: f64,
+    pub variable_values: std::collections::HashMap<VariableId, f64>,
+}
+
+/// Builder for LP models that can work with different backends
+pub struct LPModelBuilder {
+    variables: std::collections::HashMap<VariableId, (String, VariableType, f64, f64)>,
+    constraints: Vec<(String, LinearExpression, ConstraintSense, f64)>,
+    objective: Option<(LinearExpression, OptimizationSense)>,
+    next_var_id: usize,
+    next_constr_id: usize,
+}
+
+impl LPModelBuilder {
+    /// Create a new LP model builder
+    pub fn new() -> Self {
+        Self {
+            variables: std::collections::HashMap::new(),
+            constraints: Vec::new(),
+            objective: None,
+            next_var_id: 0,
+            next_constr_id: 0,
+        }
+    }
+
+    /// Add a variable to the model
+    pub fn add_variable(
+        &mut self,
+        name: &str,
+        var_type: VariableType,
+        lower_bound: f64,
+        upper_bound: f64,
+    ) -> VariableId {
+        let var_id = VariableId(self.next_var_id);
+        self.next_var_id += 1;
+        self.variables.insert(var_id, (name.to_string(), var_type, lower_bound, upper_bound));
+        var_id
+    }
+
+    /// Add a constraint to the model
+    pub fn add_constraint(
+        &mut self,
+        name: &str,
+        expression: LinearExpression,
+        sense: ConstraintSense,
+        rhs: f64,
+    ) -> ConstraintId {
+        let constr_id = ConstraintId(self.next_constr_id);
+        self.next_constr_id += 1;
+        self.constraints.push((name.to_string(), expression, sense, rhs));
+        constr_id
+    }
+
+    /// Set the objective function
+    pub fn set_objective(&mut self, expression: LinearExpression, sense: OptimizationSense) {
+        self.objective = Some((expression, sense));
+    }
+
+    /// Solve the model using the specified solver
+    pub fn solve(self) -> Result<LPSolution> {
+        let solver = SolverBackend::from_env_or_default()?;
+        
+        match solver {
+            #[cfg(feature = "gurobi")]
+            SolverBackend::Gurobi => crate::lp_solver::gurobi::solve_gurobi(self),
+            #[cfg(not(feature = "gurobi"))]
+            SolverBackend::Gurobi => Err(anyhow::anyhow!("Gurobi solver selected but gurobi feature not enabled")),
+            
+            #[cfg(feature = "coin_cbc")]
+            SolverBackend::CoinCbc => crate::lp_solver::coin_cbc::solve_coin_cbc(self),
+            #[cfg(not(feature = "coin_cbc"))]
+            SolverBackend::CoinCbc => Err(anyhow::anyhow!("Coin CBC solver selected but coin_cbc feature not enabled")),
+        }
+    }
+}
+
+impl Default for LPModelBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Legacy trait for backward compatibility (deprecated)
 pub trait LPSolver {
     /// Create a new LP model
     fn new_model(&self, name: &str) -> Result<Box<dyn LPModel>>;
 }
 
-/// Trait for LP model operations
+/// Legacy trait for backward compatibility (deprecated)
 pub trait LPModel {
     /// Add a variable to the model
     fn add_variable(
@@ -190,19 +325,29 @@ pub trait LPModel {
     fn num_constraints(&self) -> usize;
 }
 
-/// Factory function to create an LP model
+/// Factory function to create an LP model (legacy - use LPModelBuilder instead)
 pub fn create_lp_model(name: &str) -> Result<Box<dyn LPModel>> {
     #[cfg(feature = "gurobi")]
     {
         let solver = crate::lp_solver::gurobi::GurobiSolver;
-        solver.new_model(name)
+        return solver.new_model(name);
     }
     
-    #[cfg(not(feature = "gurobi"))]
+    #[cfg(feature = "coin_cbc")]
     {
-        Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi')"))
+        // coin_cbc doesn't have a legacy solver interface, use LPModelBuilder instead
+        Err(anyhow::anyhow!("Legacy solver interface not available for coin_cbc. Use LPModelBuilder instead."))
+    }
+    
+    #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
+    {
+        Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"))
     }
 }
 
 #[cfg(feature = "gurobi")]
 pub mod gurobi;
+
+
+#[cfg(feature = "coin_cbc")]
+pub mod coin_cbc;

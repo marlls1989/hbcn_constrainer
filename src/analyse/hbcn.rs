@@ -89,16 +89,15 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 
 /// Compute cycle time for an HBCN using linear programming
 pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
-    let mut m = crate::lp_solver::create_lp_model("analysis")?;
-    let cycle_time = m.add_variable("cycle_time", VariableType::Integer, 0.0, f64::INFINITY)?;
+    let mut builder = crate::lp_solver::LPModelBuilder::new();
+    let cycle_time = builder.add_variable("cycle_time", VariableType::Integer, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                m.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                    .unwrap(),
+                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -109,26 +108,23 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let place = &hbcn[ie];
 
-            let slack = m
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                .unwrap();
+            let slack = builder
+                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
-            let delay = m
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                .unwrap();
+            let delay = builder
+                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
             let mut expr1 = LinearExpression::new(0.0);
             expr1.add_term(1.0, delay);
             expr1.add_term(-1.0, slack);
 
-            m.add_constraint(
+            builder.add_constraint(
                 "",
                 expr1,
                 ConstraintSense::Equal,
                 if weighted { place.weight as f64 } else { 1.0 },
-            )
-            .unwrap();
+            );
 
             // Constraint: arr_var[dst] - arr_var[src] - delay + (if place.token { 1.0 } else { 0.0 }) * cycle_time = 0.0
             let mut expr2 = LinearExpression::new(0.0);
@@ -139,28 +135,26 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                 expr2.add_term(1.0, cycle_time);
             }
 
-            m.add_constraint("", expr2, ConstraintSense::Equal, 0.0).unwrap();
+            builder.add_constraint("", expr2, ConstraintSense::Equal, 0.0);
 
             (ie, (delay, slack))
         })
         .collect();
 
-    m.update()?;
-
     let cycle_time_expr = LinearExpression::from_variable(cycle_time);
-    m.set_objective(cycle_time_expr, OptimizationSense::Minimize)?;
+    builder.set_objective(cycle_time_expr, OptimizationSense::Minimize);
 
-    m.optimize()?;
-    if m.status()? == OptimizationStatus::InfeasibleOrUnbounded {
+    let solution = builder.solve()?;
+    if solution.status == OptimizationStatus::InfeasibleOrUnbounded {
         Err(AppError::Infeasible.into())
     } else {
         Ok((
-            m.get_objective_value()?,
+            solution.objective_value,
             hbcn.filter_map(
                 |ix, x| {
                     Some(TransitionEvent {
                         transition: x.clone(),
-                        time: m.get_variable_value(arr_var[&ix]).ok()?,
+                        time: solution.variable_values.get(&arr_var[&ix]).copied()?,
                     })
                 },
                 |ie, e| {
@@ -169,9 +163,9 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                         place: e.clone(),
                         delay: DelayPair {
                             min: None,
-                            max: m.get_variable_value(*delay_var).ok(),
+                            max: solution.variable_values.get(delay_var).copied(),
                         },
-                        slack: m.get_variable_value(*slack_var).ok(),
+                        slack: solution.variable_values.get(slack_var).copied(),
                         ..Default::default()
                     })
                 },

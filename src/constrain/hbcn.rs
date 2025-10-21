@@ -30,22 +30,21 @@ pub fn constrain_cycle_time_pseudoclock(
 ) -> anyhow::Result<ConstrainerResult> {
     assert!(ct > 0.0);
 
-    let mut m = crate::lp_solver::create_lp_model("constrain")?;
+    let mut builder = crate::lp_solver::LPModelBuilder::new();
 
-    let pseudo_clock = m.add_variable(
+    let pseudo_clock = builder.add_variable(
         "pseudo_clock",
         VariableType::Continuous,
         0.0,
         f64::INFINITY,
-    )?;
+    );
 
     let arr_var: HashMap<NodeIndex, VariableId> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                m.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                    .unwrap(),
+                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -60,7 +59,7 @@ pub fn constrain_cycle_time_pseudoclock(
         .collect();
 
     for v in delay_vars.values_mut() {
-        *v = Some(m.add_variable("", VariableType::Continuous, min_delay, f64::INFINITY)?);
+        *v = Some(builder.add_variable("", VariableType::Continuous, min_delay, f64::INFINITY));
     }
 
     for ie in hbcn.edge_indices() {
@@ -76,40 +75,38 @@ pub fn constrain_cycle_time_pseudoclock(
         expr.add_term(1.0, arr_var[&src]);
         expr.add_term(-1.0, arr_var[&dst]);
 
-        m.add_constraint(
+        builder.add_constraint(
             "",
             expr,
             ConstraintSense::Equal,
             if place.token { ct } else { 0.0 },
-        )?;
+        );
 
         if place.is_internal {
             let delay_expr = LinearExpression::from_variable(*delay);
-            m.add_constraint("", delay_expr, ConstraintSense::Greater, min_delay)?;
+            builder.add_constraint("", delay_expr, ConstraintSense::Greater, min_delay);
         } else {
             let mut delay_expr = LinearExpression::from_variable(*delay);
             delay_expr.add_term(-1.0, pseudo_clock);
-            m.add_constraint("", delay_expr, ConstraintSense::Greater, 0.0)?;
+            builder.add_constraint("", delay_expr, ConstraintSense::Greater, 0.0);
         }
     }
 
-    m.update()?;
-
     let pseudo_clock_expr = LinearExpression::from_variable(pseudo_clock);
-    m.set_objective(pseudo_clock_expr, OptimizationSense::Maximize)?;
+    builder.set_objective(pseudo_clock_expr, OptimizationSense::Maximize);
 
-    m.optimize()?;
+    let solution = builder.solve()?;
 
-    let pseudo_clock_value = m.get_variable_value(pseudo_clock)?;
-
-    match m.status()? {
-        OptimizationStatus::Optimal | OptimizationStatus::Feasible => Ok(ConstrainerResult {
-            pseudoclock_period: pseudo_clock_value,
+    match solution.status {
+        OptimizationStatus::Optimal | OptimizationStatus::Feasible => {
+            let pseudo_clock_value = solution.variable_values[&pseudo_clock];
+            Ok(ConstrainerResult {
+                pseudoclock_period: pseudo_clock_value,
             path_constraints: delay_vars
                 .iter()
                 .filter_map(|((src, dst), var)| {
                     var.map(|var_id| {
-                        let delay_value = m.get_variable_value(var_id).ok()?;
+                        let delay_value = *solution.variable_values.get(&var_id)?;
                         Some((
                             (CircuitNode::clone(src), CircuitNode::clone(dst)),
                             DelayPair {
@@ -123,16 +120,17 @@ pub fn constrain_cycle_time_pseudoclock(
             hbcn: hbcn.map(
                 |ix, x| TransitionEvent {
                     transition: x.clone(),
-                    time: m
-                        .get_variable_value(arr_var[&ix])
-                        .ok()
+                    time: solution
+                        .variable_values
+                        .get(&arr_var[&ix])
+                        .copied()
                         .unwrap_or(0.0),
                 },
                 |ie, e| {
                     let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
                     let delay_value = delay_vars
                         [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
-                        .and_then(|var_id| m.get_variable_value(var_id).ok())
+                        .and_then(|var_id| solution.variable_values.get(&var_id).copied())
                         .filter(|x| (*x - min_delay) / min_delay > 0.001);
                     
                     DelayedPlace {
@@ -145,7 +143,8 @@ pub fn constrain_cycle_time_pseudoclock(
                     }
                 },
             ),
-        }),
+        })
+        },
         _ => Err(AppError::Infeasible.into()),
     }
 }
@@ -167,17 +166,16 @@ pub fn constrain_cycle_time_proportional(
         slack: VariableId,
     }
 
-    let mut m = crate::lp_solver::create_lp_model("constrain")?;
+    let mut builder = crate::lp_solver::LPModelBuilder::new();
 
-    let factor = m.add_variable("factor", VariableType::Continuous, 0.0, f64::INFINITY)?;
+    let factor = builder.add_variable("factor", VariableType::Continuous, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                m.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                    .unwrap(),
+                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -187,15 +185,12 @@ pub fn constrain_cycle_time_proportional(
         .map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
-            let max = m
-                .add_variable("", VariableType::Continuous, min_delay, f64::INFINITY)
-                .unwrap();
-            let min = m
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                .unwrap();
-            let slack = m
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY)
-                .unwrap();
+            let max = builder
+                .add_variable("", VariableType::Continuous, min_delay, f64::INFINITY);
+            let min = builder
+                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let slack = builder
+                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
             (
                 (hbcn[src].circuit_node(), hbcn[dst].circuit_node()),
@@ -218,12 +213,12 @@ pub fn constrain_cycle_time_proportional(
         expr1.add_term(1.0, arr_var[&src]);
         expr1.add_term(-1.0, arr_var[&dst]);
 
-        m.add_constraint(
+        builder.add_constraint(
             "",
             expr1,
             ConstraintSense::Equal,
             if place.token { ct } else { 0.0 },
-        )?;
+        );
 
         // Constraint: delay_var.max - place.weight * factor - delay_var.slack = 0.0
         let mut expr2 = LinearExpression::new(0.0);
@@ -231,7 +226,7 @@ pub fn constrain_cycle_time_proportional(
         expr2.add_term(-place.weight, factor);
         expr2.add_term(-1.0, delay_var.slack);
 
-        m.add_constraint("", expr2, ConstraintSense::Equal, 0.0)?;
+        builder.add_constraint("", expr2, ConstraintSense::Equal, 0.0);
 
         if !place.is_internal {
             if place.backward {
@@ -241,7 +236,7 @@ pub fn constrain_cycle_time_proportional(
                     expr3.add_term(-1.0, matching_delay.max);
                     expr3.add_term(1.0, matching_delay.min);
 
-                    m.add_constraint("", expr3, ConstraintSense::Equal, 0.0)?;
+                    builder.add_constraint("", expr3, ConstraintSense::Equal, 0.0);
                 }
                 if let Some(bm) = backward_margin {
                     let mut expr4 = LinearExpression::new(0.0);
@@ -254,44 +249,44 @@ pub fn constrain_cycle_time_proportional(
                         ConstraintSense::Equal
                     };
 
-                    m.add_constraint("", expr4, sense, 0.0)?;
+                    builder.add_constraint("", expr4, sense, 0.0);
                 } else if forward_margin.is_some() {
                     let mut expr5 = LinearExpression::new(0.0);
                     expr5.add_term(1.0, delay_var.max);
                     expr5.add_term(-1.0, delay_var.min);
 
-                    m.add_constraint("", expr5, ConstraintSense::GreaterEqual, 0.0)?;
+                    builder.add_constraint("", expr5, ConstraintSense::GreaterEqual, 0.0);
                 }
             } else if let Some(fm) = forward_margin {
                 let mut expr6 = LinearExpression::new(0.0);
                 expr6.add_term(fm, delay_var.max);
                 expr6.add_term(-1.0, delay_var.min);
 
-                m.add_constraint("", expr6, ConstraintSense::Equal, 0.0)?;
+                builder.add_constraint("", expr6, ConstraintSense::Equal, 0.0);
             }
         }
     }
 
-    m.update()?;
-
     let factor_expr = LinearExpression::from_variable(factor);
-    m.set_objective(factor_expr, OptimizationSense::Maximize)?;
+    builder.set_objective(factor_expr, OptimizationSense::Maximize);
 
-    m.optimize()?;
+    let solution = builder.solve()?;
 
-    match m.status()? {
+    match solution.status {
         OptimizationStatus::Optimal | OptimizationStatus::Feasible => Ok(ConstrainerResult {
             pseudoclock_period: min_delay,
             path_constraints: delay_vars
                 .iter()
                 .map(|((src, dst), var)| {
-                    let min = m
-                        .get_variable_value(var.min)
-                        .ok()
+                    let min = solution
+                        .variable_values
+                        .get(&var.min)
+                        .copied()
                         .filter(|x| *x > 0.001);
-                    let max = m
-                        .get_variable_value(var.max)
-                        .ok()
+                    let max = solution
+                        .variable_values
+                        .get(&var.max)
+                        .copied()
                         .filter(|x| (*x - min_delay) / min_delay > 0.001);
                     (
                         (CircuitNode::clone(src), CircuitNode::clone(dst)),
@@ -302,9 +297,10 @@ pub fn constrain_cycle_time_proportional(
             hbcn: hbcn.map(
                 |ix, x| TransitionEvent {
                     transition: x.clone(),
-                    time: m
-                        .get_variable_value(arr_var[&ix])
-                        .ok()
+                    time: solution
+                        .variable_values
+                        .get(&arr_var[&ix])
+                        .copied()
                         .unwrap_or(0.0),
                 },
                 |ie, e| {
@@ -313,10 +309,10 @@ pub fn constrain_cycle_time_proportional(
                     
                     DelayedPlace {
                         place: e.clone(),
-                        slack: m.get_variable_value(delay_var.slack).ok(),
+                        slack: solution.variable_values.get(&delay_var.slack).copied(),
                         delay: DelayPair {
-                            min: m.get_variable_value(delay_var.min).ok(),
-                            max: m.get_variable_value(delay_var.max).ok(),
+                            min: solution.variable_values.get(&delay_var.min).copied(),
+                            max: solution.variable_values.get(&delay_var.max).copied(),
                         },
                     }
                 },
