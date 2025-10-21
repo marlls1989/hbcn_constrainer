@@ -9,7 +9,8 @@ use std::{
 };
 
 use anyhow::*;
-use gurobi::{ConstrSense::*, Env, INFINITY, Model, ModelSense::*, Status, Var, VarType::*, attr};
+use gurobi::{ConstrSense::*, Env, INFINITY, Model, ModelSense::*, Status, Var, VarType::*, attr, param};
+use gag::Gag;
 use itertools::Itertools;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
@@ -27,6 +28,15 @@ fn clog2(x: usize) -> u32 {
 
 // Timing constants for delay/cost calculations
 const DEFAULT_REGISTER_DELAY: f64 = 10.0;
+
+/// Create a quiet Gurobi environment that suppresses all console output
+/// This is useful for tests and when you don't want Gurobi's verbose output
+fn create_quiet_gurobi_env(logfile: &str) -> Result<Env> {
+    let mut env = Env::new(logfile)?;
+    // Suppress all Gurobi output including solver logs and license information
+    env.set(param::OutputFlag, 0)?;
+    Ok(env)
+}
 
 pub trait HasTransition {
     fn transition(&self) -> &Transition;
@@ -386,7 +396,11 @@ pub fn constrain_cycle_time_pseudoclock(
 ) -> Result<ConstrainerResult> {
     assert!(ct > 0.0);
 
-    let env = Env::new("hbcn.log")?;
+    // Suppress console output during Gurobi operations
+    let _gag_stdout = Gag::stdout().ok();
+    let _gag_stderr = Gag::stderr().ok();
+
+    let env = create_quiet_gurobi_env("hbcn.log")?;
     let mut m = Model::new("constrain", &env)?;
 
     let pseudo_clock = m.add_var(
@@ -515,13 +529,17 @@ pub fn constrain_cycle_time_proportional(
     assert!(ct > 0.0);
     assert!(min_delay >= 0.0);
 
+    // Suppress console output during Gurobi operations
+    let _gag_stdout = Gag::stdout().ok();
+    let _gag_stderr = Gag::stderr().ok();
+
     struct DelayVarPair {
         max: Var,
         min: Var,
         slack: Var,
     }
 
-    let env = Env::new("hbcn.log")?;
+    let env = create_quiet_gurobi_env("hbcn.log")?;
     let mut m = Model::new("constrain", &env)?;
 
     let factor = m.add_var("factor", Continuous, 0.0, 0.0, INFINITY, &[], &[])?;
@@ -699,7 +717,11 @@ pub fn constrain_cycle_time_proportional(
 }
 
 pub fn compute_cycle_time(hbcn: &HBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
-    let env = Env::new("hbcn.log")?;
+    // Suppress console output during Gurobi operations
+    let _gag_stdout = Gag::stdout().ok();
+    let _gag_stderr = Gag::stderr().ok();
+    
+    let env = create_quiet_gurobi_env("hbcn.log")?;
     let mut m = Model::new("analysis", &env)?;
     let cycle_time = m.add_var("cycle_time", Integer, 0.0, 0.0, INFINITY, &[], &[])?;
 
