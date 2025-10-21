@@ -15,37 +15,41 @@ fn round_to_6_sig_digits(value: f64) -> f64 {
 }
 
 /// Solve an LP model using Coin CBC
-pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
+pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
     let mut model = Model::default();
     let mut var_map = HashMap::new();
     
     // Add variables to the model
-    for (var_id, (_name, var_type, lower_bound, upper_bound)) in &builder.variables {
-        let col = match var_type {
+    for (idx, var_info) in builder.variables.iter().enumerate() {
+        let col = match var_info.var_type {
             VariableType::Continuous => {
                 let col = model.add_col();
-                model.set_col_lower(col, *lower_bound);
-                model.set_col_upper(col, *upper_bound);
+                model.set_col_lower(col, var_info.lower_bound);
+                model.set_col_upper(col, var_info.upper_bound);
                 col
             }
             VariableType::Integer => {
                 let col = model.add_integer();
-                model.set_col_lower(col, *lower_bound);
-                model.set_col_upper(col, *upper_bound);
+                model.set_col_lower(col, var_info.lower_bound);
+                model.set_col_upper(col, var_info.upper_bound);
                 col
             }
             VariableType::Binary => {
                 model.add_binary()
             }
         };
-        var_map.insert(*var_id, col);
+        let var_id = VariableId {
+            id: idx,
+            _brand: std::marker::PhantomData,
+        };
+        var_map.insert(var_id, col);
     }
     
     // Add constraints
-    for (_, expression, sense, rhs) in &builder.constraints {
+    for constraint in &builder.constraints {
         let row = model.add_row();
         
-        for term in &expression.terms {
+        for term in &constraint.expression.terms {
             if let Some(&col) = var_map.get(&term.variable) {
                 model.set_weight(row, col, term.coefficient);
             } else {
@@ -54,10 +58,10 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
         }
         
         // Handle constant term
-        let rhs_adjusted = rhs - expression.constant;
+        let rhs_adjusted = constraint.rhs - constraint.expression.constant;
         
         // Add constraint based on sense
-        match sense {
+        match constraint.sense {
             ConstraintSense::LessEqual => {
                 model.set_row_upper(row, rhs_adjusted);
             }
@@ -75,8 +79,8 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
     }
     
     // Set objective function
-    if let Some((expression, sense)) = &builder.objective {
-        for term in &expression.terms {
+    if let Some(obj_info) = &builder.objective {
+        for term in &obj_info.expression.terms {
             if let Some(&col) = var_map.get(&term.variable) {
                 model.set_obj_coeff(col, term.coefficient);
             } else {
@@ -84,7 +88,7 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
             }
         }
         
-        let sense = match sense {
+        let sense = match obj_info.sense {
             OptimizationSense::Minimize => Sense::Minimize,
             OptimizationSense::Maximize => Sense::Maximize,
         };
@@ -96,19 +100,19 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
     let solution = model.solve();
     
     // Extract variable values from solution
-    let mut variable_values = HashMap::new();
+    let num_vars = builder.variables.len();
+    let mut variable_values = vec![0.0; num_vars];
     for (var_id, col) in var_map.iter() {
         let value = round_to_6_sig_digits(solution.col(*col));
-        variable_values.insert(*var_id, value);
+        variable_values[var_id.id] = value;
     }
     
     // Calculate objective value
-    let objective_value = if let Some((expression, _)) = &builder.objective {
-        let mut obj_val = expression.constant;
-        for term in &expression.terms {
-            if let Some(&value) = variable_values.get(&term.variable) {
-                obj_val += term.coefficient * value;
-            }
+    let objective_value = if let Some(obj_info) = &builder.objective {
+        let mut obj_val = obj_info.expression.constant;
+        for term in &obj_info.expression.terms {
+            let value = variable_values[term.variable.id];
+            obj_val += term.coefficient * value;
         }
         round_to_6_sig_digits(obj_val)
     } else {
@@ -128,5 +132,6 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
         status,
         objective_value,
         variable_values,
+        _brand: std::marker::PhantomData,
     })
 }

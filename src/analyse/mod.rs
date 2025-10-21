@@ -18,21 +18,21 @@ pub mod vcd;
 #[derive(Parser, Debug)]
 pub struct AnalyseArgs {
     /// Structural graph input file
-    input: PathBuf,
+    pub input: PathBuf,
 
     /// VCD waveform file with virtual-delay arrival times
     #[clap(long)]
-    vcd: Option<PathBuf>,
+    pub vcd: Option<PathBuf>,
 
     /// DOT file displaying the StructuralHBCN marked graph
     #[clap(long)]
-    dot: Option<PathBuf>,
+    pub dot: Option<PathBuf>,
 }
 
 #[derive(Parser, Debug)]
 pub struct DepthArgs {
     /// Structural graph input file
-    input: PathBuf,
+    pub input: PathBuf,
 }
 
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {

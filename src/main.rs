@@ -1,51 +1,6 @@
-mod analyse;
-mod constrain;
-mod hbcn;
-mod lp_solver;
-mod structural_graph;
-
-use std::{error::Error, fmt, fs, path::Path};
-
-use crate::analyse::*;
-use crate::constrain::*;
-use anyhow::*;
+use hbcn::{CLIArguments, constrain_main, analyse_main, depth_main};
 use clap::Parser;
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum AppError {
-    Infeasible,
-    NoOutput,
-}
-
-impl fmt::Display for AppError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AppError::NoOutput => write!(f, "At least one output must be selected."),
-            AppError::Infeasible => write!(f, "Problem Infeasible"),
-        }
-    }
-}
-
-impl Error for AppError {}
-
-#[derive(Debug, Parser)]
-#[clap(
-    name = "HBCN Tools",
-    about = "Pulsar Half-buffer Channel Network timing analysis tools"
-)]
-enum CLIArguments {
-    /// Find longest path depth in the HBCN
-    Depth(DepthArgs),
-    /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
-    Analyse(AnalyseArgs),
-    /// Constrain the cycle-time using continous proportional constraints.
-    Constrain(ConstrainArgs),
-}
-
-fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> {
-    let file = fs::read_to_string(file_name)?;
-    Ok(structural_graph::parse(&file)?)
-}
+use anyhow::Result;
 
 fn main() -> Result<()> {
     let args = CLIArguments::parse();
