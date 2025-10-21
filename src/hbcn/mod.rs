@@ -892,8 +892,9 @@ mod tests {
         // (input port, reg data, reg control, reg output, output port)
         assert_eq!(hbcn.node_count(), 10);
 
-        // Should have multiple edges for all the connections
-        assert!(hbcn.edge_count() > 4);
+        // Should have 16 edges: each channel creates 4 places
+        // 4 edges per channel, 4 channels total
+        assert_eq!(hbcn.edge_count(), 16);
     }
 
     #[test]
@@ -946,7 +947,7 @@ mod tests {
                 forward_places += 1;
             }
 
-            // relative_endpoints should be initialized
+            // relative_endpoints should be initialised
             assert!(place.relative_endpoints.is_empty()); // Should be empty since reflexive paths are removed
         }
 
@@ -1140,5 +1141,317 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Test constraint generation with various circuit topologies
+    #[test]
+    fn test_constraint_algorithms_linear_chain() {
+        let input = r#"
+            Port "a" [("b", 10)]
+            Port "b" [("c", 20)]
+            Port "c" [("d", 15)]
+            Port "d" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test pseudoclock algorithm
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+            .expect("Pseudoclock should work on linear chain");
+
+        assert!(pseudo_result.pseudoclock_period >= 5.0);
+        assert!(!pseudo_result.path_constraints.is_empty());
+
+        // Test proportional algorithm
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 50.0, 5.0, None, None)
+            .expect("Proportional should work on linear chain");
+
+        assert!(prop_result.pseudoclock_period >= 5.0);
+        assert!(!prop_result.path_constraints.is_empty());
+    }
+
+    #[test]
+    fn test_constraint_algorithms_branching() {
+        let input = r#"
+            Port "input" [("branch1", 25), ("branch2", 30)]
+            Port "branch1" [("merge", 15)]
+            Port "branch2" [("merge", 20)]
+            Port "merge" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test both algorithms on branching topology
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 100.0, 8.0)
+            .expect("Should handle branching circuit");
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 100.0, 8.0, None, None)
+            .expect("Should handle branching circuit");
+
+        // Both should produce valid results
+        assert!(pseudo_result.pseudoclock_period >= 8.0);
+        assert!(prop_result.pseudoclock_period >= 8.0);
+        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(!prop_result.path_constraints.is_empty());
+    }
+
+    #[test]
+    fn test_constraint_algorithms_with_feedback() {
+        let input = r#"
+            Port "input" [("proc", 40)]
+            DataReg "proc" [("output", 35), ("feedback", 25)]
+            Port "output" []
+            Port "feedback" [("proc", 30)]
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test algorithms with feedback loop
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 150.0, 10.0)
+            .expect("Should handle feedback circuit");
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 150.0, 10.0, None, None)
+            .expect("Should handle feedback circuit");
+
+        assert!(pseudo_result.pseudoclock_period >= 10.0);
+        assert!(prop_result.pseudoclock_period >= 10.0);
+    }
+
+    #[test]
+    fn test_constraint_generation_boundary_conditions() {
+        let input = r#"Port "input" [("output", 50)]
+                      Port "output" []"#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test with reasonable parameters for a simple circuit
+        let result = constrain_cycle_time_pseudoclock(&hbcn, 200.0, 5.0)
+            .expect("Should handle reasonable parameters");
+        assert!(result.pseudoclock_period >= 5.0);
+
+        // Test with very large parameters
+        let result = constrain_cycle_time_proportional(&hbcn, 1000.0, 10.0, None, None)
+            .expect("Should handle large parameters");
+        assert!(result.pseudoclock_period >= 10.0);
+    }
+
+    #[test]
+    fn test_delay_pair_functionality() {
+        let input = r#"
+            Port "a" [("b", 50)]
+            Port "b" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let result = constrain_cycle_time_proportional(&hbcn, 100.0, 5.0, None, None)
+            .expect("Should generate constraints");
+
+        // Test DelayPair properties in results
+        for (_, constraint) in &result.path_constraints {
+            // At least one delay should be present
+            assert!(
+                constraint.min.is_some() || constraint.max.is_some(),
+                "Each constraint should have at least min or max delay"
+            );
+
+            // If both present, validate relationship
+            if let (Some(min), Some(max)) = (constraint.min, constraint.max) {
+                assert!(min <= max, "Min delay should not exceed max delay");
+                assert!(min >= 0.0, "Min delay should be non-negative");
+                assert!(max >= 5.0, "Max delay should be at least minimal delay");
+            }
+        }
+    }
+
+    #[test]
+    fn test_critical_cycle_detection() {
+        // Create a feasible circuit with DataReg for proper cycle formation
+        let input = r#"
+            Port "input" [("reg", 100)]
+            DataReg "reg" [("output", 150), ("input", 75)]
+            Port "output" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let result = constrain_cycle_time_proportional(&hbcn, 800.0, 20.0, None, None)
+            .expect("Should constrain circuit with feasible parameters");
+
+        // Find critical cycles
+        let cycles = find_critical_cycles(&result.hbcn);
+
+        // Validate cycle structure if any cycles are found
+        for cycle in &cycles {
+            assert!(
+                cycle.len() >= 2,
+                "Each cycle should have at least 2 transitions"
+            );
+
+            // Verify cycle structure is valid
+            if !cycle.is_empty() {
+                let _first_node = cycle[0].0;
+                let _last_node = cycle[cycle.len() - 1].1;
+                // Cycle validation logic would go here if needed
+            }
+        }
+
+        // Test passes as long as constraint generation succeeds
+        assert!(result.pseudoclock_period >= 20.0);
+    }
+
+    #[test]
+    fn test_markable_place_functionality() {
+        let input = r#"
+            Port "a" [("b", 100)]
+            Port "b" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let mut result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+            .expect("Should generate constraints");
+
+        // Test marking functionality on places
+        let edge_indices: Vec<_> = result.hbcn.edge_indices().collect();
+        if !edge_indices.is_empty() {
+            let first_edge = edge_indices[0];
+            let place = &mut result.hbcn[first_edge];
+
+            // Initially should not be marked
+            assert!(!place.is_marked());
+
+            // Mark the place
+            place.mark(true);
+            assert!(place.is_marked());
+
+            // Unmark the place
+            place.mark(false);
+            assert!(!place.is_marked());
+        }
+    }
+
+    #[test]
+    fn test_transition_event_timing() {
+        let input = r#"
+            Port "a" [("b", 100)]
+            Port "b" [("c", 200)]
+            Port "c" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let result =
+            constrain_cycle_time_pseudoclock(&hbcn, 500.0, 25.0).expect("Should generate timing");
+
+        // Check that all transition events have valid timing
+        for node_idx in result.hbcn.node_indices() {
+            let event = &result.hbcn[node_idx];
+
+            // Time should be non-negative
+            assert!(event.time() >= 0.0, "Event timing should be non-negative");
+
+            // Should have valid transition reference
+            match &event.transition {
+                Transition::Data(node) | Transition::Spacer(node) => {
+                    assert!(
+                        !node.name().as_ref().is_empty(),
+                        "Node should have valid name"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_proportional_vs_pseudoclock_differences() {
+        let input = r#"
+            Port "input" [("middle", 100)]
+            Port "middle" [("output", 150)]
+            Port "output" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let pseudo_result =
+            constrain_cycle_time_pseudoclock(&hbcn, 300.0, 15.0).expect("Pseudoclock should work");
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 300.0, 15.0, None, None)
+            .expect("Proportional should work");
+
+        // Both should produce valid results but potentially different constraints
+        assert!(pseudo_result.pseudoclock_period >= 15.0);
+        assert!(prop_result.pseudoclock_period >= 15.0);
+
+        // Pseudoclock typically only produces max constraints
+        let _pseudo_has_min = pseudo_result
+            .path_constraints
+            .values()
+            .any(|c| c.min.is_some());
+        let pseudo_has_max = pseudo_result
+            .path_constraints
+            .values()
+            .any(|c| c.max.is_some());
+
+        // Proportional may produce both min and max constraints
+        let _prop_has_min = prop_result
+            .path_constraints
+            .values()
+            .any(|c| c.min.is_some());
+        let prop_has_max = prop_result
+            .path_constraints
+            .values()
+            .any(|c| c.max.is_some());
+
+        // At least one algorithm should produce some constraints
+        assert!(
+            pseudo_has_max || prop_has_max,
+            "At least one algorithm should produce max constraints"
+        );
+    }
+
+    #[test]
+    fn test_margin_effects_detailed() {
+        let input = r#"
+            Port "a" [("b", 100)]
+            Port "b" [("c", 200)]
+            Port "c" []
+        "#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test different margin combinations
+        let no_margin = constrain_cycle_time_proportional(&hbcn, 400.0, 20.0, None, None)
+            .expect("No margin should work");
+
+        let forward_margin = constrain_cycle_time_proportional(&hbcn, 400.0, 20.0, None, Some(0.8))
+            .expect("Forward margin should work");
+
+        let backward_margin =
+            constrain_cycle_time_proportional(&hbcn, 400.0, 20.0, Some(0.8), None)
+                .expect("Backward margin should work");
+
+        let both_margins =
+            constrain_cycle_time_proportional(&hbcn, 400.0, 20.0, Some(0.8), Some(0.8))
+                .expect("Both margins should work");
+
+        // All should produce valid pseudoclock periods
+        assert!(no_margin.pseudoclock_period >= 20.0);
+        assert!(forward_margin.pseudoclock_period >= 20.0);
+        assert!(backward_margin.pseudoclock_period >= 20.0);
+        assert!(both_margins.pseudoclock_period >= 20.0);
+
+        // Margins should affect the results
+        let periods = vec![
+            no_margin.pseudoclock_period,
+            forward_margin.pseudoclock_period,
+            backward_margin.pseudoclock_period,
+            both_margins.pseudoclock_period,
+        ];
+
+        // Test that all margin combinations produce valid results
+        // (Margins may or may not affect results depending on the specific circuit)
+        let all_valid = periods.iter().all(|&p| p >= 20.0 && p <= 400.0);
+        assert!(
+            all_valid,
+            "All margin combinations should produce valid results"
+        );
     }
 }

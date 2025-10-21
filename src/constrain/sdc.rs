@@ -90,3 +90,150 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hbcn::DelayPair;
+    use crate::structural_graph::CircuitNode;
+    use std::collections::HashMap;
+    use std::io::Cursor;
+    use string_cache::DefaultAtom;
+
+    /// Test SDC generation for simple port-to-port constraints
+    #[test]
+    fn test_sdc_port_to_port_constraints() {
+        let mut constraints = HashMap::new();
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("input")),
+                CircuitNode::Port(DefaultAtom::from("output")),
+            ),
+            DelayPair {
+                min: Some(2.5),
+                max: Some(10.0),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should contain both min and max delay constraints
+        assert!(sdc_content.contains("set_min_delay 2.500"));
+        assert!(sdc_content.contains("set_max_delay 10.000"));
+        assert!(sdc_content.contains("input_*"));
+        assert!(sdc_content.contains("output_*"));
+    }
+
+    /// Test SDC generation for register constraints
+    #[test]
+    fn test_sdc_register_constraints() {
+        let mut constraints = HashMap::new();
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("clk")),
+                CircuitNode::Register {
+                    name: DefaultAtom::from("reg1"),
+                    cost: 10,
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(5.25),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should only contain max delay (no min specified)
+        assert!(sdc_content.contains("set_max_delay 5.250"));
+        assert!(!sdc_content.contains("set_min_delay"));
+        assert!(sdc_content.contains("clk_*"));
+        assert!(sdc_content.contains("reg1/*"));
+        assert!(sdc_content.contains("is_sequential == true"));
+    }
+
+    /// Test port wildcard generation
+    #[test]
+    fn test_port_wildcard_generation() {
+        // Simple port name
+        assert_eq!(port_wildcard("clk"), "clk_*");
+        
+        // Port with index
+        assert_eq!(port_wildcard("data[0]"), "data_*[0] data_ack");
+        assert_eq!(port_wildcard("bus[15]"), "bus_*[15] bus_ack");
+        
+        // Port without index
+        assert_eq!(port_wildcard("reset"), "reset_*");
+    }
+
+    /// Test port instance generation
+    #[test]
+    fn test_port_instance_generation() {
+        // Simple instance
+        assert_eq!(port_instance("simple"), "inst:simple");
+        
+        // Instance with index
+        assert_eq!(port_instance("indexed[5]"), "inst:indexed_5");
+        
+        // Port with path
+        assert_eq!(port_instance("port:module/signal"), "inst:module/isignal");
+        
+        // Complex case
+        assert_eq!(port_instance("port:cpu/data[8]"), "inst:cpu/idata_8");
+    }
+
+    /// Test multiple constraints
+    #[test]
+    fn test_sdc_multiple_constraints() {
+        let mut constraints = HashMap::new();
+        
+        // Port to port
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("in1")),
+                CircuitNode::Port(DefaultAtom::from("out1")),
+            ),
+            DelayPair {
+                min: Some(1.0),
+                max: Some(5.0),
+            },
+        );
+
+        // Port to register
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("clk")),
+                CircuitNode::Register {
+                    name: DefaultAtom::from("counter"),
+                    cost: 20,
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(8.75),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write multiple SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should contain all constraints
+        assert!(sdc_content.contains("set_min_delay 1.000"));
+        assert!(sdc_content.contains("set_max_delay 5.000"));
+        assert!(sdc_content.contains("set_max_delay 8.750"));
+
+        // Should contain proper node references
+        assert!(sdc_content.contains("in1_*"));
+        assert!(sdc_content.contains("out1_*"));
+        assert!(sdc_content.contains("clk_*"));
+        assert!(sdc_content.contains("counter/*"));
+    }
+}
