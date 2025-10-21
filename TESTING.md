@@ -5,10 +5,10 @@ This project includes a comprehensive test suite covering all aspects of the HBC
 ## Test Suite Overview
 
 ### ✅ **Overall Test Status**
-All **119 tests** are currently **PASSING**:
+All **125 tests** are currently **PASSING**:
 
 - **84 Unit Tests** - Testing individual components and functions
-- **35 Integration Tests** - Testing end-to-end functionality with LP solvers
+- **41 Integration Tests** - Testing end-to-end functionality with LP solvers
 - **0 Failed Tests** - All tests passing successfully
 
 ### 🔧 **LP Solver Testing**
@@ -16,6 +16,7 @@ The test suite supports multiple LP solver backends:
 - **Coin CBC** (default): Open-source solver with 6-significant-digit precision
 - **Gurobi** (optional): Commercial solver for high-performance testing
 - **Runtime Selection**: Environment variable `HBCN_LP_SOLVER` for solver choice
+- **Solver Comparison**: Automatic comparison tests when both solvers are available
 
 ## Test Organization
 
@@ -163,7 +164,7 @@ The test suite supports multiple LP solver backends:
 - `parse_floating_point_weights` - Floating point weight parsing
 - `parse_test_graph_format` - Test graph format parsing
 
-### **Integration Tests (`tests/integration_tests.rs`) - 35 tests**
+### **Integration Tests (`tests/integration_tests.rs`) - 41 tests**
 
 #### **Constraint Generation Tests (12 tests):**
 - `test_simple_two_port_constraint_generation` - Basic constraint generation
@@ -207,6 +208,14 @@ The test suite supports multiple LP solver backends:
 - `test_constrainer_meets_tight_cycle_time` - Tight cycle time verification
 - `test_constrainer_algorithm_comparison` - Algorithm comparison verification
 - `test_constrainer_verification_error_handling` - Verification error handling
+
+#### **Solver Comparison Tests (6 tests):**
+- `test_solver_status_consistency_simple_circuit` - Status consistency between solvers
+- `test_solver_sdc_content_consistency` - SDC content consistency between solvers
+- `test_solver_infeasible_consistency` - Infeasible problem handling consistency
+- `test_solver_cyclic_circuit_consistency` - Cyclic circuit consistency between solvers
+- `test_solver_complex_circuit_consistency` - Complex circuit consistency between solvers
+- `test_solver_analysis_consistency` - Analysis command consistency between solvers
 
 ## Test Categories
 
@@ -297,9 +306,41 @@ HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
 | Test Category | Coin CBC | Gurobi | Both Solvers |
 |---------------|----------|--------|--------------|
 | **Unit Tests** | ✅ 84/84 | ✅ 84/84 | ✅ 84/84 |
-| **Integration Tests** | ✅ 35/35 | ✅ 35/35 | ✅ 35/35 |
+| **Integration Tests** | ✅ 35/35 | ✅ 35/35 | ✅ 41/41 |
 | **Runtime Selection** | ✅ | ✅ | ✅ |
 | **Precision Tests** | ✅ | ✅ | ✅ |
+| **Solver Comparison** | ⏭️ Skip | ⏭️ Skip | ✅ 6/6 |
+
+### **Solver Comparison Testing**
+When both Gurobi and CoinCbc solvers are available, the test suite automatically runs comparison tests to ensure both solvers produce consistent results:
+
+#### **Automatic Detection**
+- Tests detect when both `gurobi` and `coin_cbc` features are enabled
+- Gracefully skip when only one solver is available
+- Provide informative messages when skipping
+
+#### **Comparison Test Categories**
+- **Status Consistency**: Ensures both solvers have same success/failure status
+- **SDC Content Consistency**: Compares SDC file content and structure
+- **Infeasible Problem Handling**: Verifies consistent handling of infeasible problems
+- **Circuit Type Consistency**: Tests consistency across different circuit types
+- **Analysis Consistency**: Compares analysis command outputs
+
+#### **Tolerance-Based Comparisons**
+- **Simple Circuits**: 10% tolerance for line count differences
+- **Cyclic Circuits**: 20% tolerance for constraint count differences
+- **Complex Circuits**: 30% tolerance for content differences
+- **Analysis Outputs**: 50% tolerance for output length differences
+
+#### **Test Behavior**
+```bash
+# With both solvers - runs comparison tests
+cargo test --features "gurobi coin_cbc" solver_comparison_tests
+
+# With single solver - skips comparison tests gracefully
+cargo test --features "gurobi" solver_comparison_tests
+cargo test --features "coin_cbc" solver_comparison_tests
+```
 
 ## Running the Test Suite
 
@@ -320,6 +361,9 @@ cargo test --test integration_tests
 # Run integration tests with specific solver
 cargo test --test integration_tests --features gurobi
 cargo test --test integration_tests --features coin_cbc
+
+# Run solver comparison tests (requires both solvers)
+cargo test solver_comparison_tests --features "gurobi coin_cbc"
 ```
 
 ### Run Specific Test Categories
@@ -371,6 +415,9 @@ cargo test verification
 
 # Run all SDC tests
 cargo test sdc
+
+# Run solver comparison tests
+cargo test solver_comparison
 ```
 
 ## Test Architecture
@@ -383,11 +430,12 @@ cargo test sdc
 - **Mock data**: Uses controlled test data and mock inputs
 - **Fast execution**: Unit tests run quickly for rapid feedback
 
-#### **Integration Testing (35 tests)**
+#### **Integration Testing (41 tests)**
 - **End-to-end testing**: Tests complete workflows from input to output
 - **Binary execution**: Runs the actual constrainer binary through `cargo run`
 - **File I/O testing**: Verifies file generation and content
 - **Error condition testing**: Tests graceful failure modes
+- **Solver comparison testing**: Cross-solver consistency validation when both solvers available
 
 ### **Test Organization by Functionality**
 
@@ -497,11 +545,13 @@ The test suite provides comprehensive coverage across:
 - **All circuit types**: Linear, branching, cyclic, and complex circuits
 - **All output formats**: SDC, CSV, VCD, DOT, and report files
 - **All error conditions**: Invalid inputs, infeasible constraints, malformed data
+- **Solver consistency**: Automatic comparison between Gurobi and CoinCbc solvers
 
 ### **Test Quality Metrics**
-- **119 total tests** with 100% pass rate
+- **125 total tests** with 100% pass rate
 - **Unit test coverage**: Individual function and module testing
 - **Integration test coverage**: End-to-end workflow testing
+- **Solver comparison coverage**: Cross-solver consistency validation
 - **Regression prevention**: Comprehensive test suite prevents breaking changes
 - **Performance validation**: Constraint verification ensures timing requirements are met
 
@@ -609,6 +659,15 @@ When adding new tests:
 4. **Use helper functions**: Leverage existing test utilities (`create_test_file`, `run_hbcn_constrain`)
 5. **Include clear documentation**: Document what each test validates
 6. **Maintain test organization**: Keep tests grouped by functionality
+7. **Consider solver comparison**: For integration tests, consider adding solver comparison tests if applicable
+
+### Solver Comparison Tests
+When adding new integration tests that use LP solvers:
+1. **Use solver comparison helpers**: Use `run_hbcn_constrain_with_both_solvers_and_compare()` for constrain tests
+2. **Use general comparison helpers**: Use `run_with_both_solvers_and_compare()` for other commands
+3. **Include tolerance-based comparisons**: Use appropriate tolerance levels for different circuit types
+4. **Test graceful skipping**: Ensure tests skip gracefully when only one solver is available
+5. **Document comparison criteria**: Clearly document what aspects are being compared
 
 ### Updating Tests
 When modifying the constrainer:
