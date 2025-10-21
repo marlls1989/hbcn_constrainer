@@ -21,7 +21,7 @@ pub struct AnalyseArgs {
     #[clap(long)]
     vcd: Option<PathBuf>,
 
-    /// DOT file displaying the HBCN marked graph
+    /// DOT file displaying the StructuralHBCN marked graph
     #[clap(long)]
     dot: Option<PathBuf>,
 }
@@ -38,7 +38,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
         let hbcn = hbcn::from_structural_graph(&g, false)
-            .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?;
+            .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
         hbcn::compute_cycle_time(&hbcn, true)
     }?;
 
@@ -133,7 +133,7 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
         let hbcn = hbcn::from_structural_graph(&g, false)
-            .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?;
+            .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
         hbcn::compute_cycle_time(&hbcn, false)
     }?;
 
@@ -198,11 +198,11 @@ mod tests {
     use std::io::Cursor;
     use std::result::Result::Ok;
 
-    /// Helper function to create a test HBCN from a structural graph string
-    fn create_test_hbcn(input: &str) -> Result<HBCN> {
+    /// Helper function to create a test StructuralHBCN from a structural graph string
+    fn create_test_hbcn(input: &str) -> Result<StructuralHBCN> {
         let structural_graph = parse(input)?;
         hbcn::from_structural_graph(&structural_graph, false)
-            .ok_or_else(|| anyhow!("Failed to convert to HBCN"))
+            .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))
     }
 
     /// Helper function to run analysis and capture output
