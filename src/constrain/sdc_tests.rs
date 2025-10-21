@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod sdc_tests {
     use super::*;
-    use crate::hbcn::DelayPair;
+    use crate::constrain::hbcn::DelayPair;
     use crate::structural_graph::CircuitNode;
     use std::collections::HashMap;
     use std::io::Cursor;
