@@ -35,6 +35,7 @@ pub trait HasCircuitNode {
     fn circuit_node(&self) -> &CircuitNode;
 }
 
+#[allow(dead_code)]
 pub trait TimedEvent {
     fn time(&self) -> f64;
 }
@@ -84,6 +85,7 @@ pub struct Place {
     pub relative_endpoints: HashSet<NodeIndex>,
 }
 
+#[allow(dead_code)]
 pub trait MarkablePlace {
     fn mark(&mut self, mark: bool);
     fn is_marked(&self) -> bool;
@@ -97,6 +99,7 @@ pub trait WeightedPlace {
     fn weight(&self) -> f64;
 }
 
+#[allow(dead_code)]
 pub trait HasPlace {
     fn place(&self) -> &Place;
     fn place_mut(&mut self) -> &mut Place;

@@ -8,6 +8,7 @@ use std::env;
 
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum VariableType {
     /// Continuous variable (can take any real value)
     Continuous,
@@ -19,6 +20,7 @@ pub enum VariableType {
 
 /// Constraint sense for linear constraints
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum ConstraintSense {
     /// Less than or equal to (≤)
     LessEqual,
@@ -41,6 +43,7 @@ pub enum OptimizationSense {
 
 /// Status of the optimization process
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum OptimizationStatus {
     /// Optimal solution found
     Optimal,
@@ -58,6 +61,7 @@ pub enum OptimizationStatus {
 
 /// Available LP solver backends
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum SolverBackend {
     /// Gurobi commercial solver
     Gurobi,
@@ -275,12 +279,14 @@ impl Default for LPModelBuilder {
 }
 
 /// Legacy trait for backward compatibility (deprecated)
+#[allow(dead_code)]
 pub trait LPSolver {
     /// Create a new LP model
     fn new_model(&self, name: &str) -> Result<Box<dyn LPModel>>;
 }
 
 /// Legacy trait for backward compatibility (deprecated)
+#[allow(dead_code)]
 pub trait LPModel {
     /// Add a variable to the model
     fn add_variable(
@@ -326,6 +332,7 @@ pub trait LPModel {
 }
 
 /// Factory function to create an LP model (legacy - use LPModelBuilder instead)
+#[allow(dead_code, unused_variables)]
 pub fn create_lp_model(name: &str) -> Result<Box<dyn LPModel>> {
     #[cfg(feature = "gurobi")]
     {

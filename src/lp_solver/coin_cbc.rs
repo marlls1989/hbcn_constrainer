@@ -20,7 +20,7 @@ pub fn solve_coin_cbc(builder: LPModelBuilder) -> Result<LPSolution> {
     let mut var_map = HashMap::new();
     
     // Add variables to the model
-    for (var_id, (name, var_type, lower_bound, upper_bound)) in &builder.variables {
+    for (var_id, (_name, var_type, lower_bound, upper_bound)) in &builder.variables {
         let col = match var_type {
             VariableType::Continuous => {
                 let col = model.add_col();
