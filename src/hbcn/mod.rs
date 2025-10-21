@@ -137,10 +137,10 @@ impl<P: HasPlace> MarkablePlace for P {
     }
 }
 
-pub type HBCN = StableGraph<Transition, Place>;
+pub type StructuralHBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(g: &StructuralGraph, forward_completion: bool) -> Option<HBCN> {
-    let mut ret = HBCN::new();
+pub fn from_structural_graph(g: &StructuralGraph, forward_completion: bool) -> Option<StructuralHBCN> {
+    let mut ret = StructuralHBCN::new();
     struct VertexItem {
         token: NodeIndex,
         spacer: NodeIndex,
@@ -305,11 +305,11 @@ impl SlackablePlace for DelayedPlace {
     }
 }
 
-pub type DelayedHBCN = StableGraph<TransitionEvent, DelayedPlace>;
-
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), DelayPair>;
 
 pub type TimedHBCN<T> = StableGraph<TransitionEvent, T>;
+
+pub type DelayedHBCN = TimedHBCN<DelayedPlace>;
 
 #[derive(Debug, Clone)]
 pub struct ConstrainerResult {
@@ -384,7 +384,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 }
 
 pub fn constrain_cycle_time_pseudoclock(
-    hbcn: &HBCN,
+    hbcn: &StructuralHBCN,
     ct: f64,
     min_delay: f64,
 ) -> Result<ConstrainerResult> {
@@ -511,7 +511,7 @@ pub fn constrain_cycle_time_pseudoclock(
 }
 
 pub fn constrain_cycle_time_proportional(
-    hbcn: &HBCN,
+    hbcn: &StructuralHBCN,
     ct: f64,
     min_delay: f64,
     backward_margin: Option<f64>,
@@ -569,7 +569,7 @@ pub fn constrain_cycle_time_proportional(
         let delay_var = &delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())];
         let matching_delay = delay_vars
             .get(&(hbcn[dst].circuit_node(), hbcn[src].circuit_node()))
-            .expect("malformed HBCN");
+            .expect("malformed StructuralHBCN");
 
         // Constraint: delay_var.max + arr_var[src] - arr_var[dst] = (if place.token { ct } else { 0.0 })
         let mut expr1 = LinearExpression::new(0.0);
@@ -685,7 +685,7 @@ pub fn constrain_cycle_time_proportional(
     }
 }
 
-pub fn compute_cycle_time(hbcn: &HBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
+pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
     let mut m = crate::lp_solver::create_lp_model("analysis")?;
     let cycle_time = m.add_variable("cycle_time", VariableType::Integer, 0.0, f64::INFINITY)?;
 
@@ -838,7 +838,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Should have 4 nodes: Data and Spacer transitions for each original node
         assert_eq!(hbcn.node_count(), 4);
@@ -874,7 +874,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Should have 10 nodes: Data and Spacer for each of the 5 circuit nodes
         // (input port, reg data, reg control, reg output, output port)
@@ -894,7 +894,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Check that transitions have correct circuit node references
         for node_idx in hbcn.node_indices() {
@@ -916,7 +916,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Check place properties
         let mut forward_places = 0;
@@ -956,7 +956,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Check that weights are based on virtual_delay when forward_completion=false
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -977,7 +977,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, true).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, true).expect("Failed to convert to StructuralHBCN");
 
         // With forward_completion=true, weights should consider forward costs
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -999,7 +999,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Should handle multiple connections properly
         assert!(hbcn.node_count() > 4); // More nodes due to DataReg internal structure
@@ -1026,7 +1026,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Check that token markings are set according to channel phases
         let mut req_data_count = 0;
@@ -1067,7 +1067,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Check weight calculations
         for edge_idx in hbcn.edge_indices() {
@@ -1093,7 +1093,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Should have 2 nodes (Data and Spacer for the single port) and no edges
         assert_eq!(hbcn.node_count(), 2);
@@ -1113,7 +1113,7 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
         let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to HBCN");
+            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
 
         // Should successfully convert all register types
         assert!(hbcn.node_count() > 0);
@@ -1639,5 +1639,154 @@ mod tests {
 
         assert!(result.pseudoclock_period >= 2.0);
         assert!(result.pseudoclock_period <= 50.0);
+    }
+
+    /// Helper function to calculate critical cycle time per token for HBCN tests
+    fn calculate_critical_cycle_time_per_token_hbcn(delayed_hbcn: &DelayedHBCN) -> f64 {
+        let cycles = find_critical_cycles(delayed_hbcn);
+        
+        if cycles.is_empty() {
+            return 0.0;
+        }
+
+        // Find the cycle with maximum cost per token
+        let mut max_cost_per_token: f64 = 0.0;
+        
+        for cycle in &cycles {
+            let mut tokens = 0;
+            let cost: f64 = cycle
+                .iter()
+                .map(|(is, it)| {
+                    let ie = delayed_hbcn.find_edge(*is, *it).unwrap();
+                    let e = &delayed_hbcn[ie];
+                    if e.is_marked() {
+                        tokens += 1;
+                    }
+                    e.weight() - e.slack()
+                })
+                .sum();
+            
+            if tokens > 0 {
+                let cost_per_token = cost / tokens as f64;
+                max_cost_per_token = max_cost_per_token.max(cost_per_token);
+            }
+        }
+        
+        max_cost_per_token
+    }
+
+    /// Test that pseudoclock constraints correctly limit cycle time per token in HBCN
+    #[test]
+    fn test_hbcn_pseudoclock_cycle_time_verification() {
+        let input = r#"Port "a" [("b", 100)]
+                      Port "b" []"#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let requested_cycle_time = 50.0;
+        let min_delay = 5.0;
+
+        let result = constrain_cycle_time_pseudoclock(&hbcn, requested_cycle_time, min_delay)
+            .expect("Pseudoclock constraint generation should succeed");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({})",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+
+        // Should have reasonable pseudoclock period
+        assert!(result.pseudoclock_period > 0.0);
+        assert!(result.pseudoclock_period <= requested_cycle_time);
+    }
+
+    /// Test that proportional constraints correctly limit cycle time per token in HBCN
+    #[test]
+    fn test_hbcn_proportional_cycle_time_verification() {
+        let input = r#"Port "a" [("b", 100)]
+                      Port "b" []"#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let requested_cycle_time = 60.0;
+        let min_delay = 8.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({})",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+    }
+
+    /// Test cycle time verification with cyclic circuit in HBCN
+    #[test]
+    fn test_hbcn_cyclic_cycle_time_verification() {
+        let input = r#"Port "a" [("b", 100)]
+                      DataReg "b" [("a", 50), ("c", 75)]
+                      Port "c" []"#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        let requested_cycle_time = 80.0;
+        let min_delay = 10.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed for cyclic circuit");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({}) for cyclic circuit",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+    }
+
+    /// Test that tighter constraints result in lower cycle times in HBCN
+    #[test]
+    fn test_hbcn_constraint_tightness_verification() {
+        let input = r#"Port "a" [("b", 100)]
+                      Port "b" []"#;
+        let structural_graph = parse(input).expect("Failed to parse");
+        let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
+
+        // Test with loose constraints
+        let loose_result = constrain_cycle_time_pseudoclock(&hbcn, 200.0, 5.0)
+            .expect("Loose constraint generation should succeed");
+
+        // Test with tight constraints
+        let tight_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+            .expect("Tight constraint generation should succeed");
+
+        let loose_cycle_time = calculate_critical_cycle_time_per_token_hbcn(&loose_result.hbcn);
+        let tight_cycle_time = calculate_critical_cycle_time_per_token_hbcn(&tight_result.hbcn);
+
+        // Both should meet their respective constraints
+        assert!(loose_cycle_time <= 200.0);
+        assert!(tight_cycle_time <= 50.0);
+
+        // The tight constraint should result in a lower or equal cycle time
+        assert!(
+            tight_cycle_time <= loose_cycle_time,
+            "Tight constraints should result in lower or equal cycle time (tight: {}, loose: {})",
+            tight_cycle_time,
+            loose_cycle_time
+        );
     }
 }

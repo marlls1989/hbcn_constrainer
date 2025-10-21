@@ -47,7 +47,7 @@ impl fmt::Display for CircuitNode {
     }
 }
 
-/// Channel phase to be used when expanding from StructuralGraph to HBCN
+/// Channel phase to be used when expanding from StructuralGraph to StructuralHBCN
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum ChannelPhase {
     AckNull,

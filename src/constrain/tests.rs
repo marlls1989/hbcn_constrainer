@@ -3,11 +3,11 @@ mod constrain_unit_tests {
     use crate::hbcn::*;
     use crate::structural_graph::parse;
 
-    /// Helper function to create a simple test HBCN from a structural graph string
-    fn create_test_hbcn(input: &str, forward_completion: bool) -> HBCN {
+    /// Helper function to create a simple test StructuralHBCN from a structural graph string
+    fn create_test_hbcn(input: &str, forward_completion: bool) -> StructuralHBCN {
         let structural_graph = parse(input).expect("Failed to parse test input");
         from_structural_graph(&structural_graph, forward_completion)
-            .expect("Failed to convert to HBCN")
+            .expect("Failed to convert to StructuralHBCN")
     }
 
     /// Test pseudoclock constraint generation with basic circuit
@@ -263,7 +263,7 @@ mod constrain_unit_tests {
         let result = constrain_cycle_time_pseudoclock(&hbcn, 10.0, 1.0)
             .expect("Should generate constraints");
 
-        // Check that the result HBCN has timing information
+        // Check that the result StructuralHBCN has timing information
         for node_idx in result.hbcn.node_indices() {
             let node = &result.hbcn[node_idx];
             // Time should be non-negative
@@ -338,7 +338,7 @@ mod constrain_unit_tests {
         // Find critical cycles in the result
         let cycles = find_critical_cycles(&result.hbcn);
 
-        // Should work even if no cycles are found (depends on HBCN structure)
+        // Should work even if no cycles are found (depends on StructuralHBCN structure)
         // Each cycle should have at least 2 edges if any are found
         for cycle in &cycles {
             assert!(cycle.len() >= 2, "Cycles should have at least 2 edges");
@@ -547,5 +547,253 @@ mod constrain_unit_tests {
         // Both should have constraints
         assert!(!result_no_fc.path_constraints.is_empty());
         assert!(!result_with_fc.path_constraints.is_empty());
+    }
+
+    /// Helper function to calculate critical cycle time per token
+    fn calculate_critical_cycle_time_per_token(delayed_hbcn: &DelayedHBCN) -> f64 {
+        let cycles = find_critical_cycles(delayed_hbcn);
+        
+        if cycles.is_empty() {
+            return 0.0;
+        }
+
+        // Find the cycle with maximum cost per token
+        let mut max_cost_per_token: f64 = 0.0;
+        
+        for cycle in &cycles {
+            let mut tokens = 0;
+            let cost: f64 = cycle
+                .iter()
+                .map(|(is, it)| {
+                    let ie = delayed_hbcn.find_edge(*is, *it).unwrap();
+                    let e = &delayed_hbcn[ie];
+                    if e.is_marked() {
+                        tokens += 1;
+                    }
+                    e.weight() - e.slack()
+                })
+                .sum();
+            
+            if tokens > 0 {
+                let cost_per_token = cost / tokens as f64;
+                max_cost_per_token = max_cost_per_token.max(cost_per_token);
+            }
+        }
+        
+        max_cost_per_token
+    }
+
+    /// Test that pseudoclock constraints correctly limit cycle time per token
+    #[test]
+    fn test_pseudoclock_constraints_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               Port "b" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 50.0;
+        let min_delay = 5.0;
+
+        let result = constrain_cycle_time_pseudoclock(&hbcn, requested_cycle_time, min_delay)
+            .expect("Pseudoclock constraint generation should succeed");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({})",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+
+        // Should have reasonable pseudoclock period
+        assert!(result.pseudoclock_period > 0.0);
+        assert!(result.pseudoclock_period <= requested_cycle_time);
+    }
+
+    /// Test that proportional constraints correctly limit cycle time per token
+    #[test]
+    fn test_proportional_constraints_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               Port "b" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 60.0;
+        let min_delay = 8.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({})",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+    }
+
+    /// Test cycle time verification with cyclic circuit
+    #[test]
+    fn test_cyclic_constraints_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               DataReg "b" [("a", 50), ("c", 75)]
+               Port "c" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 80.0;
+        let min_delay = 10.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed for cyclic circuit");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({}) for cyclic circuit",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+    }
+
+    /// Test cycle time verification with complex circuit
+    #[test]
+    fn test_complex_constraints_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "input" [("reg1", 100)]
+               DataReg "reg1" [("reg2", 120), ("input", 80)]
+               DataReg "reg2" [("output", 90), ("reg1", 60)]
+               Port "output" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 150.0;
+        let min_delay = 15.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed for complex circuit");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({}) for complex circuit",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+    }
+
+    /// Test that tighter constraints result in lower cycle times
+    #[test]
+    fn test_constraint_tightness_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               Port "b" []"#,
+            false,
+        );
+
+        // Test with loose constraints
+        let loose_result = constrain_cycle_time_pseudoclock(&hbcn, 200.0, 5.0)
+            .expect("Loose constraint generation should succeed");
+
+        // Test with tight constraints
+        let tight_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+            .expect("Tight constraint generation should succeed");
+
+        let loose_cycle_time = calculate_critical_cycle_time_per_token(&loose_result.hbcn);
+        let tight_cycle_time = calculate_critical_cycle_time_per_token(&tight_result.hbcn);
+
+        // Both should meet their respective constraints
+        assert!(loose_cycle_time <= 200.0);
+        assert!(tight_cycle_time <= 50.0);
+
+        // The tight constraint should result in a lower or equal cycle time
+        assert!(
+            tight_cycle_time <= loose_cycle_time,
+            "Tight constraints should result in lower or equal cycle time (tight: {}, loose: {})",
+            tight_cycle_time,
+            loose_cycle_time
+        );
+    }
+
+    /// Test cycle time verification with different min_delay values
+    #[test]
+    fn test_min_delay_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               Port "b" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 100.0;
+        let min_delays = vec![1.0, 5.0, 10.0, 20.0];
+
+        for min_delay in min_delays {
+            let result = constrain_cycle_time_pseudoclock(&hbcn, requested_cycle_time, min_delay)
+                .expect("Constraint generation should succeed for min_delay");
+
+            let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+            // The actual cycle time per token should be less than or equal to the requested cycle time
+            assert!(
+                actual_cycle_time_per_token <= requested_cycle_time,
+                "Critical cycle time per token ({}) should be <= requested cycle time ({}) for min_delay {}",
+                actual_cycle_time_per_token,
+                requested_cycle_time,
+                min_delay
+            );
+
+            // The pseudoclock period should be reasonable
+            assert!(result.pseudoclock_period > 0.0);
+            assert!(result.pseudoclock_period <= requested_cycle_time);
+        }
+    }
+
+    /// Test cycle time verification with proportional algorithm on cyclic circuit
+    /// Note: Proportional algorithm is more suitable for cyclic circuits than pseudoclock
+    #[test]
+    fn test_proportional_cyclic_cycle_time_verification() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 100)]
+               DataReg "b" [("a", 50), ("c", 75)]
+               Port "c" []"#,
+            false,
+        );
+
+        let requested_cycle_time = 80.0;
+        let min_delay = 10.0;
+
+        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+            .expect("Proportional constraint generation should succeed for cyclic circuit");
+
+        // Calculate the actual critical cycle time per token
+        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
+
+        // The actual cycle time per token should be less than or equal to the requested cycle time
+        assert!(
+            actual_cycle_time_per_token <= requested_cycle_time,
+            "Critical cycle time per token ({}) should be <= requested cycle time ({}) for proportional cyclic circuit",
+            actual_cycle_time_per_token,
+            requested_cycle_time
+        );
+
+        // Should have reasonable pseudoclock period
+        assert!(result.pseudoclock_period > 0.0);
+        assert!(result.pseudoclock_period <= requested_cycle_time);
     }
 }

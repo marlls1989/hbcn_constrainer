@@ -89,7 +89,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         let hbcn = {
             let g = read_file(&input)?;
             from_structural_graph(&g, forward_completion)
-                .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?
+                .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?
         };
 
         if no_proportinal {
