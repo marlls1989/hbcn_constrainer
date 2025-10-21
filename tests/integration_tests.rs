@@ -631,4 +631,601 @@ Not a valid graph
             stderr
         );
     }
+
+    /// Test cyclic path constraint generation (based on cyclic.graph)
+    #[test]
+    fn test_cyclic_path_constraint_generation() {
+        let graph_content = r#"Port "a" [("b", 20)]
+DataReg "b" [("b", 15), ("c", 10)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_dir.path().join("cyclic.sdc");
+        let csv_path = temp_dir.path().join("cyclic.csv");
+        let rpt_path = temp_dir.path().join("cyclic.rpt");
+
+        let output = run_hbcn_constrain(
+            &input_path,
+            &sdc_path,
+            50.0, // Generous cycle time for cyclic circuit
+            2.0,
+            vec![
+                "--csv",
+                csv_path.to_str().unwrap(),
+                "--rpt",
+                rpt_path.to_str().unwrap(),
+                "--forward-margin",
+                "10",
+                "--backward-margin",
+                "15",
+            ],
+        )
+        .expect("Failed to run cyclic path test");
+
+        assert!(
+            output.status.success(),
+            "Cyclic path test should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Verify all output files were generated
+        assert!(sdc_path.exists(), "Cyclic SDC file should be generated");
+        assert!(csv_path.exists(), "Cyclic CSV file should be generated");
+        assert!(rpt_path.exists(), "Cyclic report file should be generated");
+
+        // Verify SDC content
+        let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC file");
+        assert!(
+            sdc_content.contains("create_clock"),
+            "Cyclic SDC should contain clock definition"
+        );
+
+        // Verify CSV content
+        let csv_content = fs::read_to_string(&csv_path).expect("Failed to read CSV file");
+        assert!(
+            csv_content.contains("src,dst,cost,max_delay,min_delay"),
+            "Cyclic CSV should have proper header"
+        );
+
+        // Verify report content includes cycle analysis
+        let rpt_content = fs::read_to_string(&rpt_path).expect("Failed to read report file");
+        assert!(
+            rpt_content.contains("Cycles:") || rpt_content.contains("Cycle"),
+            "Cyclic report should contain cycle analysis"
+        );
+    }
+
+    /// Test cyclic path with different constraint algorithms
+    #[test]
+    fn test_cyclic_path_algorithm_comparison() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25), ("reg", 20)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        // Test proportional constraints on cyclic circuit
+        let temp_prop_dir = TempDir::new().expect("Failed to create temp dir");
+        let prop_sdc_path = temp_prop_dir.path().join("cyclic_proportional.sdc");
+
+        let prop_output = run_hbcn_constrain(
+            &input_path,
+            &prop_sdc_path,
+            100.0,
+            5.0,
+            vec!["--forward-margin", "20", "--backward-margin", "25"],
+        )
+        .expect("Failed to run cyclic proportional test");
+
+        assert!(
+            prop_output.status.success(),
+            "Cyclic proportional should succeed. stderr: {}",
+            String::from_utf8_lossy(&prop_output.stderr)
+        );
+        assert!(
+            prop_sdc_path.exists(),
+            "Cyclic proportional SDC should be generated"
+        );
+
+        // Test pseudoclock constraints on cyclic circuit
+        let temp_pseudo_dir = TempDir::new().expect("Failed to create temp dir");
+        let pseudo_sdc_path = temp_pseudo_dir.path().join("cyclic_pseudoclock.sdc");
+
+        let pseudo_output = run_hbcn_constrain(
+            &input_path,
+            &pseudo_sdc_path,
+            100.0,
+            5.0,
+            vec!["--no-proportinal"],
+        )
+        .expect("Failed to run cyclic pseudoclock test");
+
+        assert!(
+            pseudo_output.status.success(),
+            "Cyclic pseudoclock should succeed. stderr: {}",
+            String::from_utf8_lossy(&pseudo_output.stderr)
+        );
+        assert!(
+            pseudo_sdc_path.exists(),
+            "Cyclic pseudoclock SDC should be generated"
+        );
+
+        // Both should produce different results
+        let prop_content = fs::read_to_string(&prop_sdc_path).expect("Failed to read proportional SDC");
+        let pseudo_content = fs::read_to_string(&pseudo_sdc_path).expect("Failed to read pseudoclock SDC");
+        
+        assert_ne!(
+            prop_content, pseudo_content,
+            "Cyclic proportional and pseudoclock SDC should differ"
+        );
+    }
+
+    /// Test complex cyclic circuit with multiple feedback loops
+    #[test]
+    fn test_complex_cyclic_circuit() {
+        let graph_content = r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+Port "input" [("reg1", 40)]
+DataReg "reg1" [("logic", 30), ("reg2", 25)]
+DataReg "reg2" [("logic", 35), ("reg1", 20)]
+DataReg "logic" [("output", 45)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_dir.path().join("complex_cyclic.sdc");
+        let csv_path = temp_dir.path().join("complex_cyclic.csv");
+        let rpt_path = temp_dir.path().join("complex_cyclic.rpt");
+
+        let output = run_hbcn_constrain(
+            &input_path,
+            &sdc_path,
+            200.0, // Very generous cycle time for complex cyclic circuit
+            3.0,
+            vec![
+                "--csv",
+                csv_path.to_str().unwrap(),
+                "--rpt",
+                rpt_path.to_str().unwrap(),
+                "--forward-margin",
+                "15",
+                "--backward-margin",
+                "20",
+            ],
+        )
+        .expect("Failed to run complex cyclic test");
+
+        assert!(
+            output.status.success(),
+            "Complex cyclic test should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        // Verify all output files exist
+        assert!(sdc_path.exists(), "Complex cyclic SDC should be generated");
+        assert!(csv_path.exists(), "Complex cyclic CSV should be generated");
+        assert!(rpt_path.exists(), "Complex cyclic report should be generated");
+
+        // Verify content quality
+        let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC");
+        let csv_content = fs::read_to_string(&csv_path).expect("Failed to read CSV");
+        let rpt_content = fs::read_to_string(&rpt_path).expect("Failed to read report");
+
+        assert!(
+            sdc_content.contains("create_clock"),
+            "Complex cyclic SDC should contain clock definition"
+        );
+        assert!(
+            csv_content.lines().count() > 1,
+            "Complex cyclic CSV should contain constraint data"
+        );
+        assert!(
+            rpt_content.contains("Cycles:") || rpt_content.contains("Cycle"),
+            "Complex cyclic report should contain cycle analysis"
+        );
+    }
+
+    /// Test cyclic circuit with tight timing constraints
+    #[test]
+    fn test_cyclic_tight_timing() {
+        let graph_content = r#"Port "a" [("b", 10)]
+DataReg "b" [("b", 5), ("c", 8)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_dir.path().join("cyclic_tight.sdc");
+
+        let output = run_hbcn_constrain(
+            &input_path,
+            &sdc_path,
+            15.0, // Tight cycle time for cyclic circuit
+            1.0,
+            vec![],
+        )
+        .expect("Failed to run cyclic tight timing test");
+
+        // This might fail with infeasible constraints due to tight timing
+        if output.status.success() {
+            assert!(
+                sdc_path.exists(),
+                "Cyclic tight timing SDC should be generated"
+            );
+            let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC");
+            assert!(
+                sdc_content.contains("create_clock"),
+                "Should contain clock definition"
+            );
+        } else {
+            // Should fail gracefully with infeasible error
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("Infeasible") || stderr.contains("infeasible"),
+                "Should fail with infeasible error for impossible timing: {}",
+                stderr
+            );
+        }
+    }
+}
+
+#[cfg(test)]
+mod analyser_integration_tests {
+    use super::*;
+    use std::process::Command;
+
+    // Helper function to run the hbcn analyser binary
+    fn run_hbcn_analyse(input: &PathBuf, additional_args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("run")
+            .arg("--")
+            .arg("analyse")
+            .arg(input);
+
+        for arg in additional_args {
+            cmd.arg(arg);
+        }
+
+        cmd.output()
+    }
+
+    // Helper function to run the hbcn depth binary
+    fn run_hbcn_depth(input: &PathBuf) -> Result<std::process::Output, std::io::Error> {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("run")
+            .arg("--")
+            .arg("depth")
+            .arg(input);
+
+        cmd.output()
+    }
+
+    /// Test basic analysis command with simple circuit
+    #[test]
+    fn test_analyse_simple_circuit() {
+        let graph_content = r#"Port "a" [("b", 20)]
+Port "b" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run hbcn analyse command");
+
+        assert!(
+            output.status.success(),
+            "Analysis should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Worst virtual cycle-time"),
+            "Output should contain cycle time information"
+        );
+    }
+
+    /// Test analysis command with VCD output
+    #[test]
+    fn test_analyse_with_vcd_output() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let vcd_path = temp_output_dir.path().join("analysis.vcd");
+
+        let output = run_hbcn_analyse(
+            &input_path,
+            vec!["--vcd", vcd_path.to_str().unwrap()],
+        )
+        .expect("Failed to run analysis with VCD");
+
+        assert!(
+            output.status.success(),
+            "Analysis with VCD should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(vcd_path.exists(), "VCD file should be generated");
+        
+        let vcd_content = fs::read_to_string(&vcd_path).expect("Failed to read VCD file");
+        assert!(
+            vcd_content.contains("$timescale") || vcd_content.contains("$var"),
+            "VCD file should contain VCD format markers"
+        );
+    }
+
+    /// Test analysis command with DOT output
+    #[test]
+    fn test_analyse_with_dot_output() {
+        let graph_content = r#"Port "a" [("b", 20)]
+Port "b" [("c", 15)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let dot_path = temp_output_dir.path().join("analysis.dot");
+
+        let output = run_hbcn_analyse(
+            &input_path,
+            vec!["--dot", dot_path.to_str().unwrap()],
+        )
+        .expect("Failed to run analysis with DOT");
+
+        assert!(
+            output.status.success(),
+            "Analysis with DOT should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(dot_path.exists(), "DOT file should be generated");
+        
+        let dot_content = fs::read_to_string(&dot_path).expect("Failed to read DOT file");
+        assert!(
+            dot_content.contains("digraph") || dot_content.contains("graph"),
+            "DOT file should contain graph structure"
+        );
+    }
+
+    /// Test analysis command with both VCD and DOT outputs
+    #[test]
+    fn test_analyse_with_multiple_outputs() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25), ("reg", 20)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let vcd_path = temp_output_dir.path().join("analysis.vcd");
+        let dot_path = temp_output_dir.path().join("analysis.dot");
+
+        let output = run_hbcn_analyse(
+            &input_path,
+            vec![
+                "--vcd", vcd_path.to_str().unwrap(),
+                "--dot", dot_path.to_str().unwrap(),
+            ],
+        )
+        .expect("Failed to run analysis with multiple outputs");
+
+        assert!(
+            output.status.success(),
+            "Analysis with multiple outputs should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        assert!(vcd_path.exists(), "VCD file should be generated");
+        assert!(dot_path.exists(), "DOT file should be generated");
+    }
+
+    /// Test analysis command with cyclic circuit
+    #[test]
+    fn test_analyse_cyclic_circuit() {
+        let graph_content = r#"Port "a" [("b", 20)]
+DataReg "b" [("b", 15), ("c", 10)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run analysis on cyclic circuit");
+
+        assert!(
+            output.status.success(),
+            "Analysis of cyclic circuit should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Worst virtual cycle-time"),
+            "Output should contain cycle time information"
+        );
+        assert!(
+            stdout.contains("Cycle") || stdout.contains("transitions"),
+            "Output should contain cycle analysis"
+        );
+    }
+
+    /// Test analysis command with complex circuit
+    #[test]
+    fn test_analyse_complex_circuit() {
+        let graph_content = r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+Port "input" [("reg1", 40)]
+DataReg "reg1" [("logic", 30), ("reg2", 25)]
+DataReg "reg2" [("logic", 35), ("reg1", 20)]
+DataReg "logic" [("output", 45)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run analysis on complex circuit");
+
+        assert!(
+            output.status.success(),
+            "Analysis of complex circuit should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Worst virtual cycle-time"),
+            "Output should contain cycle time information"
+        );
+    }
+
+    /// Test depth command with simple circuit
+    #[test]
+    fn test_depth_simple_circuit() {
+        let graph_content = r#"Port "a" [("b", 20)]
+Port "b" [("c", 15)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_depth(&input_path)
+            .expect("Failed to run hbcn depth command");
+
+        assert!(
+            output.status.success(),
+            "Depth analysis should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Critical Cycle (Depth/Tokens)"),
+            "Output should contain depth information"
+        );
+    }
+
+    /// Test depth command with cyclic circuit
+    #[test]
+    fn test_depth_cyclic_circuit() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25), ("reg", 20)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_depth(&input_path)
+            .expect("Failed to run depth analysis on cyclic circuit");
+
+        assert!(
+            output.status.success(),
+            "Depth analysis of cyclic circuit should succeed. stderr: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            stdout.contains("Critical Cycle (Depth/Tokens)"),
+            "Output should contain depth information"
+        );
+    }
+
+    /// Test analysis command error handling with invalid file
+    #[test]
+    fn test_analyse_invalid_file() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let invalid_input = temp_dir.path().join("nonexistent.graph");
+
+        let output = run_hbcn_analyse(&invalid_input, vec![])
+            .expect("Failed to run analysis with invalid file");
+
+        assert!(
+            !output.status.success(),
+            "Analysis should fail with invalid input file"
+        );
+    }
+
+    /// Test analysis command error handling with malformed input
+    #[test]
+    fn test_analyse_malformed_input() {
+        let graph_content = r#"Invalid syntax here
+Not a valid graph
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run analysis with malformed input");
+
+        assert!(
+            !output.status.success(),
+            "Analysis should fail with malformed input"
+        );
+    }
+
+    /// Test analysis command with single node circuit
+    #[test]
+    fn test_analyse_single_node_circuit() {
+        let graph_content = r#"Port "lonely_port" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run analysis on single node circuit");
+
+        // Single node circuit may or may not succeed depending on implementation
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("Worst virtual cycle-time"),
+                "Output should contain cycle time information if successful"
+            );
+        } else {
+            // If it fails, it should be due to infeasible constraints
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("Failed") || stderr.contains("error"),
+                "Should fail with appropriate error message: {}",
+                stderr
+            );
+        }
+    }
+
+    /// Test analysis command with tight timing circuit
+    #[test]
+    fn test_analyse_tight_timing_circuit() {
+        let graph_content = r#"Port "fast_input" [("fast_output", 1)]
+Port "fast_output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let output = run_hbcn_analyse(&input_path, vec![])
+            .expect("Failed to run analysis on tight timing circuit");
+
+        // This might succeed or fail depending on the circuit feasibility
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains("Worst virtual cycle-time"),
+                "Output should contain cycle time information"
+            );
+        } else {
+            // Should fail gracefully with infeasible error
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(
+                stderr.contains("Failed") || stderr.contains("error"),
+                "Should fail with appropriate error message: {}",
+                stderr
+            );
+        }
+    }
 }

@@ -372,4 +372,180 @@ mod constrain_unit_tests {
         // Both should complete successfully
         assert!(result.pseudoclock_period < 1000.0);
     }
+
+    /// Test cyclic path constraint generation (based on cyclic.graph structure)
+    #[test]
+    fn test_cyclic_path_constraints() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 20)]
+               DataReg "b" [("b", 15), ("c", 10)]
+               Port "c" []"#,
+            false,
+        );
+
+        // Test pseudoclock constraints on cyclic circuit
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 2.0)
+            .expect("Should handle cyclic circuit with pseudoclock");
+
+        assert!(pseudo_result.pseudoclock_period >= 2.0);
+        assert!(!pseudo_result.path_constraints.is_empty());
+
+        // Test proportional constraints on cyclic circuit
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 50.0, 2.0, None, None)
+            .expect("Should handle cyclic circuit with proportional");
+
+        assert!(prop_result.pseudoclock_period >= 2.0);
+        assert!(!prop_result.path_constraints.is_empty());
+
+        // Both algorithms should produce valid results for cyclic circuits
+        assert!(pseudo_result.pseudoclock_period <= 50.0);
+        assert!(prop_result.pseudoclock_period <= 50.0);
+    }
+
+    /// Test cyclic circuit with feedback loop constraints
+    #[test]
+    fn test_cyclic_feedback_constraints() {
+        let hbcn = create_test_hbcn(
+            r#"Port "input" [("reg", 30)]
+               DataReg "reg" [("output", 25), ("reg", 20)]
+               Port "output" []"#,
+            false,
+        );
+
+        // Test with generous cycle time for feedback circuit
+        let result = constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, None, None)
+            .expect("Should handle feedback circuit");
+
+        assert!(result.pseudoclock_period >= 10.0);
+        assert!(!result.path_constraints.is_empty());
+
+        // Test with margins on cyclic circuit
+        let result_with_margins = constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, Some(0.2), Some(0.3))
+            .expect("Should handle feedback circuit with margins");
+
+        assert!(result_with_margins.pseudoclock_period >= 10.0);
+        assert!(!result_with_margins.path_constraints.is_empty());
+    }
+
+    /// Test complex cyclic circuit with multiple feedback paths
+    #[test]
+    fn test_complex_cyclic_constraints() {
+        let hbcn = create_test_hbcn(
+            r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+               Port "input" [("reg1", 40)]
+               DataReg "reg1" [("logic", 30), ("reg2", 25)]
+               DataReg "reg2" [("logic", 35), ("reg1", 20)]
+               DataReg "logic" [("output", 45)]
+               Port "output" []"#,
+            false,
+        );
+
+        // Test with very generous cycle time for complex cyclic circuit
+        let result = constrain_cycle_time_proportional(&hbcn, 500.0, 15.0, None, None)
+            .expect("Should handle complex cyclic circuit");
+
+        assert!(result.pseudoclock_period >= 15.0);
+        assert!(!result.path_constraints.is_empty());
+
+        // Test pseudoclock on complex cyclic circuit
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 500.0, 15.0)
+            .expect("Should handle complex cyclic circuit with pseudoclock");
+
+        assert!(pseudo_result.pseudoclock_period >= 15.0);
+        assert!(!pseudo_result.path_constraints.is_empty());
+    }
+
+    /// Test cyclic circuit constraint validation
+    #[test]
+    fn test_cyclic_constraint_validity() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 20)]
+               DataReg "b" [("b", 15), ("c", 10)]
+               Port "c" []"#,
+            false,
+        );
+
+        let result = constrain_cycle_time_proportional(&hbcn, 100.0, 5.0, None, None)
+            .expect("Should generate valid cyclic constraints");
+
+        // Validate all constraints in cyclic circuit
+        for ((src, dst), constraint) in &result.path_constraints {
+            // Source and destination should be valid circuit nodes
+            assert!(!src.name().as_ref().is_empty());
+            assert!(!dst.name().as_ref().is_empty());
+
+            // Delays should be reasonable for cyclic circuit
+            if let Some(min_delay) = constraint.min {
+                assert!(min_delay >= 0.0, "Min delay should be non-negative");
+                assert!(min_delay <= 100.0, "Min delay should be reasonable");
+            }
+
+            if let Some(max_delay) = constraint.max {
+                assert!(max_delay >= 5.0, "Max delay should be at least min_delay");
+                assert!(max_delay <= 100.0, "Max delay should not exceed cycle time");
+            }
+
+            // If both exist, min should be <= max
+            if let (Some(min), Some(max)) = (constraint.min, constraint.max) {
+                assert!(min <= max, "Min delay should not exceed max delay");
+            }
+        }
+    }
+
+    /// Test cyclic circuit with tight timing constraints
+    #[test]
+    fn test_cyclic_tight_timing() {
+        let hbcn = create_test_hbcn(
+            r#"Port "a" [("b", 10)]
+               DataReg "b" [("b", 5), ("c", 8)]
+               Port "c" []"#,
+            false,
+        );
+
+        // Test with tight but feasible timing
+        let result = constrain_cycle_time_proportional(&hbcn, 30.0, 2.0, None, None)
+            .expect("Should handle cyclic circuit with tight timing");
+
+        assert!(result.pseudoclock_period >= 2.0);
+        assert!(result.pseudoclock_period <= 30.0);
+
+        // Test with very tight timing (might be infeasible)
+        let tight_result = constrain_cycle_time_proportional(&hbcn, 10.0, 1.0, None, None);
+        
+        // Either succeeds with valid constraints or fails gracefully
+        match tight_result {
+            Ok(result) => {
+                assert!(result.pseudoclock_period >= 1.0);
+                assert!(result.pseudoclock_period <= 10.0);
+            }
+            Err(_) => {
+                // Expected for very tight timing on cyclic circuit
+            }
+        }
+    }
+
+    /// Test cyclic circuit with forward completion effects
+    #[test]
+    fn test_cyclic_forward_completion_effects() {
+        let input = r#"Port "a" [("b", 20)]
+                      DataReg "b" [("b", 15), ("c", 10)]
+                      Port "c" []"#;
+
+        let hbcn_no_fc = create_test_hbcn(input, false);
+        let hbcn_with_fc = create_test_hbcn(input, true);
+
+        let result_no_fc = constrain_cycle_time_proportional(&hbcn_no_fc, 100.0, 5.0, None, None)
+            .expect("Should work without forward completion on cyclic circuit");
+
+        let result_with_fc = constrain_cycle_time_proportional(&hbcn_with_fc, 100.0, 5.0, None, None)
+            .expect("Should work with forward completion on cyclic circuit");
+
+        // Both should produce valid results
+        assert!(result_no_fc.pseudoclock_period >= 5.0);
+        assert!(result_with_fc.pseudoclock_period >= 5.0);
+
+        // Both should have constraints
+        assert!(!result_no_fc.path_constraints.is_empty());
+        assert!(!result_with_fc.path_constraints.is_empty());
+    }
 }

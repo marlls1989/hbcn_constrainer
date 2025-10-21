@@ -313,4 +313,327 @@ mod sdc_tests {
         assert!(lines.iter().any(|line| line.starts_with("set_max_delay")));
         assert!(lines.iter().any(|line| line.starts_with("\t-through")));
     }
+
+    /// Test SDC generation for cyclic circuit constraints (based on cyclic.graph)
+    #[test]
+    fn test_sdc_cyclic_circuit_constraints() {
+        let mut constraints = HashMap::new();
+        
+        // Port to DataReg constraint (input to feedback register)
+        constraints.insert(
+            (
+                CircuitNode::Port("a".to_string()),
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(5.0),
+                max: Some(20.0),
+            },
+        );
+
+        // DataReg to DataReg constraint (feedback loop)
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(3.0),
+                max: Some(15.0),
+            },
+        );
+
+        // DataReg to Port constraint (feedback register to output)
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Port("c".to_string()),
+            ),
+            DelayPair {
+                min: Some(2.0),
+                max: Some(10.0),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write cyclic SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should contain all constraint types for cyclic circuit
+        assert!(sdc_content.contains("set_min_delay 5.000"));
+        assert!(sdc_content.contains("set_max_delay 20.000"));
+        assert!(sdc_content.contains("set_min_delay 3.000"));
+        assert!(sdc_content.contains("set_max_delay 15.000"));
+        assert!(sdc_content.contains("set_min_delay 2.000"));
+        assert!(sdc_content.contains("set_max_delay 10.000"));
+
+        // Should contain proper node references
+        assert!(sdc_content.contains("a_*"));
+        assert!(sdc_content.contains("b/*"));
+        assert!(sdc_content.contains("c_*"));
+
+        // Should contain sequential constraints for DataReg
+        assert!(sdc_content.contains("is_sequential == true"));
+    }
+
+    /// Test SDC generation for complex cyclic circuit with multiple feedback loops
+    #[test]
+    fn test_sdc_complex_cyclic_constraints() {
+        let mut constraints = HashMap::new();
+        
+        // Clock to registers
+        constraints.insert(
+            (
+                CircuitNode::Port("clk".to_string()),
+                CircuitNode::Register {
+                    name: "reg1".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(5.0),
+            },
+        );
+
+        constraints.insert(
+            (
+                CircuitNode::Port("clk".to_string()),
+                CircuitNode::Register {
+                    name: "reg2".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(5.0),
+            },
+        );
+
+        // Feedback loops between registers
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "reg1".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Register {
+                    name: "reg2".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(10.0),
+                max: Some(25.0),
+            },
+        );
+
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "reg2".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Register {
+                    name: "reg1".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(8.0),
+                max: Some(20.0),
+            },
+        );
+
+        // Register to output
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "reg1".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Port("output".to_string()),
+            ),
+            DelayPair {
+                min: Some(5.0),
+                max: Some(15.0),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write complex cyclic SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should contain all constraint types
+        assert!(sdc_content.contains("set_max_delay 5.000"));
+        assert!(sdc_content.contains("set_min_delay 10.000"));
+        assert!(sdc_content.contains("set_max_delay 25.000"));
+        assert!(sdc_content.contains("set_min_delay 8.000"));
+        assert!(sdc_content.contains("set_max_delay 20.000"));
+        assert!(sdc_content.contains("set_min_delay 5.000"));
+        assert!(sdc_content.contains("set_max_delay 15.000"));
+
+        // Should contain proper node references
+        assert!(sdc_content.contains("clk_*"));
+        assert!(sdc_content.contains("reg1/*"));
+        assert!(sdc_content.contains("reg2/*"));
+        assert!(sdc_content.contains("output_*"));
+
+        // Should contain multiple sequential constraints
+        let sequential_count = sdc_content.matches("is_sequential == true").count();
+        assert!(sequential_count >= 4, "Should have multiple sequential constraints");
+    }
+
+    /// Test SDC generation for cyclic circuit with tight timing constraints
+    #[test]
+    fn test_sdc_cyclic_tight_timing() {
+        let mut constraints = HashMap::new();
+        
+        // Tight timing constraints for cyclic circuit
+        constraints.insert(
+            (
+                CircuitNode::Port("a".to_string()),
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(1.0),
+                max: Some(3.0),
+            },
+        );
+
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Register {
+                    name: "b".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: Some(0.5),
+                max: Some(2.0),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write tight timing SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should contain tight timing constraints
+        assert!(sdc_content.contains("set_min_delay 1.000"));
+        assert!(sdc_content.contains("set_max_delay 3.000"));
+        assert!(sdc_content.contains("set_min_delay 0.500"));
+        assert!(sdc_content.contains("set_max_delay 2.000"));
+
+        // Should have proper precision for tight timing
+        assert!(sdc_content.contains("1.000"));
+        assert!(sdc_content.contains("0.500"));
+    }
+
+    /// Test SDC generation for cyclic circuit with only max constraints
+    #[test]
+    fn test_sdc_cyclic_max_only_constraints() {
+        let mut constraints = HashMap::new();
+        
+        // Cyclic circuit with only max delay constraints (pseudoclock style)
+        constraints.insert(
+            (
+                CircuitNode::Port("input".to_string()),
+                CircuitNode::Register {
+                    name: "reg".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(12.5),
+            },
+        );
+
+        constraints.insert(
+            (
+                CircuitNode::Register {
+                    name: "reg".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+                CircuitNode::Register {
+                    name: "reg".to_string(),
+                    data_path: "d".to_string(),
+                    control_path: "c".to_string(),
+                    output_path: "q".to_string(),
+                },
+            ),
+            DelayPair {
+                min: None,
+                max: Some(8.75),
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints).expect("Should write max-only SDC");
+
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        // Should only contain max delay constraints
+        assert!(sdc_content.contains("set_max_delay 12.500"));
+        assert!(sdc_content.contains("set_max_delay 8.750"));
+        assert!(!sdc_content.contains("set_min_delay"));
+
+        // Should contain proper node references
+        assert!(sdc_content.contains("input_*"));
+        assert!(sdc_content.contains("reg/*"));
+    }
 }

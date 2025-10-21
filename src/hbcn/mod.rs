@@ -1454,4 +1454,202 @@ mod tests {
             "All margin combinations should produce valid results"
         );
     }
+
+    /// Test cyclic path HBCN conversion (based on cyclic.graph structure)
+    #[test]
+    fn test_cyclic_path_conversion() {
+        let input = r#"Port "a" [("b", 20)]
+                      DataReg "b" [("b", 15), ("c", 10)]
+                      Port "c" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert cyclic graph to HBCN");
+
+        // Should have transitions for all nodes
+        assert!(hbcn.node_count() > 0, "Cyclic HBCN should have nodes");
+        assert!(hbcn.edge_count() > 0, "Cyclic HBCN should have edges");
+
+        // Should have DataReg transitions
+        let has_datareg = hbcn.node_indices().any(|idx| {
+            matches!(hbcn[idx], Transition::Data(CircuitNode::Register { .. }))
+        });
+        assert!(has_datareg, "Cyclic HBCN should have DataReg transitions");
+
+        // Should have feedback loop (DataReg to itself)
+        let has_feedback = hbcn.edge_indices().any(|edge_idx| {
+            let (src, dst) = hbcn.edge_endpoints(edge_idx).unwrap();
+            matches!(hbcn[src], Transition::Data(CircuitNode::Register { .. })) &&
+            matches!(hbcn[dst], Transition::Data(CircuitNode::Register { .. }))
+        });
+        assert!(has_feedback, "Cyclic HBCN should have feedback loop");
+    }
+
+    /// Test cyclic circuit with complex feedback loops
+    #[test]
+    fn test_complex_cyclic_conversion() {
+        let input = r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+                      Port "input" [("reg1", 40)]
+                      DataReg "reg1" [("logic", 30), ("reg2", 25)]
+                      DataReg "reg2" [("logic", 35), ("reg1", 20)]
+                      DataReg "logic" [("output", 45)]
+                      Port "output" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse complex cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert complex cyclic graph to HBCN");
+
+        // Should have multiple DataRegs
+        let datareg_count = hbcn.node_indices()
+            .filter(|idx| matches!(hbcn[*idx], Transition::Data(CircuitNode::Register { .. })))
+            .count();
+        assert!(datareg_count >= 3, "Complex cyclic HBCN should have multiple DataRegs");
+
+        // Should have multiple feedback loops
+        let feedback_edges = hbcn.edge_indices()
+            .filter(|edge_idx| {
+                let (src, dst) = hbcn.edge_endpoints(*edge_idx).unwrap();
+                matches!(hbcn[src], Transition::Data(CircuitNode::Register { .. })) &&
+                matches!(hbcn[dst], Transition::Data(CircuitNode::Register { .. }))
+            })
+            .count();
+        assert!(feedback_edges >= 2, "Complex cyclic HBCN should have multiple feedback loops");
+    }
+
+    /// Test cyclic circuit constraint algorithms
+    #[test]
+    fn test_cyclic_constraint_algorithms() {
+        let input = r#"Port "a" [("b", 20)]
+                      DataReg "b" [("b", 15), ("c", 10)]
+                      Port "c" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert cyclic graph to HBCN");
+
+        // Test pseudoclock algorithm on cyclic circuit
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 100.0, 5.0)
+            .expect("Should handle cyclic circuit with pseudoclock");
+
+        assert!(pseudo_result.pseudoclock_period >= 5.0);
+        assert!(pseudo_result.pseudoclock_period <= 100.0);
+        assert!(!pseudo_result.path_constraints.is_empty());
+
+        // Test proportional algorithm on cyclic circuit
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 100.0, 5.0, None, None)
+            .expect("Should handle cyclic circuit with proportional");
+
+        assert!(prop_result.pseudoclock_period >= 5.0);
+        assert!(prop_result.pseudoclock_period <= 100.0);
+        assert!(!prop_result.path_constraints.is_empty());
+    }
+
+    /// Test cyclic circuit critical cycle detection
+    #[test]
+    fn test_cyclic_critical_cycle_detection() {
+        let input = r#"Port "input" [("reg", 30)]
+                      DataReg "reg" [("output", 25), ("reg", 20)]
+                      Port "output" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert cyclic graph to HBCN");
+
+        // Generate constraints to get DelayedHBCN
+        let result = constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, None, None)
+            .expect("Should generate constraints for cyclic circuit");
+
+        // Find critical cycles in the result
+        let cycles = find_critical_cycles(&result.hbcn);
+
+        // For cyclic circuits, we expect to find cycles
+        // Each cycle should have at least 2 edges if any are found
+        for cycle in &cycles {
+            assert!(cycle.len() >= 2, "Cycles should have at least 2 edges");
+        }
+
+        // The constraint generation should succeed
+        assert!(result.pseudoclock_period >= 10.0);
+    }
+
+    /// Test cyclic circuit with forward completion
+    #[test]
+    fn test_cyclic_forward_completion() {
+        let input = r#"Port "a" [("b", 20)]
+                      DataReg "b" [("b", 15), ("c", 10)]
+                      Port "c" []"#;
+
+        // Test without forward completion
+        let structural_graph = parse(input).expect("Failed to parse cyclic input");
+        let hbcn_no_fc = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert cyclic graph to HBCN");
+
+        // Test with forward completion
+        let hbcn_with_fc = from_structural_graph(&structural_graph, true)
+            .expect("Failed to convert cyclic graph to HBCN with forward completion");
+
+        // Both should produce valid HBCNs
+        assert!(hbcn_no_fc.node_count() > 0);
+        assert!(hbcn_with_fc.node_count() > 0);
+
+        // Test constraint generation on both
+        let result_no_fc = constrain_cycle_time_proportional(&hbcn_no_fc, 100.0, 5.0, None, None)
+            .expect("Should work without forward completion on cyclic circuit");
+
+        let result_with_fc = constrain_cycle_time_proportional(&hbcn_with_fc, 100.0, 5.0, None, None)
+            .expect("Should work with forward completion on cyclic circuit");
+
+        // Both should produce valid results
+        assert!(result_no_fc.pseudoclock_period >= 5.0);
+        assert!(result_with_fc.pseudoclock_period >= 5.0);
+    }
+
+    /// Test cyclic circuit timing and delay calculations
+    #[test]
+    fn test_cyclic_timing_calculations() {
+        let input = r#"Port "a" [("b", 20)]
+                      DataReg "b" [("b", 15), ("c", 10)]
+                      Port "c" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert cyclic graph to HBCN");
+
+        // Test cycle time computation on cyclic circuit
+        let (cycle_time, delayed_hbcn) = compute_cycle_time(&hbcn, true)
+            .expect("Should compute cycle time for cyclic circuit");
+
+        assert!(cycle_time > 0.0, "Cycle time should be positive");
+        assert!(delayed_hbcn.node_count() > 0, "Delayed HBCN should have nodes");
+
+        // Test that all delays are reasonable
+        for edge_idx in delayed_hbcn.edge_indices() {
+            let edge = &delayed_hbcn[edge_idx];
+            if let Some(max_delay) = edge.delay.max {
+                assert!(max_delay >= 0.0, "Max delay should be non-negative");
+            }
+            if let Some(min_delay) = edge.delay.min {
+                assert!(min_delay >= 0.0, "Min delay should be non-negative");
+            }
+        }
+    }
+
+    /// Test cyclic circuit edge case with minimal feedback
+    #[test]
+    fn test_cyclic_minimal_feedback() {
+        let input = r#"Port "a" [("b", 10)]
+                      DataReg "b" [("b", 5), ("c", 8)]
+                      Port "c" []"#;
+
+        let structural_graph = parse(input).expect("Failed to parse minimal cyclic input");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert minimal cyclic graph to HBCN");
+
+        // Should still work with minimal feedback
+        let result = constrain_cycle_time_proportional(&hbcn, 50.0, 2.0, None, None)
+            .expect("Should handle minimal cyclic circuit");
+
+        assert!(result.pseudoclock_period >= 2.0);
+        assert!(result.pseudoclock_period <= 50.0);
+    }
 }
