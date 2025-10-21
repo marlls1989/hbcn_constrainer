@@ -16,9 +16,10 @@ use crate::{
         TransitionEvent,
     },
     lp_solver::{
-        ConstraintSense, LinearExpression, OptimizationSense, OptimizationStatus, VariableType,
-        VariableId,
+        Constraint, ConstraintSense, LinearExpression, OptimizationSense, OptimizationStatus, 
+        VariableType, VariableId,
     },
+    lp_model_builder,
 };
 
 /// Find critical cycles in an HBCN graph
@@ -89,10 +90,10 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 
 /// Compute cycle time for an HBCN using linear programming
 pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
-    let mut builder = crate::lp_solver::LPModelBuilder::new();
+    let mut builder = lp_model_builder!();
     let cycle_time = builder.add_variable("cycle_time", VariableType::Integer, 0.0, f64::INFINITY);
 
-    let arr_var: HashMap<NodeIndex, VariableId> = hbcn
+    let arr_var: HashMap<NodeIndex, VariableId<_>> = hbcn
         .node_indices()
         .map(|x| {
             (
@@ -102,7 +103,7 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
         })
         .collect();
 
-    let delay_slack_var: HashMap<EdgeIndex, (VariableId, VariableId)> = hbcn
+    let delay_slack_var: HashMap<EdgeIndex, (VariableId<_>, VariableId<_>)> = hbcn
         .edge_indices()
         .map(|ie| {
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
@@ -119,12 +120,12 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             expr1.add_term(1.0, delay);
             expr1.add_term(-1.0, slack);
 
-            builder.add_constraint(
+            builder.add_constraint(Constraint::new(
                 "",
                 expr1,
                 ConstraintSense::Equal,
                 if weighted { place.weight as f64 } else { 1.0 },
-            );
+            ));
 
             // Constraint: arr_var[dst] - arr_var[src] - delay + (if place.token { 1.0 } else { 0.0 }) * cycle_time = 0.0
             let mut expr2 = LinearExpression::new(0.0);
@@ -135,7 +136,7 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                 expr2.add_term(1.0, cycle_time);
             }
 
-            builder.add_constraint("", expr2, ConstraintSense::Equal, 0.0);
+            builder.add_constraint(Constraint::new("", expr2, ConstraintSense::Equal, 0.0));
 
             (ie, (delay, slack))
         })
@@ -154,7 +155,7 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                 |ix, x| {
                     Some(TransitionEvent {
                         transition: x.clone(),
-                        time: solution.variable_values.get(&arr_var[&ix]).copied()?,
+                        time: solution.get_value(arr_var[&ix])?,
                     })
                 },
                 |ie, e| {
@@ -163,9 +164,9 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                         place: e.clone(),
                         delay: DelayPair {
                             min: None,
-                            max: solution.variable_values.get(delay_var).copied(),
+                            max: solution.get_value(*delay_var),
                         },
-                        slack: solution.variable_values.get(slack_var).copied(),
+                        slack: solution.get_value(*slack_var),
                         ..Default::default()
                     })
                 },

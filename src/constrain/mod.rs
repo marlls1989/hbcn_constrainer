@@ -25,47 +25,47 @@ mod tests;
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
     /// Structural graph input file
-    input: PathBuf,
+    pub input: PathBuf,
 
     /// Output SDC constraints file
     #[clap(long)]
-    sdc: PathBuf,
+    pub sdc: PathBuf,
 
     /// Cycle-time constraint
     #[clap(short('t'), long)]
-    cycle_time: f64,
+    pub cycle_time: f64,
 
     /// Minimal propagation-path delay
     #[clap(short, long)]
-    minimal_delay: f64,
+    pub minimal_delay: f64,
 
     /// Output CSV file
     #[clap(long)]
-    csv: Option<PathBuf>,
+    pub csv: Option<PathBuf>,
 
     /// Output report file
     #[clap(long)]
-    rpt: Option<PathBuf>,
+    pub rpt: Option<PathBuf>,
 
     /// Output VCD file with arrival times
     #[clap(long)]
-    vcd: Option<PathBuf>,
+    pub vcd: Option<PathBuf>,
 
     /// Use pseudo-clock to constrain paths
     #[clap(long)]
-    no_proportinal: bool,
+    pub no_proportinal: bool,
 
     /// Don't use forward completion delay if greater than path virtual delay
     #[clap(long)]
-    no_forward_completion: bool,
+    pub no_forward_completion: bool,
 
     /// Percentual margin between maximum and minimum delay in the forward path
     #[clap(long, short('f'), value_parser = clap::value_parser!(u8).range(0 .. 100))]
-    forward_margin: Option<u8>,
+    pub forward_margin: Option<u8>,
 
     /// Minimal percentual margin between maximum and minimum delay in the backward path
     #[clap(long, short('b'), value_parser = clap::value_parser!(u8).range(0 .. 100))]
-    backward_margin: Option<u8>,
+    pub backward_margin: Option<u8>,
 }
 
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {

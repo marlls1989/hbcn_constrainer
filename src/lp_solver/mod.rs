@@ -2,9 +2,209 @@
 //! 
 //! This module provides a trait-based abstraction for LP solvers, allowing the codebase
 //! to be independent of specific solver implementations like Gurobi and coin_cbc.
+//!
+//! # Type Safety with Branded Types
+//!
+//! All core types (`VariableId`, `LinearExpression`, `Constraint`, `LPModelBuilder`)
+//! use a generic `Brand` type parameter that provides compile-time guarantees:
+//!
+//! - Variables from one builder cannot be accidentally used with another builder
+//! - Constraints are type-checked to ensure they only use variables from their builder
+//! - No runtime overhead - the brand is a zero-sized phantom type
+//!
+//! ## Using the Default Brand
+//!
+//! For simple cases where you only have one model, use the default brand `()`:
+//!
+//! ```ignore
+//! let mut builder: LPModelBuilder<()> = LPModelBuilder::new();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//!
+//! // All operations work as expected
+//! builder.add_constraint(constraint!((x + y) <= 10.0));
+//! ```
+//!
+//! **Note:** Type inference may require explicit annotation in some cases.
+//!
+//! ## Branded Types for Type Safety
+//!
+//! All core types are generic over a `Brand` type parameter to prevent mixing
+//! variables from different LP models at compile time. Use the `lp_model_builder!()`
+//! macro to create builders with guaranteed unique brands:
+//!
+//! ```rust
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::{VariableType, constraint};
+//!
+//! // Each macro call creates a unique brand automatically
+//! let mut builder1 = lp_model_builder!();
+//! let mut builder2 = lp_model_builder!();
+//!
+//! let x = builder1.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let y = builder2.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//!
+//! // This compiles:
+//! builder1.add_constraint(constraint!((x) <= 5.0));
+//!
+//! // This would NOT compile (type error):
+//! // builder1.add_constraint(constraint!((y) <= 5.0));
+//! // ERROR: y has different brand than builder1 expects
+//! ```
+//!
+//! For custom brands, you can still use the explicit generic syntax:
+//! ```rust
+//! use hbcn::lp_solver::{LPModelBuilder, VariableType};
+//!
+//! struct MyModel;
+//! let mut builder = LPModelBuilder::<MyModel>::new();
+//! ```
+//!
+//! ## Implementation Details
+//!
+//! ### Internal Data Structures
+//!
+//! The `LPModelBuilder` uses clean, strongly-typed data structures internally:
+//!
+//! - `VariableInfo`: Stores variable metadata (name, type, bounds)
+//! - `ConstraintInfo<Brand>`: Stores constraint details (name, expression, sense, RHS)
+//! - `ObjectiveInfo<Brand>`: Stores objective function information
+//!
+//! Variables and solutions use `Vec` storage rather than `HashMap`:
+//! - `LPModelBuilder.variables`: Vec of `VariableInfo`
+//! - `LPSolution.variable_values`: Vec of `f64`
+//!
+//! The `VariableId` serves as an index into these vectors, providing O(1) lookups
+//! without hashing overhead. Use `solution.get_value(var_id)` to safely access values.
+//!
+//! ### Type System Guarantees
+//!
+//! The type system enforces these invariants:
+//!
+//! 1. **Variable Binding**: `VariableId<Brand>` can only be used with `LPModelBuilder<Brand>`
+//! 2. **Expression Consistency**: All variables in a `LinearExpression<Brand>` have the same brand
+//! 3. **Constraint Matching**: `Constraint<Brand>` can only be added to matching `LPModelBuilder<Brand>`
+//! 4. **Operation Preservation**: All arithmetic operations preserve the brand type
+//!
+//! ### Manual Trait Implementations
+//!
+//! To avoid requiring `Brand` to implement any traits, `VariableId<Brand>` manually implements
+//! `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`, and `Hash`. These implementations only use the
+//! `id` field, ignoring the phantom `_brand` field.
+//!
+//! ### Zero Runtime Cost
+//!
+//! The `PhantomData<fn() -> Brand>` is a zero-sized type that exists only at compile time.
+//! Both `VariableId<()>` and `VariableId<CustomBrand>` have the same size: just `size_of::<usize>()`.
+//!
+//! # Building LP Models
+//!
+//! The module provides three main ways to build constraints:
+//!
+//! ## 1. Using the `constraint!` Macro (Recommended)
+//!
+//! The most concise way to create constraints using natural comparison syntax:
+//!
+//! ```ignore
+//! use hbcn::constraint;
+//! use hbcn::lp_solver::{LPModelBuilder, VariableType, OptimizationSense};
+//!
+//! let mut builder = LPModelBuilder::new();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, f64::INFINITY);
+//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, f64::INFINITY);
+//!
+//! // Unnamed constraints (most common)
+//! builder.add_constraint(constraint!((x + y) == 10.0));
+//! builder.add_constraint(constraint!((2.0 * x - y) <= 5.0));
+//! builder.add_constraint(constraint!((x) >= 0.0));
+//! builder.add_constraint(constraint!((y) > 1.0));
+//!
+//! // Named constraints (for debugging)
+//! builder.add_constraint(constraint!("important", (x + y) == 10.0));
+//!
+//! // Set objective and solve
+//! builder.set_objective(x + 2.0 * y, OptimizationSense::Maximize);
+//! let solution = builder.solve()?;
+//! ```
+//!
+//! ## 2. Using `Constraint` Builder Methods
+//!
+//! For explicit constraint construction:
+//!
+//! ```ignore
+//! use hbcn::lp_solver::{Constraint, LPModelBuilder, VariableType};
+//!
+//! let mut builder = LPModelBuilder::new();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//!
+//! // Unnamed (cleaner)
+//! builder.add_constraint(Constraint::eq(x + 5.0, 10.0));
+//! builder.add_constraint(Constraint::le(2.0 * x, 20.0));
+//! builder.add_constraint(Constraint::ge(x, 0.0));
+//! builder.add_constraint(Constraint::gt(x, 1.0));
+//!
+//! // Named (for debugging)
+//! builder.add_constraint(Constraint::eq_named("balance", x + 5.0, 10.0));
+//! builder.add_constraint(Constraint::le_named("upper", 2.0 * x, 20.0));
+//! ```
+//!
+//! ## 3. Using `Constraint::new` Directly
+//!
+//! For maximum control:
+//!
+//! ```ignore
+//! use hbcn::lp_solver::{Constraint, ConstraintSense};
+//!
+//! let c = Constraint::new("my_constraint", x + y, ConstraintSense::Equal, 10.0);
+//! builder.add_constraint(c);
+//! ```
+//!
+//! # Expression Building
+//!
+//! Linear expressions support natural operator overloading:
+//!
+//! ```ignore
+//! // Combine variables and constants
+//! let expr = 2.0 * x + 3.0 * y - 5.0;
+//! let expr2 = x + y;
+//! let expr3 = x - y + 10.0;
+//! ```
+//!
+//! # Solver Selection
+//!
+//! The solver backend can be selected via the `HBCN_LP_SOLVER` environment variable:
+//! - `"gurobi"` - Use Gurobi (requires `gurobi` feature)
+//! - `"coin_cbc"` or `"cbc"` - Use COIN-OR CBC (requires `coin_cbc` feature)
+//!
+//! If not set, the solver defaults to Gurobi if available, otherwise CBC.
 
 use anyhow::Result;
 use std::env;
+use std::marker::PhantomData;
+use std::sync::Arc;
+
+/// Create a new LP model builder with a unique brand
+/// 
+/// This macro ensures that each model builder has a unique type-level brand,
+/// preventing accidental mixing of variables between different models.
+/// 
+/// # Examples
+/// 
+/// ```rust
+/// use hbcn::lp_model_builder;
+/// 
+/// let mut builder = lp_model_builder!();
+/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+/// // Each call to lp_model_builder!() creates a unique brand
+/// ```
+#[macro_export]
+macro_rules! lp_model_builder {
+    () => {{
+        // Create a unique brand type for each macro invocation
+        struct UniqueBrand;
+        $crate::lp_solver::LPModelBuilder::<UniqueBrand>::new()
+    }};
+}
 
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,16 +262,18 @@ pub enum OptimizationStatus {
 /// Available LP solver backends
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
-pub enum SolverBackend {
+enum SolverBackend {
+    #[cfg(feature = "gurobi")]
     /// Gurobi commercial solver
     Gurobi,
+    #[cfg(feature = "coin_cbc")]
     /// Coin CBC open-source solver
     CoinCbc,
 }
 
 impl SolverBackend {
     /// Get the solver backend from environment variable or use fallback logic
-    pub fn from_env_or_default() -> Result<Self> {
+    fn from_env_or_default() -> Result<Self> {
         // Check if HBCN_LP_SOLVER environment variable is set
         if let Ok(solver_name) = env::var("HBCN_LP_SOLVER") {
             match solver_name.to_lowercase().as_str() {
@@ -94,14 +296,12 @@ impl SolverBackend {
         }
         
         // Fallback logic: prefer gurobi if available, then coin_cbc
-        #[cfg(all(feature = "gurobi", not(feature = "coin_cbc")))]
+        #[cfg(all(feature = "gurobi"))]
         return Ok(SolverBackend::Gurobi);
         
-        #[cfg(all(feature = "coin_cbc", not(feature = "gurobi")))]
+        #[allow(unreachable_code)]
+        #[cfg(all(feature = "coin_cbc"))]
         return Ok(SolverBackend::CoinCbc);
-        
-        #[cfg(all(feature = "gurobi", feature = "coin_cbc"))]
-        return Ok(SolverBackend::Gurobi); // Prefer gurobi when both are available
         
         #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
         Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"))
@@ -110,19 +310,19 @@ impl SolverBackend {
 
 /// A linear expression term: coefficient * variable
 #[derive(Debug, Clone)]
-pub struct LinearTerm {
+pub struct LinearTerm<Brand> {
     pub coefficient: f64,
-    pub variable: VariableId,
+    pub variable: VariableId<Brand>,
 }
 
 /// A linear expression: sum of terms plus constant
 #[derive(Debug, Clone)]
-pub struct LinearExpression {
-    pub terms: Vec<LinearTerm>,
+pub struct LinearExpression<Brand> {
+    pub terms: Vec<LinearTerm<Brand>>,
     pub constant: f64,
 }
 
-impl LinearExpression {
+impl<Brand> LinearExpression<Brand> {
     /// Create a new linear expression with a constant term
     pub fn new(constant: f64) -> Self {
         Self {
@@ -132,7 +332,7 @@ impl LinearExpression {
     }
 
     /// Add a term to the expression
-    pub fn add_term(&mut self, coefficient: f64, variable: VariableId) {
+    pub fn add_term(&mut self, coefficient: f64, variable: VariableId<Brand>) {
         self.terms.push(LinearTerm {
             coefficient,
             variable,
@@ -140,7 +340,7 @@ impl LinearExpression {
     }
 
     /// Create a linear expression from a single variable
-    pub fn from_variable(variable: VariableId) -> Self {
+    pub fn from_variable(variable: VariableId<Brand>) -> Self {
         Self {
             terms: vec![LinearTerm {
                 coefficient: 1.0,
@@ -151,210 +351,390 @@ impl LinearExpression {
     }
 }
 
-impl std::ops::Mul<f64> for LinearExpression {
-    type Output = LinearExpression;
-
-    fn mul(mut self, coefficient: f64) -> Self::Output {
-        for term in &mut self.terms {
-            term.coefficient *= coefficient;
-        }
-        self.constant *= coefficient;
-        self
-    }
-}
-
-impl std::ops::Add<LinearExpression> for LinearExpression {
-    type Output = LinearExpression;
-
-    fn add(mut self, mut other: LinearExpression) -> Self::Output {
-        self.terms.append(&mut other.terms);
-        self.constant += other.constant;
-        self
-    }
-}
-
-impl std::ops::Sub<LinearExpression> for LinearExpression {
-    type Output = LinearExpression;
-
-    fn sub(mut self, other: LinearExpression) -> Self::Output {
-        let mut negated = other * -1.0;
-        self.terms.append(&mut negated.terms);
-        self.constant += negated.constant;
-        self
+impl<Brand> From<VariableId<Brand>> for LinearExpression<Brand> {
+    fn from(variable: VariableId<Brand>) -> Self {
+        Self::from_variable(variable)
     }
 }
 
 /// Unique identifier for a variable in the LP model
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct VariableId(usize);
+///
+/// The `Brand` type parameter ensures that variables can only be used with the
+/// builder that created them. This is enforced at compile time.
+pub struct VariableId<Brand> {
+    id: usize,
+    _brand: PhantomData<fn() -> Brand>,
+}
+
+// Manual trait implementations that don't require Brand to implement anything
+impl<Brand> std::fmt::Debug for VariableId<Brand> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VariableId")
+            .field("id", &self.id)
+            .finish()
+    }
+}
+
+impl<Brand> Clone for VariableId<Brand> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<Brand> Copy for VariableId<Brand> {}
+
+impl<Brand> PartialEq for VariableId<Brand> {
+    fn eq(&self, other: &Self) -> bool {
+        self.id == other.id
+    }
+}
+
+impl<Brand> Eq for VariableId<Brand> {}
+
+impl<Brand> std::hash::Hash for VariableId<Brand> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id.hash(state);
+    }
+}
 
 /// Unique identifier for a constraint in the LP model
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ConstraintId(usize);
 
+/// A linear constraint representation
+///
+/// Constraints define relationships between linear expressions and constants.
+/// The `Brand` type parameter ensures type safety - constraints can only use
+/// variables from the builder that will consume them.
+///
+/// # Examples
+///
+/// ```ignore
+/// use hbcn::constraint;
+/// use hbcn::lp_solver::{Constraint, ConstraintSense};
+///
+/// // Using the constraint! macro (recommended)
+/// let c = constraint!((x + y) == 10.0);  // unnamed
+/// let c = constraint!("my_constraint", (x + y) == 10.0);  // named
+///
+/// // Using builder methods
+/// let c = Constraint::eq(x + y, 10.0);  // unnamed
+/// let c = Constraint::eq_named("my_constraint", x + y, 10.0);  // named
+///
+/// // Using the constructor directly
+/// let c = Constraint::new("my_constraint", x + y, ConstraintSense::Equal, 10.0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct Constraint<Brand> {
+    name: Arc<str>,
+    expression: LinearExpression<Brand>,
+    sense: ConstraintSense,
+    rhs: f64,
+}
+
+impl<Brand> Constraint<Brand> {
+    /// Create a new named constraint
+    pub fn new(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, sense: ConstraintSense, rhs: f64) -> Self {
+        Self {
+            name: name.into(),
+            expression: expression.into(),
+            sense,
+            rhs,
+        }
+    }
+
+
+    /// Create an unnamed equality constraint: expression == rhs
+    pub fn eq(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new("", expression, ConstraintSense::Equal, rhs)
+    }
+
+    /// Create a named equality constraint: expression == rhs
+    pub fn eq_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new(name, expression, ConstraintSense::Equal, rhs)
+    }
+
+    /// Create an unnamed less-than-or-equal constraint: expression <= rhs
+    pub fn le(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new("", expression, ConstraintSense::LessEqual, rhs)
+    }
+
+    /// Create a named less-than-or-equal constraint: expression <= rhs
+    pub fn le_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new(name, expression, ConstraintSense::LessEqual, rhs)
+    }
+
+    /// Create an unnamed greater-than-or-equal constraint: expression >= rhs
+    pub fn ge(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new("", expression, ConstraintSense::GreaterEqual, rhs)
+    }
+
+    /// Create a named greater-than-or-equal constraint: expression >= rhs
+    pub fn ge_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new(name, expression, ConstraintSense::GreaterEqual, rhs)
+    }
+
+    /// Create an unnamed strictly-greater-than constraint: expression > rhs
+    pub fn gt(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new("", expression, ConstraintSense::Greater, rhs)
+    }
+
+    /// Create a named strictly-greater-than constraint: expression > rhs
+    pub fn gt_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+        Self::new(name, expression, ConstraintSense::Greater, rhs)
+    }
+}
+
+/// Variable information stored in the model
+#[derive(Debug, Clone)]
+struct VariableInfo {
+    name: Arc<str>,
+    var_type: VariableType,
+    lower_bound: f64,
+    upper_bound: f64,
+}
+
+
+/// Objective function information
+#[derive(Debug, Clone)]
+struct ObjectiveInfo<Brand> {
+    expression: LinearExpression<Brand>,
+    sense: OptimizationSense,
+}
+
 /// Result of solving an LP model
 #[derive(Debug, Clone)]
-pub struct LPSolution {
+pub struct LPSolution<Brand> {
     pub status: OptimizationStatus,
     pub objective_value: f64,
-    pub variable_values: std::collections::HashMap<VariableId, f64>,
+    variable_values: Vec<f64>,
+    _brand: PhantomData<fn() -> Brand>,
+}
+
+impl<Brand> LPSolution<Brand> {
+    /// Get the value of a variable from the solution
+    pub fn get_value(&self, var_id: VariableId<Brand>) -> Option<f64> {
+        self.variable_values.get(var_id.id).copied()
+    }
 }
 
 /// Builder for LP models that can work with different backends
-pub struct LPModelBuilder {
-    variables: std::collections::HashMap<VariableId, (String, VariableType, f64, f64)>,
-    constraints: Vec<(String, LinearExpression, ConstraintSense, f64)>,
-    objective: Option<(LinearExpression, OptimizationSense)>,
-    next_var_id: usize,
-    next_constr_id: usize,
+///
+/// The `Brand` type parameter ensures type safety - variables from one builder
+/// cannot be accidentally used with another builder. This is enforced at compile time.
+///
+/// # Examples
+///
+/// ```ignore
+/// use hbcn::lp_solver::{LPModelBuilder, VariableType};
+///
+/// // Each builder has its own brand
+/// struct MyModel;
+/// let mut builder = LPModelBuilder::<MyModel>::new();
+///
+/// // Variables are branded with the builder type
+/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+///
+/// // For simple cases, use the macro to create a unique brand
+/// let mut builder = lp_model_builder!();  // Creates unique brand automatically
+/// ```
+pub struct LPModelBuilder<Brand> {
+    variables: Vec<VariableInfo>,
+    constraints: Vec<Constraint<Brand>>,
+    objective: Option<ObjectiveInfo<Brand>>,
+    _brand: PhantomData<fn() -> Brand>,
 }
 
-impl LPModelBuilder {
+impl<Brand> LPModelBuilder<Brand> {
     /// Create a new LP model builder
     pub fn new() -> Self {
         Self {
-            variables: std::collections::HashMap::new(),
+            variables: Vec::new(),
             constraints: Vec::new(),
             objective: None,
-            next_var_id: 0,
-            next_constr_id: 0,
+            _brand: PhantomData,
         }
     }
 
     /// Add a variable to the model
     pub fn add_variable(
         &mut self,
-        name: &str,
+        name: impl Into<Arc<str>>,
         var_type: VariableType,
         lower_bound: f64,
         upper_bound: f64,
-    ) -> VariableId {
-        let var_id = VariableId(self.next_var_id);
-        self.next_var_id += 1;
-        self.variables.insert(var_id, (name.to_string(), var_type, lower_bound, upper_bound));
+    ) -> VariableId<Brand> {
+        let var_id = VariableId {
+            id: self.variables.len(),
+            _brand: PhantomData,
+        };
+        self.variables.push(VariableInfo {
+            name: name.into(),
+            var_type,
+            lower_bound,
+            upper_bound,
+        });
         var_id
     }
 
     /// Add a constraint to the model
-    pub fn add_constraint(
-        &mut self,
-        name: &str,
-        expression: LinearExpression,
-        sense: ConstraintSense,
-        rhs: f64,
-    ) -> ConstraintId {
-        let constr_id = ConstraintId(self.next_constr_id);
-        self.next_constr_id += 1;
-        self.constraints.push((name.to_string(), expression, sense, rhs));
+    pub fn add_constraint(&mut self, constraint: Constraint<Brand>) -> ConstraintId {
+        let constr_id = ConstraintId(self.constraints.len());
+        self.constraints.push(constraint);
         constr_id
     }
 
     /// Set the objective function
-    pub fn set_objective(&mut self, expression: LinearExpression, sense: OptimizationSense) {
-        self.objective = Some((expression, sense));
+    pub fn set_objective(&mut self, expression: LinearExpression<Brand>, sense: OptimizationSense) {
+        self.objective = Some(ObjectiveInfo { expression, sense });
     }
 
     /// Solve the model using the specified solver
-    pub fn solve(self) -> Result<LPSolution> {
+    pub fn solve(self) -> Result<LPSolution<Brand>> {
         let solver = SolverBackend::from_env_or_default()?;
         
         match solver {
             #[cfg(feature = "gurobi")]
             SolverBackend::Gurobi => crate::lp_solver::gurobi::solve_gurobi(self),
-            #[cfg(not(feature = "gurobi"))]
-            SolverBackend::Gurobi => Err(anyhow::anyhow!("Gurobi solver selected but gurobi feature not enabled")),
             
             #[cfg(feature = "coin_cbc")]
             SolverBackend::CoinCbc => crate::lp_solver::coin_cbc::solve_coin_cbc(self),
-            #[cfg(not(feature = "coin_cbc"))]
-            SolverBackend::CoinCbc => Err(anyhow::anyhow!("Coin CBC solver selected but coin_cbc feature not enabled")),
         }
     }
 }
 
-impl Default for LPModelBuilder {
+impl<Brand> Default for LPModelBuilder<Brand> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Legacy trait for backward compatibility (deprecated)
-#[allow(dead_code)]
-pub trait LPSolver {
-    /// Create a new LP model
-    fn new_model(&self, name: &str) -> Result<Box<dyn LPModel>>;
-}
-
-/// Legacy trait for backward compatibility (deprecated)
-#[allow(dead_code)]
-pub trait LPModel {
-    /// Add a variable to the model
-    fn add_variable(
-        &mut self,
-        name: &str,
-        var_type: VariableType,
-        lower_bound: f64,
-        upper_bound: f64,
-    ) -> Result<VariableId>;
-
-    /// Add a constraint to the model
-    fn add_constraint(
-        &mut self,
-        name: &str,
-        expression: LinearExpression,
-        sense: ConstraintSense,
-        rhs: f64,
-    ) -> Result<ConstraintId>;
-
-    /// Set the objective function
-    fn set_objective(&mut self, expression: LinearExpression, sense: OptimizationSense) -> Result<()>;
-
-    /// Update the model (prepare for solving)
-    fn update(&mut self) -> Result<()>;
-
-    /// Solve the optimization problem
-    fn optimize(&mut self) -> Result<()>;
-
-    /// Get the optimization status
-    fn status(&self) -> Result<OptimizationStatus>;
-
-    /// Get the value of a variable in the solution
-    fn get_variable_value(&self, variable: VariableId) -> Result<f64>;
-
-    /// Get the objective value
-    fn get_objective_value(&self) -> Result<f64>;
-
-    /// Get the number of variables in the model
-    fn num_variables(&self) -> usize;
-
-    /// Get the number of constraints in the model
-    fn num_constraints(&self) -> usize;
-}
-
-/// Factory function to create an LP model (legacy - use LPModelBuilder instead)
-#[allow(dead_code, unused_variables)]
-pub fn create_lp_model(name: &str) -> Result<Box<dyn LPModel>> {
-    #[cfg(feature = "gurobi")]
-    {
-        let solver = crate::lp_solver::gurobi::GurobiSolver;
-        return solver.new_model(name);
-    }
-    
-    #[cfg(feature = "coin_cbc")]
-    {
-        // coin_cbc doesn't have a legacy solver interface, use LPModelBuilder instead
-        Err(anyhow::anyhow!("Legacy solver interface not available for coin_cbc. Use LPModelBuilder instead."))
-    }
-    
-    #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
-    {
-        Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"))
-    }
-}
+// Operator overloading for linear expressions
+pub mod ops;
 
 #[cfg(feature = "gurobi")]
 pub mod gurobi;
 
-
 #[cfg(feature = "coin_cbc")]
 pub mod coin_cbc;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::constraint;
+
+    #[test]
+    fn test_constraint_macro_unnamed() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+
+        // Test unnamed constraints
+        let c = constraint!((x + y) == 10.0);
+        assert_eq!(c.name, Arc::from(""));
+        assert_eq!(c.sense, ConstraintSense::Equal);
+        assert_eq!(c.rhs, 10.0);
+
+        let c = constraint!((2.0 * x) <= 5.0);
+        assert_eq!(c.name, Arc::from(""));
+        assert_eq!(c.sense, ConstraintSense::LessEqual);
+        assert_eq!(c.rhs, 5.0);
+
+        let c = constraint!((x - y) >= 0.0);
+        assert_eq!(c.name, Arc::from(""));
+        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
+        assert_eq!(c.rhs, 0.0);
+
+        let c = constraint!((x) > 1.0);
+        assert_eq!(c.name, Arc::from(""));
+        assert_eq!(c.sense, ConstraintSense::Greater);
+        assert_eq!(c.rhs, 1.0);
+    }
+
+    #[test]
+    fn test_constraint_macro_named() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+
+        // Test named constraints
+        let c = constraint!("eq", (x + y) == 10.0);
+        assert_eq!(c.name, Arc::from("eq"));
+        assert_eq!(c.sense, ConstraintSense::Equal);
+        assert_eq!(c.rhs, 10.0);
+
+        let c = constraint!("le", (2.0 * x) <= 5.0);
+        assert_eq!(c.name, Arc::from("le"));
+        assert_eq!(c.sense, ConstraintSense::LessEqual);
+        assert_eq!(c.rhs, 5.0);
+
+        let c = constraint!("ge", (x - y) >= 0.0);
+        assert_eq!(c.name, Arc::from("ge"));
+        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
+        assert_eq!(c.rhs, 0.0);
+
+        let c = constraint!("gt", (x) > 1.0);
+        assert_eq!(c.name, Arc::from("gt"));
+        assert_eq!(c.sense, ConstraintSense::Greater);
+        assert_eq!(c.rhs, 1.0);
+    }
+
+    #[test]
+    fn test_constraint_macro_with_builder() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+
+        // Test that constraints can be added to builder
+        builder.add_constraint(constraint!((x + y) == 10.0));
+        builder.add_constraint(constraint!("named", (x) <= 5.0));
+        
+        assert_eq!(builder.constraints.len(), 2);
+    }
+
+    #[test]
+    fn test_constraint_builders_unnamed() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+
+        // Test unnamed convenience builders
+        let c = Constraint::eq(x + 5.0, 10.0);
+        assert_eq!(c.sense, ConstraintSense::Equal);
+        assert_eq!(c.name, Arc::from(""));
+
+        let c = Constraint::le(x * 2.0, 10.0);
+        assert_eq!(c.sense, ConstraintSense::LessEqual);
+        assert_eq!(c.name, Arc::from(""));
+
+        let c = Constraint::ge(x - 1.0, 0.0);
+        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
+        assert_eq!(c.name, Arc::from(""));
+
+        let c = Constraint::gt(x, 0.0);
+        assert_eq!(c.sense, ConstraintSense::Greater);
+        assert_eq!(c.name, Arc::from(""));
+    }
+
+    #[test]
+    fn test_constraint_builders_named() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+
+        // Test named convenience builders
+        let c = Constraint::eq_named("test_eq", x + 5.0, 10.0);
+        assert_eq!(c.sense, ConstraintSense::Equal);
+        assert_eq!(c.name, Arc::from("test_eq"));
+
+        let c = Constraint::le_named("test_le", x * 2.0, 10.0);
+        assert_eq!(c.sense, ConstraintSense::LessEqual);
+        assert_eq!(c.name, Arc::from("test_le"));
+
+        let c = Constraint::ge_named("test_ge", x - 1.0, 0.0);
+        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
+        assert_eq!(c.name, Arc::from("test_ge"));
+
+        let c = Constraint::gt_named("test_gt", x, 0.0);
+        assert_eq!(c.sense, ConstraintSense::Greater);
+        assert_eq!(c.name, Arc::from("test_gt"));
+    }
+}
