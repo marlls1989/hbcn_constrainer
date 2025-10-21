@@ -19,7 +19,8 @@ impl SolverBackend {
     }
 }
 
-// Macro to run tests with both backends
+// Macro to run tests with both backends (currently unused but kept for potential future use)
+#[allow(unused_macros)]
 macro_rules! test_with_both_backends {
     ($test_name:ident, $test_body:block) => {
         #[test]
@@ -33,6 +34,98 @@ macro_rules! test_with_both_backends {
             $test_body
         }
     };
+}
+
+// Helper function to check if multiple solver features are enabled
+fn multiple_solvers_available() -> bool {
+    #[cfg(all(feature = "gurobi", feature = "coin_cbc"))]
+    {
+        true
+    }
+    #[cfg(not(all(feature = "gurobi", feature = "coin_cbc")))]
+    {
+        false
+    }
+}
+
+// Helper function to run a command with both solvers and compare results
+fn run_with_both_solvers_and_compare<F>(
+    args: Vec<&str>,
+    comparison_func: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce(&std::process::Output, &std::process::Output) -> Result<(), Box<dyn std::error::Error>>,
+{
+    if !multiple_solvers_available() {
+        return Err("Multiple solvers not available for comparison".into());
+    }
+
+    // Run with Gurobi
+    let gurobi_output = run_cargo_with_backend(SolverBackend::Gurobi, args.clone())?;
+    
+    // Run with CoinCbc
+    let coin_cbc_output = run_cargo_with_backend(SolverBackend::CoinCbc, args)?;
+    
+    // Compare results
+    comparison_func(&gurobi_output, &coin_cbc_output)?;
+    
+    Ok(())
+}
+
+// Helper function to run hbcn constrain with both solvers and compare results
+fn run_hbcn_constrain_with_both_solvers_and_compare<F>(
+    input: &PathBuf,
+    sdc_gurobi: &PathBuf,
+    sdc_coin_cbc: &PathBuf,
+    cycle_time: f64,
+    minimal_delay: f64,
+    additional_args: Vec<&str>,
+    comparison_func: F,
+) -> Result<(), Box<dyn std::error::Error>>
+where
+    F: FnOnce(&std::process::Output, &std::process::Output, &PathBuf, &PathBuf) -> Result<(), Box<dyn std::error::Error>>,
+{
+    if !multiple_solvers_available() {
+        return Err("Multiple solvers not available for comparison".into());
+    }
+
+    let cycle_time_str = cycle_time.to_string();
+    let minimal_delay_str = minimal_delay.to_string();
+    let mut args = vec![
+        "constrain",
+        input.to_str().unwrap(),
+        "--sdc",
+        sdc_gurobi.to_str().unwrap(),
+        "-t",
+        &cycle_time_str,
+        "-m",
+        &minimal_delay_str,
+    ];
+    args.extend(additional_args.clone());
+
+    // Run with Gurobi
+    let gurobi_output = run_cargo_with_backend(SolverBackend::Gurobi, args.clone())?;
+    
+    // Update args for CoinCbc
+    let mut args_coin_cbc = vec![
+        "constrain",
+        input.to_str().unwrap(),
+        "--sdc",
+        sdc_coin_cbc.to_str().unwrap(),
+        "-t",
+        &cycle_time_str,
+        "-m",
+        &minimal_delay_str,
+    ];
+    args_coin_cbc.extend(additional_args);
+    
+    // Run with CoinCbc
+    let coin_cbc_output = run_cargo_with_backend(SolverBackend::CoinCbc, args_coin_cbc)?;
+    
+    // Compare results
+    comparison_func(&gurobi_output, &coin_cbc_output, sdc_gurobi, sdc_coin_cbc)?;
+    
+    Ok(())
 }
 
 // Helper function to create a temporary test file
@@ -920,7 +1013,6 @@ Port "c" []
 #[cfg(test)]
 mod analyser_integration_tests {
     use super::*;
-    use std::process::Command;
 
     // Helper function to run the hbcn analyser binary
     fn run_hbcn_analyse(input: &PathBuf, additional_args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
@@ -1265,7 +1357,6 @@ Port "fast_output" []
 #[cfg(test)]
 mod constraint_verification_tests {
     use super::*;
-    use std::process::Command;
 
     // Helper function to run constraint verification workflow
     fn run_constraint_verification_workflow(
@@ -1567,5 +1658,377 @@ Not a valid graph
         );
 
         assert!(result.is_err(), "Should fail with invalid input");
+    }
+}
+
+#[cfg(test)]
+mod solver_comparison_tests {
+    use super::*;
+
+    /// Test that both solvers produce the same success/failure status for simple circuits
+    #[test]
+    fn test_solver_status_consistency_simple_circuit() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "a" [("b", 20)]
+Port "b" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_gurobi_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_coin_cbc_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_gurobi_path = temp_gurobi_dir.path().join("gurobi.sdc");
+        let sdc_coin_cbc_path = temp_coin_cbc_dir.path().join("coin_cbc.sdc");
+
+        let result = run_hbcn_constrain_with_both_solvers_and_compare(
+            &input_path,
+            &sdc_gurobi_path,
+            &sdc_coin_cbc_path,
+            10.0,
+            1.0,
+            vec![],
+            |gurobi_output, coin_cbc_output, _, _| {
+                // Both solvers should have the same success status
+                assert_eq!(
+                    gurobi_output.status.success(),
+                    coin_cbc_output.status.success(),
+                    "Both solvers should have same success status. Gurobi: {}, CoinCbc: {}",
+                    gurobi_output.status.success(),
+                    coin_cbc_output.status.success()
+                );
+
+                // If both succeed, both should generate SDC files
+                if gurobi_output.status.success() {
+                    assert!(sdc_gurobi_path.exists(), "Gurobi SDC file should be generated");
+                    assert!(sdc_coin_cbc_path.exists(), "CoinCbc SDC file should be generated");
+                }
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
+    }
+
+    /// Test that both solvers produce similar SDC content for simple circuits
+    #[test]
+    fn test_solver_sdc_content_consistency() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_gurobi_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_coin_cbc_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_gurobi_path = temp_gurobi_dir.path().join("gurobi.sdc");
+        let sdc_coin_cbc_path = temp_coin_cbc_dir.path().join("coin_cbc.sdc");
+
+        let result = run_hbcn_constrain_with_both_solvers_and_compare(
+            &input_path,
+            &sdc_gurobi_path,
+            &sdc_coin_cbc_path,
+            50.0,
+            2.0,
+            vec![],
+            |gurobi_output, coin_cbc_output, sdc_gurobi, sdc_coin_cbc| {
+                // Both should succeed
+                assert!(gurobi_output.status.success(), 
+                    "Gurobi should succeed. stderr: {}", 
+                    String::from_utf8_lossy(&gurobi_output.stderr));
+                assert!(coin_cbc_output.status.success(), 
+                    "CoinCbc should succeed. stderr: {}", 
+                    String::from_utf8_lossy(&coin_cbc_output.stderr));
+
+                // Both should generate SDC files
+                assert!(sdc_gurobi.exists(), "Gurobi SDC file should be generated");
+                assert!(sdc_coin_cbc.exists(), "CoinCbc SDC file should be generated");
+
+                // Both SDC files should contain basic clock definitions
+                let gurobi_sdc = fs::read_to_string(sdc_gurobi).expect("Failed to read Gurobi SDC");
+                let coin_cbc_sdc = fs::read_to_string(sdc_coin_cbc).expect("Failed to read CoinCbc SDC");
+
+                assert!(gurobi_sdc.contains("create_clock"), "Gurobi SDC should contain clock definition");
+                assert!(coin_cbc_sdc.contains("create_clock"), "CoinCbc SDC should contain clock definition");
+
+                // Both should have similar structure (same number of lines, similar content)
+                let gurobi_lines: Vec<&str> = gurobi_sdc.lines().collect();
+                let coin_cbc_lines: Vec<&str> = coin_cbc_sdc.lines().collect();
+
+                // Should have similar number of constraints (within 10% tolerance)
+                let line_diff = (gurobi_lines.len() as i32 - coin_cbc_lines.len() as i32).abs();
+                let max_diff = (gurobi_lines.len() as f64 * 0.1) as i32;
+                assert!(line_diff <= max_diff, 
+                    "SDC files should have similar number of lines. Gurobi: {}, CoinCbc: {}, diff: {}",
+                    gurobi_lines.len(), coin_cbc_lines.len(), line_diff);
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
+    }
+
+    /// Test that both solvers handle infeasible problems consistently
+    #[test]
+    fn test_solver_infeasible_consistency() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "fast_input" [("fast_output", 1)]
+Port "fast_output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_gurobi_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_coin_cbc_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_gurobi_path = temp_gurobi_dir.path().join("gurobi.sdc");
+        let sdc_coin_cbc_path = temp_coin_cbc_dir.path().join("coin_cbc.sdc");
+
+        let result = run_hbcn_constrain_with_both_solvers_and_compare(
+            &input_path,
+            &sdc_gurobi_path,
+            &sdc_coin_cbc_path,
+            0.5, // Very tight timing that should be infeasible
+            0.1,
+            vec![],
+            |gurobi_output, coin_cbc_output, _, _| {
+                // Both solvers should handle infeasible problems consistently
+                // They might both fail or both succeed with appropriate error handling
+                let gurobi_success = gurobi_output.status.success();
+                let coin_cbc_success = coin_cbc_output.status.success();
+
+                // If one fails, the other should also fail
+                if !gurobi_success || !coin_cbc_success {
+                    assert_eq!(gurobi_success, coin_cbc_success,
+                        "Both solvers should have same success status for infeasible problem. Gurobi: {}, CoinCbc: {}",
+                        gurobi_success, coin_cbc_success);
+                }
+
+                // If both fail, both should have appropriate error messages
+                if !gurobi_success && !coin_cbc_success {
+                    let gurobi_stderr = String::from_utf8_lossy(&gurobi_output.stderr);
+                    let coin_cbc_stderr = String::from_utf8_lossy(&coin_cbc_output.stderr);
+
+                    // Both should indicate infeasibility or error
+                    assert!(gurobi_stderr.contains("Infeasible") || gurobi_stderr.contains("infeasible") || gurobi_stderr.contains("error"),
+                        "Gurobi should report infeasibility or error: {}", gurobi_stderr);
+                    assert!(coin_cbc_stderr.contains("Infeasible") || coin_cbc_stderr.contains("infeasible") || coin_cbc_stderr.contains("error"),
+                        "CoinCbc should report infeasibility or error: {}", coin_cbc_stderr);
+                }
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
+    }
+
+    /// Test that both solvers produce consistent results for cyclic circuits
+    #[test]
+    fn test_solver_cyclic_circuit_consistency() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "a" [("b", 20)]
+DataReg "b" [("b", 15), ("c", 10)]
+Port "c" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_gurobi_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_coin_cbc_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_gurobi_path = temp_gurobi_dir.path().join("gurobi.sdc");
+        let sdc_coin_cbc_path = temp_coin_cbc_dir.path().join("coin_cbc.sdc");
+
+        let result = run_hbcn_constrain_with_both_solvers_and_compare(
+            &input_path,
+            &sdc_gurobi_path,
+            &sdc_coin_cbc_path,
+            50.0, // Generous cycle time for cyclic circuit
+            2.0,
+            vec!["--forward-margin", "10", "--backward-margin", "15"],
+            |gurobi_output, coin_cbc_output, sdc_gurobi, sdc_coin_cbc| {
+                // Both should succeed
+                assert!(gurobi_output.status.success(), 
+                    "Gurobi should succeed with cyclic circuit. stderr: {}", 
+                    String::from_utf8_lossy(&gurobi_output.stderr));
+                assert!(coin_cbc_output.status.success(), 
+                    "CoinCbc should succeed with cyclic circuit. stderr: {}", 
+                    String::from_utf8_lossy(&coin_cbc_output.stderr));
+
+                // Both should generate SDC files
+                assert!(sdc_gurobi.exists(), "Gurobi SDC file should be generated");
+                assert!(sdc_coin_cbc.exists(), "CoinCbc SDC file should be generated");
+
+                // Both SDC files should contain clock definitions
+                let gurobi_sdc = fs::read_to_string(sdc_gurobi).expect("Failed to read Gurobi SDC");
+                let coin_cbc_sdc = fs::read_to_string(sdc_coin_cbc).expect("Failed to read CoinCbc SDC");
+
+                assert!(gurobi_sdc.contains("create_clock"), "Gurobi SDC should contain clock definition");
+                assert!(coin_cbc_sdc.contains("create_clock"), "CoinCbc SDC should contain clock definition");
+
+                // Both should have similar constraint structure
+                let gurobi_constraints = gurobi_sdc.lines().filter(|line| line.contains("set_max_delay") || line.contains("set_min_delay")).count();
+                let coin_cbc_constraints = coin_cbc_sdc.lines().filter(|line| line.contains("set_max_delay") || line.contains("set_min_delay")).count();
+
+                // Should have similar number of timing constraints (within 20% tolerance for cyclic circuits)
+                let constraint_diff = (gurobi_constraints as i32 - coin_cbc_constraints as i32).abs();
+                let max_diff = (gurobi_constraints as f64 * 0.2) as i32;
+                assert!(constraint_diff <= max_diff, 
+                    "SDC files should have similar number of timing constraints. Gurobi: {}, CoinCbc: {}, diff: {}",
+                    gurobi_constraints, coin_cbc_constraints, constraint_diff);
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
+    }
+
+    /// Test that both solvers produce consistent results for complex circuits
+    #[test]
+    fn test_solver_complex_circuit_consistency() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+Port "input" [("reg1", 40)]
+DataReg "reg1" [("logic", 30), ("reg2", 25)]
+DataReg "reg2" [("logic", 35), ("reg1", 20)]
+DataReg "logic" [("output", 45)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_gurobi_dir = TempDir::new().expect("Failed to create temp dir");
+        let temp_coin_cbc_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_gurobi_path = temp_gurobi_dir.path().join("gurobi.sdc");
+        let sdc_coin_cbc_path = temp_coin_cbc_dir.path().join("coin_cbc.sdc");
+
+        let result = run_hbcn_constrain_with_both_solvers_and_compare(
+            &input_path,
+            &sdc_gurobi_path,
+            &sdc_coin_cbc_path,
+            200.0, // Very generous cycle time for complex circuit
+            8.0,
+            vec![],
+            |gurobi_output, coin_cbc_output, sdc_gurobi, sdc_coin_cbc| {
+                // Both should succeed
+                assert!(gurobi_output.status.success(), 
+                    "Gurobi should succeed with complex circuit. stderr: {}", 
+                    String::from_utf8_lossy(&gurobi_output.stderr));
+                assert!(coin_cbc_output.status.success(), 
+                    "CoinCbc should succeed with complex circuit. stderr: {}", 
+                    String::from_utf8_lossy(&coin_cbc_output.stderr));
+
+                // Both should generate SDC files
+                assert!(sdc_gurobi.exists(), "Gurobi SDC file should be generated");
+                assert!(sdc_coin_cbc.exists(), "CoinCbc SDC file should be generated");
+
+                // Both SDC files should contain clock definitions
+                let gurobi_sdc = fs::read_to_string(sdc_gurobi).expect("Failed to read Gurobi SDC");
+                let coin_cbc_sdc = fs::read_to_string(sdc_coin_cbc).expect("Failed to read CoinCbc SDC");
+
+                assert!(gurobi_sdc.contains("create_clock"), "Gurobi SDC should contain clock definition");
+                assert!(coin_cbc_sdc.contains("create_clock"), "CoinCbc SDC should contain clock definition");
+
+                // Both should have substantial constraint content
+                let gurobi_lines = gurobi_sdc.lines().count();
+                let coin_cbc_lines = coin_cbc_sdc.lines().count();
+
+                assert!(gurobi_lines > 5, "Gurobi SDC should have substantial content");
+                assert!(coin_cbc_lines > 5, "CoinCbc SDC should have substantial content");
+
+                // Should have similar amount of content (within 30% tolerance for complex circuits)
+                let line_diff = (gurobi_lines as i32 - coin_cbc_lines as i32).abs();
+                let max_diff = (gurobi_lines as f64 * 0.3) as i32;
+                assert!(line_diff <= max_diff, 
+                    "SDC files should have similar amount of content. Gurobi: {}, CoinCbc: {}, diff: {}",
+                    gurobi_lines, coin_cbc_lines, line_diff);
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
+    }
+
+    /// Test that both solvers handle analysis commands consistently
+    #[test]
+    fn test_solver_analysis_consistency() {
+        if !multiple_solvers_available() {
+            println!("Skipping solver comparison test: multiple solvers not available");
+            return;
+        }
+
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25)]
+Port "output" []
+"#;
+
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+
+        let result = run_with_both_solvers_and_compare(
+            vec!["analyse", input_path.to_str().unwrap()],
+            |gurobi_output, coin_cbc_output| {
+                // Both should succeed
+                assert!(gurobi_output.status.success(), 
+                    "Gurobi analysis should succeed. stderr: {}", 
+                    String::from_utf8_lossy(&gurobi_output.stderr));
+                assert!(coin_cbc_output.status.success(), 
+                    "CoinCbc analysis should succeed. stderr: {}", 
+                    String::from_utf8_lossy(&coin_cbc_output.stderr));
+
+                // Both should produce similar output content
+                let gurobi_stdout = String::from_utf8_lossy(&gurobi_output.stdout);
+                let coin_cbc_stdout = String::from_utf8_lossy(&coin_cbc_output.stdout);
+
+                // Both should contain cycle time information
+                assert!(gurobi_stdout.contains("Worst virtual cycle-time"), 
+                    "Gurobi output should contain cycle time information");
+                assert!(coin_cbc_stdout.contains("Worst virtual cycle-time"), 
+                    "CoinCbc output should contain cycle time information");
+
+                // Both should have similar output length (within 50% tolerance)
+                let gurobi_len = gurobi_stdout.len();
+                let coin_cbc_len = coin_cbc_stdout.len();
+                let len_diff = (gurobi_len as i32 - coin_cbc_len as i32).abs();
+                let max_diff = (gurobi_len as f64 * 0.5) as i32;
+                assert!(len_diff <= max_diff, 
+                    "Analysis outputs should have similar length. Gurobi: {}, CoinCbc: {}, diff: {}",
+                    gurobi_len, coin_cbc_len, len_diff);
+
+                Ok(())
+            },
+        );
+
+        if let Err(e) = result {
+            panic!("Solver comparison failed: {}", e);
+        }
     }
 }
