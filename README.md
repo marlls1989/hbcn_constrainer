@@ -578,10 +578,3 @@ The generated SDC constraints ensure that Genus can properly synthesise asynchro
 
 See [LICENSE](LICENSE) file for details.
 
-## Status
-
-**Current Version**: 0.1.2  
-**Test Suite**: ✅ 35/35 integration tests passing  
-**Supported Platforms**: macOS, Linux  
-**LP Solvers**: Coin CBC (default), Gurobi (optional)  
-**Runtime Selection**: Environment variable `HBCN_LP_SOLVER` supported
