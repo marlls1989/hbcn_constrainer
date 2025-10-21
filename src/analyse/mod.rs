@@ -8,9 +8,12 @@ use prettytable::*;
 use rayon::prelude::*;
 
 use crate::{
-    hbcn::{self, *},
+    hbcn::*,
     read_file,
 };
+
+pub mod hbcn;
+pub mod vcd;
 
 #[derive(Parser, Debug)]
 pub struct AnalyseArgs {
@@ -37,7 +40,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
-        let hbcn = hbcn::from_structural_graph(&g, false)
+        let hbcn = crate::hbcn::from_structural_graph(&g, false)
             .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
         hbcn::compute_cycle_time(&hbcn, true)
     }?;
@@ -50,7 +53,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
 
     if let Some(filename) = vcd {
         let mut file = std::io::BufWriter::new(fs::File::create(filename)?);
-        hbcn::write_vcd(&solved_hbcn, &mut file)?;
+        vcd::write_vcd(&solved_hbcn, &mut file)?;
     }
 
     let mut cycles = hbcn::find_critical_cycles(&solved_hbcn)
@@ -132,7 +135,7 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
-        let hbcn = hbcn::from_structural_graph(&g, false)
+        let hbcn = crate::hbcn::from_structural_graph(&g, false)
             .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
         hbcn::compute_cycle_time(&hbcn, false)
     }?;
@@ -201,7 +204,7 @@ mod tests {
     /// Helper function to create a test StructuralHBCN from a structural graph string
     fn create_test_hbcn(input: &str) -> Result<StructuralHBCN> {
         let structural_graph = parse(input)?;
-        hbcn::from_structural_graph(&structural_graph, false)
+        crate::hbcn::from_structural_graph(&structural_graph, false)
             .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))
     }
 
@@ -312,7 +315,7 @@ mod tests {
             .expect("Should compute cycle time");
 
         let mut output = Cursor::new(Vec::new());
-        hbcn::write_vcd(&solved_hbcn, &mut output)
+        vcd::write_vcd(&solved_hbcn, &mut output)
             .expect("Should write VCD");
 
         let vcd_content = String::from_utf8(output.into_inner())

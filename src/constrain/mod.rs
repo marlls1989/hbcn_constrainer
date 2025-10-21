@@ -12,11 +12,12 @@ use prettytable::*;
 use rayon::prelude::*;
 
 use crate::{
-    hbcn::{self, *},
+    hbcn::*,
     read_file,
     structural_graph::CircuitNode,
 };
 
+pub mod hbcn;
 mod sdc;
 #[cfg(test)]
 mod tests;
@@ -93,9 +94,9 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         };
 
         if no_proportinal {
-            constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+            hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
         } else {
-            constrain_cycle_time_proportional(
+            hbcn::constrain_cycle_time_proportional(
                 &hbcn,
                 cycle_time,
                 minimal_delay,
@@ -157,13 +158,13 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     if let Some(output) = vcd {
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
-        hbcn::write_vcd(&constraints.hbcn, &mut out_file)?;
+        crate::analyse::vcd::write_vcd(&constraints.hbcn, &mut out_file)?;
     }
 
     if let Some(output) = rpt {
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
-        let mut cycles = hbcn::find_critical_cycles(&constraints.hbcn)
+        let mut cycles = crate::analyse::hbcn::find_critical_cycles(&constraints.hbcn)
             .into_par_iter()
             .map(|cycle| {
                 let slack: f64 = cycle

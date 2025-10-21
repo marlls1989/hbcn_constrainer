@@ -1,4 +1,4 @@
-use crate::{hbcn::PathConstraints, structural_graph::CircuitNode};
+use crate::{constrain::hbcn::PathConstraints, structural_graph::CircuitNode};
 use lazy_static::*;
 use regex::Regex;
 use std::io::{self, Write};
@@ -94,7 +94,7 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hbcn::DelayPair;
+    use crate::constrain::hbcn::DelayPair;
     use crate::structural_graph::CircuitNode;
     use std::collections::HashMap;
     use std::io::Cursor;
