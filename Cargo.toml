@@ -5,8 +5,9 @@ name = "hbcn"
 version = "0.1.2"
 
 [features]
-default = ["gurobi"]
+default = ["coin_cbc"]
 gurobi = ["dep:gurobi"]
+coin_cbc = ["dep:coin_cbc"]
 
 [build-dependencies]
 lalrpop = "0.19.8"
@@ -16,6 +17,7 @@ petgraph = "~0.5.1"
 regex = "^1.4.2"
 string_cache = "~0.8.1"
 gurobi = { version = "~0.3.4", optional = true }
+coin_cbc = { version = "0.1.8", optional = true }
 vcd = "~0.6.1"
 lazy_static = "~1.4.0"
 itertools = "~0.10.0"

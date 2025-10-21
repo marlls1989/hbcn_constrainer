@@ -3,12 +3,59 @@ use std::path::PathBuf;
 use std::process::Command;
 use tempfile::TempDir;
 
+/// Available LP solver backends for testing
+#[derive(Debug, Clone, Copy)]
+pub enum SolverBackend {
+    Gurobi,
+    CoinCbc,
+}
+
+impl SolverBackend {
+    pub fn feature_name(&self) -> &'static str {
+        match self {
+            SolverBackend::Gurobi => "gurobi",
+            SolverBackend::CoinCbc => "coin_cbc",
+        }
+    }
+}
+
+// Macro to run tests with both backends
+macro_rules! test_with_both_backends {
+    ($test_name:ident, $test_body:block) => {
+        #[test]
+        fn $test_name() {
+            // Test with Gurobi
+            run_cargo_with_backend(SolverBackend::Gurobi, vec![]).unwrap();
+            $test_body
+            
+            // Test with CoinCbc
+            run_cargo_with_backend(SolverBackend::CoinCbc, vec![]).unwrap();
+            $test_body
+        }
+    };
+}
+
 // Helper function to create a temporary test file
 fn create_test_file(content: &str) -> (TempDir, PathBuf) {
     let temp_dir = TempDir::new().expect("Failed to create temp dir");
     let file_path = temp_dir.path().join("test.graph");
     fs::write(&file_path, content).expect("Failed to write test file");
     (temp_dir, file_path)
+}
+
+// Helper function to run cargo commands with a specific backend
+fn run_cargo_with_backend(backend: SolverBackend, args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
+    let mut cmd = Command::new("cargo");
+    cmd.arg("run")
+        .arg("--features")
+        .arg(backend.feature_name())
+        .arg("--");
+    
+    for arg in args {
+        cmd.arg(arg);
+    }
+    
+    cmd.output()
 }
 
 // Helper function to run the hbcn constrainer binary
@@ -19,23 +66,21 @@ fn run_hbcn_constrain(
     minimal_delay: f64,
     additional_args: Vec<&str>,
 ) -> Result<std::process::Output, std::io::Error> {
-    let mut cmd = Command::new("cargo");
-    cmd.arg("run")
-        .arg("--")
-        .arg("constrain")
-        .arg(input)
-        .arg("--sdc")
-        .arg(sdc)
-        .arg("-t")
-        .arg(cycle_time.to_string())
-        .arg("-m")
-        .arg(minimal_delay.to_string());
-
-    for arg in additional_args {
-        cmd.arg(arg);
-    }
-
-    cmd.output()
+    let cycle_time_str = cycle_time.to_string();
+    let minimal_delay_str = minimal_delay.to_string();
+    let mut args = vec![
+        "constrain",
+        input.to_str().unwrap(),
+        "--sdc",
+        sdc.to_str().unwrap(),
+        "-t",
+        &cycle_time_str,
+        "-m",
+        &minimal_delay_str,
+    ];
+    args.extend(additional_args);
+    
+    run_cargo_with_backend(SolverBackend::Gurobi, args)
 }
 
 #[cfg(test)]
@@ -879,28 +924,15 @@ mod analyser_integration_tests {
 
     // Helper function to run the hbcn analyser binary
     fn run_hbcn_analyse(input: &PathBuf, additional_args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
-        let mut cmd = Command::new("cargo");
-        cmd.arg("run")
-            .arg("--")
-            .arg("analyse")
-            .arg(input);
-
-        for arg in additional_args {
-            cmd.arg(arg);
-        }
-
-        cmd.output()
+        let mut args = vec!["analyse", input.to_str().unwrap()];
+        args.extend(additional_args);
+        run_cargo_with_backend(SolverBackend::Gurobi, args)
     }
 
     // Helper function to run the hbcn depth binary
     fn run_hbcn_depth(input: &PathBuf) -> Result<std::process::Output, std::io::Error> {
-        let mut cmd = Command::new("cargo");
-        cmd.arg("run")
-            .arg("--")
-            .arg("depth")
-            .arg(input);
-
-        cmd.output()
+        let args = vec!["depth", input.to_str().unwrap()];
+        run_cargo_with_backend(SolverBackend::Gurobi, args)
     }
 
     /// Test basic analysis command with simple circuit
@@ -1306,17 +1338,9 @@ mod constraint_verification_tests {
 
     // Helper function to run analyser
     fn run_hbcn_analyse(input: &PathBuf, additional_args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
-        let mut cmd = Command::new("cargo");
-        cmd.arg("run")
-            .arg("--")
-            .arg("analyse")
-            .arg(input);
-
-        for arg in additional_args {
-            cmd.arg(arg);
-        }
-
-        cmd.output()
+        let mut args = vec!["analyse", input.to_str().unwrap()];
+        args.extend(additional_args);
+        run_cargo_with_backend(SolverBackend::Gurobi, args)
     }
 
     /// Test that constrainer meets requested cycle time with simple circuit

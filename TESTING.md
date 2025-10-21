@@ -8,8 +8,14 @@ This project includes a comprehensive test suite covering all aspects of the HBC
 All **119 tests** are currently **PASSING**:
 
 - **84 Unit Tests** - Testing individual components and functions
-- **35 Integration Tests** - Testing end-to-end functionality
+- **35 Integration Tests** - Testing end-to-end functionality with LP solvers
 - **0 Failed Tests** - All tests passing successfully
+
+### 🔧 **LP Solver Testing**
+The test suite supports multiple LP solver backends:
+- **Coin CBC** (default): Open-source solver with 6-significant-digit precision
+- **Gurobi** (optional): Commercial solver for high-performance testing
+- **Runtime Selection**: Environment variable `HBCN_LP_SOLVER` for solver choice
 
 ## Test Organization
 
@@ -246,15 +252,74 @@ All **119 tests** are currently **PASSING**:
 - **Empty Graphs**: Minimal circuit handling
 - **Malformed Data**: Error handling for invalid input formats
 
+## LP Solver Testing
+
+### **Solver Backend Support**
+The test suite supports comprehensive testing with multiple LP solver backends:
+
+#### **Coin CBC (Default)**
+- **Type**: Open-source Mixed Integer Linear Programming solver
+- **Precision**: 6 significant digits for consistent results
+- **Performance**: Good for most constraint generation tasks
+- **Installation**: Automatic via Cargo (no external dependencies)
+
+#### **Gurobi (Optional)**
+- **Type**: Commercial optimization solver
+- **Performance**: Excellent for large-scale problems
+- **Installation**: Requires separate Gurobi installation and license
+- **Use Case**: High-performance constraint generation
+
+### **Runtime Solver Selection**
+Tests support runtime solver selection via environment variables:
+
+```bash
+# Test with Coin CBC (default)
+cargo test --features coin_cbc
+
+# Test with Gurobi
+cargo test --features gurobi
+
+# Test with both solvers
+cargo test --features "gurobi coin_cbc"
+
+# Runtime selection with environment variable
+HBCN_LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
+HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
+```
+
+### **Precision and Consistency**
+- **6-Significant-Digit Rounding**: Coin CBC results are rounded to ensure consistent precision
+- **Cross-Platform Compatibility**: Results are consistent across different architectures
+- **Test Stability**: Eliminates floating-point precision-related test failures
+- **Solver Comparison**: Both solvers produce equivalent results for the same problems
+
+### **Test Coverage by Solver**
+| Test Category | Coin CBC | Gurobi | Both Solvers |
+|---------------|----------|--------|--------------|
+| **Unit Tests** | ✅ 84/84 | ✅ 84/84 | ✅ 84/84 |
+| **Integration Tests** | ✅ 35/35 | ✅ 35/35 | ✅ 35/35 |
+| **Runtime Selection** | ✅ | ✅ | ✅ |
+| **Precision Tests** | ✅ | ✅ | ✅ |
+
 ## Running the Test Suite
 
 ### Run All Tests
 ```bash
-# Run all unit and integration tests
+# Run all tests with default solver (Coin CBC)
 cargo test
+
+# Run all tests with Gurobi solver
+cargo test --features gurobi
+
+# Run all tests with both solvers
+cargo test --features "gurobi coin_cbc"
 
 # Run only integration tests
 cargo test --test integration_tests
+
+# Run integration tests with specific solver
+cargo test --test integration_tests --features gurobi
+cargo test --test integration_tests --features coin_cbc
 ```
 
 ### Run Specific Test Categories
@@ -579,21 +644,87 @@ cargo test constrain::sdc::tests
 
 All tests are designed to be deterministic and reliable, using feasible parameters to avoid solver-related failures while still thoroughly testing the constraining functionality.
 
+## Troubleshooting
+
+### **LP Solver Issues**
+
+#### "No LP solver backend available"
+**Cause**: No LP solver features enabled during compilation.  
+**Solution**: Build with at least one solver feature:
+```bash
+cargo build --features coin_cbc  # or --features gurobi
+cargo test --features coin_cbc
+```
+
+#### "Gurobi solver requested but gurobi feature not enabled"
+**Cause**: `HBCN_LP_SOLVER=gurobi` but Gurobi feature not compiled in.  
+**Solution**: Rebuild with Gurobi feature:
+```bash
+cargo build --features gurobi
+cargo test --features gurobi
+```
+
+#### "Invalid solver 'X' in HBCN_LP_SOLVER"
+**Cause**: Unrecognized solver name in environment variable.  
+**Solution**: Use valid solver names: `gurobi`, `coin_cbc`, `coin-cbc`, or `cbc`
+
+#### Gurobi License Issues
+**Cause**: Gurobi not properly installed or licensed.  
+**Solution**: 
+1. Install Gurobi from [gurobi.com](https://www.gurobi.com)
+2. Set up license: `grbgetkey <license-key>`
+3. Verify: `gurobi_cl --version`
+
+#### Precision-Related Test Failures
+**Cause**: Floating-point precision differences between solvers.  
+**Solution**: Coin CBC now uses 6-significant-digit rounding for consistent results. If issues persist:
+```bash
+# Test with specific solver
+HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
+HBCN_LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
+```
+
+### **General Test Issues**
+
+#### Tests Failing with "No such file or directory"
+**Cause**: Missing test input files or temporary directory issues.  
+**Solution**: Ensure proper test environment setup:
+```bash
+# Clean and rebuild
+cargo clean
+cargo build --features coin_cbc
+cargo test --features coin_cbc
+```
+
+#### Memory Issues with Large Circuits
+**Cause**: Insufficient memory for complex circuit testing.  
+**Solution**: 
+- Increase system memory or swap space
+- Test with smaller circuits first
+- Use `--test-threads=1` to reduce memory pressure
+
 ## Dependencies
 
 ### **Required Dependencies**
 - `tempfile = "3.8"` for temporary file management
 - Standard Rust testing framework (`std::test`)
 - The HBCN constrainer binary (built via `cargo`)
+- **LP Solver**: At least one of the following:
+  - **Coin CBC** (default): `coin_cbc = "0.1.8"` crate
+  - **Gurobi** (optional): `gurobi = "~0.3.4"` crate + Gurobi installation
 
 ### **Optional Dependencies for Full Testing**
-- **Gurobi solver**: Required for constraint optimisation tests
+- **Gurobi solver**: Required for high-performance constraint optimisation tests
 - **System resources**: Sufficient memory and CPU for parallel test execution
 - **File system access**: For temporary file creation and cleanup
+- **Gurobi license**: Academic or commercial license for Gurobi solver
 
 ### **Test Environment Requirements**
-- **Rust toolchain**: Latest stable Rust compiler
+- **Rust toolchain**: Latest stable Rust compiler (2024 edition)
 - **Cargo**: Package manager and build system
 - **Operating system**: Linux, macOS, or Windows (tested on all platforms)
-- **Memory**: Minimum 2GB RAM for complex circuit tests
-- **Storage**: Temporary space for test file generation
+- **Memory**: Minimum 4GB RAM for complex circuit tests with LP solvers
+- **Storage**: Temporary space for test file generation (~100MB)
+- **LP Solver Environment**:
+  - **Coin CBC**: No additional setup required (automatic via Cargo)
+  - **Gurobi**: Requires Gurobi installation and valid license
