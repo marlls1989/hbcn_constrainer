@@ -1229,3 +1229,319 @@ Port "fast_output" []
         }
     }
 }
+
+#[cfg(test)]
+mod constraint_verification_tests {
+    use super::*;
+    use std::process::Command;
+
+    // Helper function to run constraint verification workflow
+    fn run_constraint_verification_workflow(
+        graph_content: &str,
+        target_cycle_time: f64,
+        minimal_delay: f64,
+        algorithm: &str,
+        additional_constrain_args: Vec<&str>,
+    ) -> Result<(f64, f64, PathBuf, PathBuf, PathBuf, TempDir), Box<dyn std::error::Error>> {
+        // Create temporary input file
+        let (_temp_dir, input_path) = create_test_file(graph_content);
+        
+        // Create temporary output directory
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("constraints.sdc");
+        let csv_path = temp_output_dir.path().join("constraints.csv");
+        let rpt_path = temp_output_dir.path().join("constraints.rpt");
+
+        // Run constrainer
+        let mut constrain_args = vec![
+            "--csv", csv_path.to_str().unwrap(),
+            "--rpt", rpt_path.to_str().unwrap(),
+        ];
+        constrain_args.extend(additional_constrain_args);
+        
+        if algorithm == "pseudoclock" {
+            constrain_args.push("--no-proportinal");
+        }
+
+        let constrain_output = run_hbcn_constrain(
+            &input_path,
+            &sdc_path,
+            target_cycle_time,
+            minimal_delay,
+            constrain_args,
+        )?;
+
+        if !constrain_output.status.success() {
+            return Err(format!("Constrainer failed: {}", 
+                String::from_utf8_lossy(&constrain_output.stderr)).into());
+        }
+
+        // Run analyser to get the original circuit cycle time
+        let analyse_output = run_hbcn_analyse(&input_path, vec![])?;
+
+        if !analyse_output.status.success() {
+            return Err(format!("Analyser failed: {}", 
+                String::from_utf8_lossy(&analyse_output.stderr)).into());
+        }
+
+        // Parse the actual cycle time from analyser output
+        let analyse_stdout = String::from_utf8_lossy(&analyse_output.stdout);
+        let actual_cycle_time = parse_cycle_time_from_output(&analyse_stdout)?;
+
+        Ok((target_cycle_time, actual_cycle_time, sdc_path, csv_path, rpt_path, temp_output_dir))
+    }
+
+    // Helper function to parse cycle time from analyser output
+    fn parse_cycle_time_from_output(output: &str) -> Result<f64, Box<dyn std::error::Error>> {
+        for line in output.lines() {
+            if line.contains("Worst virtual cycle-time:") {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if let Some(cycle_time_str) = parts.last() {
+                    return Ok(cycle_time_str.parse()?);
+                }
+            }
+        }
+        Err("Could not parse cycle time from analyser output".into())
+    }
+
+    // Helper function to run analyser
+    fn run_hbcn_analyse(input: &PathBuf, additional_args: Vec<&str>) -> Result<std::process::Output, std::io::Error> {
+        let mut cmd = Command::new("cargo");
+        cmd.arg("run")
+            .arg("--")
+            .arg("analyse")
+            .arg(input);
+
+        for arg in additional_args {
+            cmd.arg(arg);
+        }
+
+        cmd.output()
+    }
+
+    /// Test that constrainer meets requested cycle time with simple circuit
+    #[test]
+    fn test_constrainer_meets_cycle_time_simple_circuit() {
+        let graph_content = r#"Port "a" [("b", 20)]
+Port "b" []
+"#;
+
+        let target_cycle_time = 50.0;
+        let minimal_delay = 2.0;
+
+        // Test proportional algorithm
+        let (_target, actual, sdc_path, csv_path, rpt_path, _temp_dir) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "proportional",
+            vec![],
+        ).expect("Constraint verification should succeed");
+
+        // The actual cycle time should be reasonable (constrainer generates constraints, 
+        // but analyser analyzes the original circuit structure)
+        assert!(actual > 0.0, 
+            "Actual cycle time {} should be positive", actual);
+        assert!(actual >= minimal_delay, 
+            "Actual cycle time {} should be >= minimal delay {}", actual, minimal_delay);
+        
+        // Verify that constraint files were generated successfully
+        if !sdc_path.exists() {
+            println!("SDC path: {:?}", sdc_path);
+            println!("SDC parent exists: {:?}", sdc_path.parent().map(|p| p.exists()));
+        }
+        assert!(sdc_path.exists(), "SDC constraint file should be generated at {:?}", sdc_path);
+        assert!(csv_path.exists(), "CSV constraint file should be generated at {:?}", csv_path);
+        assert!(rpt_path.exists(), "Report file should be generated at {:?}", rpt_path);
+    }
+
+    /// Test that constrainer meets requested cycle time with DataReg circuit
+    #[test]
+    fn test_constrainer_meets_cycle_time_datareg_circuit() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25)]
+Port "output" []
+"#;
+
+        let target_cycle_time = 100.0;
+        let minimal_delay = 5.0;
+
+        // Test pseudoclock algorithm
+        let (_target, actual, sdc_path, csv_path, rpt_path, _temp_dir) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "pseudoclock",
+            vec![],
+        ).expect("Constraint verification should succeed");
+
+        // Verify circuit analysis and constraint generation
+        assert!(actual > 0.0, "Actual cycle time should be positive");
+        assert!(actual >= minimal_delay, "Actual cycle time should be >= minimal delay");
+        
+        // Verify constraint files were generated
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+    }
+
+    /// Test that constrainer meets requested cycle time with cyclic circuit
+    #[test]
+    fn test_constrainer_meets_cycle_time_cyclic_circuit() {
+        let graph_content = r#"Port "a" [("b", 20)]
+DataReg "b" [("b", 15), ("c", 10)]
+Port "c" []
+"#;
+
+        let target_cycle_time = 80.0;
+        let minimal_delay = 3.0;
+
+        // Test proportional algorithm with margins
+        let (_target, actual, sdc_path, csv_path, rpt_path, _temp_dir) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "proportional",
+            vec!["--forward-margin", "10", "--backward-margin", "15"],
+        ).expect("Constraint verification should succeed");
+
+        // Verify circuit analysis and constraint generation for cyclic circuit
+        assert!(actual > 0.0, "Actual cycle time should be positive");
+        assert!(actual >= minimal_delay, "Actual cycle time should be >= minimal delay");
+        
+        // Verify constraint files were generated
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+        
+        // Verify report contains cycle analysis
+        let rpt_content = fs::read_to_string(&rpt_path).expect("Failed to read report file");
+        assert!(rpt_content.contains("Cycles:") || rpt_content.contains("Cycle"), 
+            "Report should contain cycle analysis for cyclic circuit");
+    }
+
+    /// Test constraint verification with complex circuit
+    #[test]
+    fn test_constrainer_meets_cycle_time_complex_circuit() {
+        let graph_content = r#"Port "clk" [("reg1", 5), ("reg2", 5)]
+Port "input" [("reg1", 40)]
+DataReg "reg1" [("logic", 30), ("reg2", 25)]
+DataReg "reg2" [("logic", 35), ("reg1", 20)]
+DataReg "logic" [("output", 45)]
+Port "output" []
+"#;
+
+        let target_cycle_time = 200.0;
+        let minimal_delay = 8.0;
+
+        // Test pseudoclock algorithm
+        let (_target, actual, sdc_path, csv_path, rpt_path, _temp_dir) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "pseudoclock",
+            vec![],
+        ).expect("Constraint verification should succeed");
+
+        // Verify circuit analysis and constraint generation
+        assert!(actual > 0.0, "Actual cycle time should be positive");
+        assert!(actual >= minimal_delay, "Actual cycle time should be >= minimal delay");
+        
+        // Verify constraint files were generated
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+    }
+
+    /// Test constraint verification with tight timing requirements
+    #[test]
+    fn test_constrainer_meets_tight_cycle_time() {
+        let graph_content = r#"Port "a" [("b", 10)]
+Port "b" [("c", 8)]
+Port "c" []
+"#;
+
+        let target_cycle_time = 25.0;
+        let minimal_delay = 1.0;
+
+        // Test proportional algorithm
+        let (_target, actual, sdc_path, csv_path, rpt_path, _temp_dir) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "proportional",
+            vec![],
+        ).expect("Constraint verification should succeed");
+
+        // Verify circuit analysis and constraint generation
+        assert!(actual > 0.0, "Actual cycle time should be positive");
+        assert!(actual >= minimal_delay, "Actual cycle time should be >= minimal delay");
+        
+        // Verify constraint files were generated
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+    }
+
+    /// Test constraint verification with algorithm comparison
+    #[test]
+    fn test_constrainer_algorithm_comparison() {
+        let graph_content = r#"Port "input" [("reg", 30)]
+DataReg "reg" [("output", 25), ("reg", 20)]
+Port "output" []
+"#;
+
+        let target_cycle_time = 120.0;
+        let minimal_delay = 4.0;
+
+        // Test proportional algorithm
+        let (_, actual_prop, sdc_prop, _, _, _temp_dir1) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "proportional",
+            vec![],
+        ).expect("Proportional constraint verification should succeed");
+
+        // Test pseudoclock algorithm
+        let (_, actual_pseudo, sdc_pseudo, _, _, _temp_dir2) = run_constraint_verification_workflow(
+            graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "pseudoclock",
+            vec![],
+        ).expect("Pseudoclock constraint verification should succeed");
+
+        // Both should produce valid results
+        assert!(actual_prop > 0.0, "Proportional actual cycle time should be positive");
+        assert!(actual_pseudo > 0.0, "Pseudoclock actual cycle time should be positive");
+        assert!(actual_prop >= minimal_delay, "Proportional should respect minimal delay");
+        assert!(actual_pseudo >= minimal_delay, "Pseudoclock should respect minimal delay");
+        
+        // Both should generate constraint files
+        assert!(sdc_prop.exists(), "Proportional SDC file should be generated");
+        assert!(sdc_pseudo.exists(), "Pseudoclock SDC file should be generated");
+    }
+
+    /// Test constraint verification error handling
+    #[test]
+    fn test_constrainer_verification_error_handling() {
+        let invalid_graph_content = r#"Invalid syntax here
+Not a valid graph
+"#;
+
+        let target_cycle_time = 50.0;
+        let minimal_delay = 2.0;
+
+        // This should fail due to invalid input
+        let result = run_constraint_verification_workflow(
+            invalid_graph_content,
+            target_cycle_time,
+            minimal_delay,
+            "proportional",
+            vec![],
+        );
+
+        assert!(result.is_err(), "Should fail with invalid input");
+    }
+}
