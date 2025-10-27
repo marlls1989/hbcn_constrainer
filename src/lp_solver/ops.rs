@@ -7,24 +7,36 @@
 //!
 //! Variables and expressions support natural arithmetic operators:
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::VariableType;
+//!
+//! let mut builder = lp_model_builder!();
 //! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
 //! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
 //!
 //! // All of these work naturally:
-//! let expr1 = x + y;           // Addition
-//! let expr2 = x - y;           // Subtraction  
-//! let expr3 = 2.0 * x;         // Scalar multiplication (left)
-//! let expr4 = x * 2.0;         // Scalar multiplication (right)
-//! let expr5 = x + 2.0 * y + 5.0; // Complex expressions
-//! let expr6 = (x + y) * 3.0;   // Parentheses work
+//! let _expr1 = x + y;           // Addition
+//! let _expr2 = x - y;           // Subtraction  
+//! let _expr3 = 2.0 * x;         // Scalar multiplication (left)
+//! let _expr4 = x * 2.0;         // Scalar multiplication (right)
+//! let _expr5 = x + 2.0 * y + 5.0; // Complex expressions
+//! let _expr6 = (x + y) * 3.0;   // Parentheses work
 //! ```
 //!
 //! # Constraint Macro
 //!
 //! The `constraint!` macro provides a declarative way to create constraints:
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use hbcn::constraint;
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::VariableType;
+//!
+//! let mut builder = lp_model_builder!();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//!
 //! // Unnamed constraints (most common)
 //! let c1 = constraint!((x + y) == 10.0);
 //! let c2 = constraint!((2.0 * x) <= 5.0);
@@ -325,7 +337,7 @@ impl<Brand> std::ops::Sub<VariableId<Brand>> for f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::lp_solver::{LPModelBuilder, VariableType};
+    use crate::lp_solver::VariableType;
     use crate::lp_model_builder;
 
     #[test]

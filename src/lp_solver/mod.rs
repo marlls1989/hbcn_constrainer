@@ -16,7 +16,10 @@
 //!
 //! For simple cases where you only have one model, use the default brand `()`:
 //!
-//! ```ignore
+//! ```rust
+//! use hbcn::lp_solver::{LPModelBuilder, VariableType};
+//! use hbcn::constraint;
+//!
 //! let mut builder: LPModelBuilder<()> = LPModelBuilder::new();
 //! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
 //! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
@@ -34,8 +37,9 @@
 //! macro to create builders with guaranteed unique brands:
 //!
 //! ```rust
+//! use hbcn::constraint;
 //! use hbcn::lp_model_builder;
-//! use hbcn::lp_solver::{VariableType, constraint};
+//! use hbcn::lp_solver::VariableType;
 //!
 //! // Each macro call creates a unique brand automatically
 //! let mut builder1 = lp_model_builder!();
@@ -105,11 +109,12 @@
 //!
 //! The most concise way to create constraints using natural comparison syntax:
 //!
-//! ```ignore
+//! ```rust,no_run
 //! use hbcn::constraint;
-//! use hbcn::lp_solver::{LPModelBuilder, VariableType, OptimizationSense};
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::{VariableType, OptimizationSense};
 //!
-//! let mut builder = LPModelBuilder::new();
+//! let mut builder = lp_model_builder!();
 //! let x = builder.add_variable("x", VariableType::Continuous, 0.0, f64::INFINITY);
 //! let y = builder.add_variable("y", VariableType::Continuous, 0.0, f64::INFINITY);
 //!
@@ -124,17 +129,18 @@
 //!
 //! // Set objective and solve
 //! builder.set_objective(x + 2.0 * y, OptimizationSense::Maximize);
-//! let solution = builder.solve()?;
+//! let _solution = builder.solve();
 //! ```
 //!
 //! ## 2. Using `Constraint` Builder Methods
 //!
 //! For explicit constraint construction:
 //!
-//! ```ignore
-//! use hbcn::lp_solver::{Constraint, LPModelBuilder, VariableType};
+//! ```rust,no_run
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::{Constraint, VariableType};
 //!
-//! let mut builder = LPModelBuilder::new();
+//! let mut builder = lp_model_builder!();
 //! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
 //!
 //! // Unnamed (cleaner)
@@ -152,8 +158,13 @@
 //!
 //! For maximum control:
 //!
-//! ```ignore
-//! use hbcn::lp_solver::{Constraint, ConstraintSense};
+//! ```rust,no_run
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::{Constraint, ConstraintSense, VariableType};
+//!
+//! let mut builder = lp_model_builder!();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
 //!
 //! let c = Constraint::new("my_constraint", x + y, ConstraintSense::Equal, 10.0);
 //! builder.add_constraint(c);
@@ -163,11 +174,18 @@
 //!
 //! Linear expressions support natural operator overloading:
 //!
-//! ```ignore
+//! ```rust,no_run
+//! use hbcn::lp_model_builder;
+//! use hbcn::lp_solver::VariableType;
+//!
+//! let mut builder = lp_model_builder!();
+//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//!
 //! // Combine variables and constants
-//! let expr = 2.0 * x + 3.0 * y - 5.0;
-//! let expr2 = x + y;
-//! let expr3 = x - y + 10.0;
+//! let _expr = 2.0 * x + 3.0 * y - 5.0;
+//! let _expr2 = x + y;
+//! let _expr3 = x - y + 10.0;
 //! ```
 //!
 //! # Solver Selection
@@ -192,6 +210,7 @@ use std::sync::Arc;
 /// 
 /// ```rust
 /// use hbcn::lp_model_builder;
+/// use hbcn::lp_solver::VariableType;
 /// 
 /// let mut builder = lp_model_builder!();
 /// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
@@ -409,9 +428,14 @@ pub struct ConstraintId(usize);
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust,no_run
 /// use hbcn::constraint;
-/// use hbcn::lp_solver::{Constraint, ConstraintSense};
+/// use hbcn::lp_model_builder;
+/// use hbcn::lp_solver::{Constraint, ConstraintSense, VariableType};
+///
+/// let mut builder = lp_model_builder!();
+/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+/// let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
 ///
 /// // Using the constraint! macro (recommended)
 /// let c = constraint!((x + y) == 10.0);  // unnamed
@@ -525,18 +549,19 @@ impl<Brand> LPSolution<Brand> {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust,no_run
+/// use hbcn::lp_model_builder;
 /// use hbcn::lp_solver::{LPModelBuilder, VariableType};
 ///
 /// // Each builder has its own brand
 /// struct MyModel;
-/// let mut builder = LPModelBuilder::<MyModel>::new();
+/// let mut builder1 = LPModelBuilder::<MyModel>::new();
 ///
 /// // Variables are branded with the builder type
-/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+/// let x = builder1.add_variable("x", VariableType::Continuous, 0.0, 10.0);
 ///
 /// // For simple cases, use the macro to create a unique brand
-/// let mut builder = lp_model_builder!();  // Creates unique brand automatically
+/// let mut builder2 = lp_model_builder!();  // Creates unique brand automatically
 /// ```
 pub struct LPModelBuilder<Brand> {
     variables: Vec<VariableInfo>,
