@@ -1,5 +1,5 @@
 //! Linear Programming (LP) solver abstraction layer
-//! 
+//!
 //! This module provides a trait-based abstraction for LP solvers, allowing the codebase
 //! to be independent of specific solver implementations like Gurobi and coin_cbc.
 //!
@@ -201,7 +201,6 @@ use std::env;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
@@ -277,30 +276,39 @@ impl SolverBackend {
                     #[cfg(feature = "gurobi")]
                     return Ok(SolverBackend::Gurobi);
                     #[cfg(not(feature = "gurobi"))]
-                    return Err(anyhow::anyhow!("Gurobi solver requested via HBCN_LP_SOLVER but gurobi feature not enabled"));
+                    return Err(anyhow::anyhow!(
+                        "Gurobi solver requested via HBCN_LP_SOLVER but gurobi feature not enabled"
+                    ));
                 }
                 "coin_cbc" | "coin-cbc" | "cbc" => {
                     #[cfg(feature = "coin_cbc")]
                     return Ok(SolverBackend::CoinCbc);
                     #[cfg(not(feature = "coin_cbc"))]
-                    return Err(anyhow::anyhow!("Coin CBC solver requested via HBCN_LP_SOLVER but coin_cbc feature not enabled"));
+                    return Err(anyhow::anyhow!(
+                        "Coin CBC solver requested via HBCN_LP_SOLVER but coin_cbc feature not enabled"
+                    ));
                 }
                 _ => {
-                    return Err(anyhow::anyhow!("Invalid solver '{}' in HBCN_LP_SOLVER. Valid options: gurobi, coin_cbc", solver_name));
+                    return Err(anyhow::anyhow!(
+                        "Invalid solver '{}' in HBCN_LP_SOLVER. Valid options: gurobi, coin_cbc",
+                        solver_name
+                    ));
                 }
             }
         }
-        
+
         // Fallback logic: prefer gurobi if available, then coin_cbc
         #[cfg(all(feature = "gurobi"))]
         return Ok(SolverBackend::Gurobi);
-        
+
         #[allow(unreachable_code)]
         #[cfg(all(feature = "coin_cbc"))]
         return Ok(SolverBackend::CoinCbc);
-        
+
         #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
-        Err(anyhow::anyhow!("No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"))
+        Err(anyhow::anyhow!(
+            "No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"
+        ))
     }
 }
 
@@ -365,9 +373,7 @@ pub struct VariableId<Brand> {
 // Manual trait implementations that don't require Brand to implement anything
 impl<Brand> std::fmt::Debug for VariableId<Brand> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("VariableId")
-            .field("id", &self.id)
-            .finish()
+        f.debug_struct("VariableId").field("id", &self.id).finish()
     }
 }
 
@@ -435,7 +441,12 @@ pub struct Constraint<Brand> {
 
 impl<Brand> Constraint<Brand> {
     /// Create a new named constraint
-    pub fn new(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, sense: ConstraintSense, rhs: f64) -> Self {
+    pub fn new(
+        name: impl Into<Arc<str>>,
+        expression: impl Into<LinearExpression<Brand>>,
+        sense: ConstraintSense,
+        rhs: f64,
+    ) -> Self {
         Self {
             name: name.into(),
             expression: expression.into(),
@@ -444,14 +455,17 @@ impl<Brand> Constraint<Brand> {
         }
     }
 
-
     /// Create an unnamed equality constraint: expression == rhs
     pub fn eq(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
         Self::new("", expression, ConstraintSense::Equal, rhs)
     }
 
     /// Create a named equality constraint: expression == rhs
-    pub fn eq_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+    pub fn eq_named(
+        name: impl Into<Arc<str>>,
+        expression: impl Into<LinearExpression<Brand>>,
+        rhs: f64,
+    ) -> Self {
         Self::new(name, expression, ConstraintSense::Equal, rhs)
     }
 
@@ -461,7 +475,11 @@ impl<Brand> Constraint<Brand> {
     }
 
     /// Create a named less-than-or-equal constraint: expression <= rhs
-    pub fn le_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+    pub fn le_named(
+        name: impl Into<Arc<str>>,
+        expression: impl Into<LinearExpression<Brand>>,
+        rhs: f64,
+    ) -> Self {
         Self::new(name, expression, ConstraintSense::LessEqual, rhs)
     }
 
@@ -471,7 +489,11 @@ impl<Brand> Constraint<Brand> {
     }
 
     /// Create a named greater-than-or-equal constraint: expression >= rhs
-    pub fn ge_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+    pub fn ge_named(
+        name: impl Into<Arc<str>>,
+        expression: impl Into<LinearExpression<Brand>>,
+        rhs: f64,
+    ) -> Self {
         Self::new(name, expression, ConstraintSense::GreaterEqual, rhs)
     }
 
@@ -481,7 +503,11 @@ impl<Brand> Constraint<Brand> {
     }
 
     /// Create a named strictly-greater-than constraint: expression > rhs
-    pub fn gt_named(name: impl Into<Arc<str>>, expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
+    pub fn gt_named(
+        name: impl Into<Arc<str>>,
+        expression: impl Into<LinearExpression<Brand>>,
+        rhs: f64,
+    ) -> Self {
         Self::new(name, expression, ConstraintSense::Greater, rhs)
     }
 }
@@ -494,7 +520,6 @@ struct VariableInfo {
     lower_bound: f64,
     upper_bound: f64,
 }
-
 
 /// Objective function information
 #[derive(Debug, Clone)]
@@ -594,11 +619,11 @@ impl<Brand> LPModelBuilder<Brand> {
     /// Solve the model using the specified solver
     pub fn solve(self) -> Result<LPSolution<Brand>> {
         let solver = SolverBackend::from_env_or_default()?;
-        
+
         match solver {
             #[cfg(feature = "gurobi")]
             SolverBackend::Gurobi => crate::lp_solver::gurobi::solve_gurobi(self),
-            
+
             #[cfg(feature = "coin_cbc")]
             SolverBackend::CoinCbc => crate::lp_solver::coin_cbc::solve_coin_cbc(self),
         }
@@ -622,7 +647,6 @@ pub mod gurobi;
 
 #[cfg(feature = "coin_cbc")]
 pub mod coin_cbc;
-
 
 #[cfg(test)]
 mod tests {
@@ -694,7 +718,7 @@ mod tests {
         // Test that constraints can be added to builder
         builder.add_constraint(constraint!((x + y) == 10.0));
         builder.add_constraint(constraint!("named", (x) <= 5.0));
-        
+
         assert_eq!(builder.constraints.len(), 2);
     }
 
@@ -742,5 +766,40 @@ mod tests {
         let c = Constraint::gt_named("test_gt", x, 0.0);
         assert_eq!(c.sense, ConstraintSense::Greater);
         assert_eq!(c.name, Arc::from("test_gt"));
+    }
+
+    #[test]
+    fn test_add_variable_to_linear_expression() {
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+
+        // Build an expression like 2.0 * x + 5.0
+        let expr = 2.0 * x + 5.0;
+
+        // Verify the initial expression
+        assert_eq!(expr.terms.len(), 1);
+        assert_eq!(expr.terms[0].coefficient, 2.0);
+        assert_eq!(expr.terms[0].variable, x);
+        assert_eq!(expr.constant, 5.0);
+
+        // Perform expr + y using the Add<VariableId> for LinearExpression implementation
+        let result = expr + y;
+
+        // Assert that the resulting LinearExpression has two terms and preserves the constant (5.0)
+        assert_eq!(
+            result.terms.len(),
+            2,
+            "Result should have exactly two terms"
+        );
+        assert_eq!(result.constant, 5.0, "Constant should be preserved as 5.0");
+
+        // Check first term (should be 2.0 * x)
+        assert_eq!(result.terms[0].coefficient, 2.0);
+        assert_eq!(result.terms[0].variable, x);
+
+        // Check second term (should be 1.0 * y, added from the VariableId)
+        assert_eq!(result.terms[1].coefficient, 1.0);
+        assert_eq!(result.terms[1].variable, y);
     }
 }

@@ -1,10 +1,10 @@
 //! HBCN (Half-buffer Channel Network) timing analysis and constraint generation library
-//! 
+//!
 //! This library provides tools for analyzing and constraining timing in HBCN circuits.
 
-use std::{error::Error, fmt, fs, path::Path};
 use anyhow::Result;
 use clap::Parser;
+use std::{error::Error, fmt, fs, path::Path};
 
 pub mod analyse;
 pub mod constrain;
@@ -13,8 +13,8 @@ pub mod lp_solver;
 pub mod structural_graph;
 
 // Re-export the main functions for easy access
-pub use analyse::{analyse_main, depth_main, AnalyseArgs, DepthArgs};
-pub use constrain::{constrain_main, ConstrainArgs};
+pub use analyse::{AnalyseArgs, DepthArgs, analyse_main, depth_main};
+pub use constrain::{ConstrainArgs, constrain_main};
 pub use hbcn::*;
 pub use structural_graph::*;
 

@@ -11,11 +11,7 @@ use ordered_float::OrderedFloat;
 use prettytable::*;
 use rayon::prelude::*;
 
-use crate::{
-    hbcn::*,
-    read_file,
-    structural_graph::CircuitNode,
-};
+use crate::{hbcn::*, read_file, structural_graph::CircuitNode};
 
 pub mod hbcn;
 mod sdc;
@@ -153,7 +149,11 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         constraints.pseudoclock_period
     )?;
 
-    sdc::write_path_constraints(&mut out_file, &constraints.path_constraints)?;
+    sdc::write_path_constraints(
+        &mut out_file,
+        &constraints.path_constraints,
+        constraints.pseudoclock_period,
+    )?;
 
     if let Some(output) = vcd {
         let mut out_file = BufWriter::new(fs::File::create(output)?);

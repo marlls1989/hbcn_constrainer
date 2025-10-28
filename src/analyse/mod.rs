@@ -7,10 +7,7 @@ use petgraph::dot;
 use prettytable::*;
 use rayon::prelude::*;
 
-use crate::{
-    hbcn::*,
-    read_file,
-};
+use crate::{hbcn::*, read_file};
 
 pub mod hbcn;
 pub mod vcd;
@@ -220,11 +217,14 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
                       Port "b" []"#;
 
-        let (cycle_time, _) = run_analysis(input, true)
-            .expect("Should compute cycle time for simple circuit");
+        let (cycle_time, _) =
+            run_analysis(input, true).expect("Should compute cycle time for simple circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
-        assert!(cycle_time >= 20.0, "Cycle time should be at least the edge weight");
+        assert!(
+            cycle_time >= 20.0,
+            "Cycle time should be at least the edge weight"
+        );
     }
 
     /// Test basic cycle time computation with unweighted analysis
@@ -233,8 +233,8 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
                       Port "b" []"#;
 
-        let (cycle_time, _) = run_analysis(input, false)
-            .expect("Should compute cycle time for simple circuit");
+        let (cycle_time, _) =
+            run_analysis(input, false).expect("Should compute cycle time for simple circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
     }
@@ -246,8 +246,8 @@ mod tests {
                       DataReg "reg" [("output", 25)]
                       Port "output" []"#;
 
-        let (cycle_time, _) = run_analysis(input, true)
-            .expect("Should compute cycle time for DataReg circuit");
+        let (cycle_time, _) =
+            run_analysis(input, true).expect("Should compute cycle time for DataReg circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
     }
@@ -259,8 +259,8 @@ mod tests {
                       DataReg "b" [("b", 15), ("c", 10)]
                       Port "c" []"#;
 
-        let (cycle_time, _) = run_analysis(input, true)
-            .expect("Should compute cycle time for cyclic circuit");
+        let (cycle_time, _) =
+            run_analysis(input, true).expect("Should compute cycle time for cyclic circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
     }
@@ -272,14 +272,17 @@ mod tests {
                       DataReg "reg" [("output", 25), ("reg", 20)]
                       Port "output" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time for cyclic circuit");
+        let (_, solved_hbcn) =
+            run_analysis(input, true).expect("Should compute cycle time for cyclic circuit");
 
         let cycles = hbcn::find_critical_cycles(&solved_hbcn);
-        
+
         // Should find at least one cycle in a cyclic circuit
-        assert!(!cycles.is_empty(), "Should find critical cycles in cyclic circuit");
-        
+        assert!(
+            !cycles.is_empty(),
+            "Should find critical cycles in cyclic circuit"
+        );
+
         // Each cycle should have at least 2 edges
         for cycle in &cycles {
             assert!(cycle.len() >= 2, "Each cycle should have at least 2 edges");
@@ -296,11 +299,11 @@ mod tests {
                       DataReg "logic" [("output", 45)]
                       Port "output" []"#;
 
-        let (cycle_time, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time for complex circuit");
+        let (cycle_time, solved_hbcn) =
+            run_analysis(input, true).expect("Should compute cycle time for complex circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
-        
+
         let cycles = hbcn::find_critical_cycles(&solved_hbcn);
         assert!(!cycles.is_empty(), "Should find cycles in complex circuit");
     }
@@ -311,15 +314,12 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
                       Port "b" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time");
+        let (_, solved_hbcn) = run_analysis(input, true).expect("Should compute cycle time");
 
         let mut output = Cursor::new(Vec::new());
-        vcd::write_vcd(&solved_hbcn, &mut output)
-            .expect("Should write VCD");
+        vcd::write_vcd(&solved_hbcn, &mut output).expect("Should write VCD");
 
-        let vcd_content = String::from_utf8(output.into_inner())
-            .expect("Should be valid UTF-8");
+        let vcd_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
 
         // VCD should contain basic structure
         assert!(vcd_content.contains("$timescale") || vcd_content.contains("$var"));
@@ -331,11 +331,10 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
                       Port "b" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time");
+        let (_, solved_hbcn) = run_analysis(input, true).expect("Should compute cycle time");
 
         let dot_content = format!("{:?}", petgraph::dot::Dot::new(&solved_hbcn));
-        
+
         // DOT should contain basic graph structure
         assert!(dot_content.contains("digraph") || dot_content.contains("graph"));
     }
@@ -347,11 +346,10 @@ mod tests {
                       DataReg "reg" [("output", 25), ("reg", 20)]
                       Port "output" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time");
+        let (_, solved_hbcn) = run_analysis(input, true).expect("Should compute cycle time");
 
         let cycles = hbcn::find_critical_cycles(&solved_hbcn);
-        
+
         for cycle in &cycles {
             let cost: f64 = cycle
                 .iter()
@@ -361,7 +359,7 @@ mod tests {
                     e.weight() - e.slack()
                 })
                 .sum();
-            
+
             assert!(cost >= 0.0, "Cycle cost should be non-negative");
         }
     }
@@ -372,23 +370,22 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
                       Port "b" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time");
+        let (_, solved_hbcn) = run_analysis(input, true).expect("Should compute cycle time");
 
         let cycles = hbcn::find_critical_cycles(&solved_hbcn);
-        
+
         for cycle in &cycles {
             for (is, it) in cycle {
                 let s = &solved_hbcn[*is];
                 let t = &solved_hbcn[*it];
-                
+
                 let ttype = match (&s.transition, &t.transition) {
                     (Transition::Data(_), Transition::Data(_)) => "Data Prop",
                     (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
                     (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
                     (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
                 };
-                
+
                 // Should classify transition types correctly
                 assert!(!ttype.is_empty(), "Transition type should not be empty");
             }
@@ -402,11 +399,10 @@ mod tests {
                       DataReg "reg" [("output", 25), ("reg", 20)]
                       Port "output" []"#;
 
-        let (_, solved_hbcn) = run_analysis(input, true)
-            .expect("Should compute cycle time");
+        let (_, solved_hbcn) = run_analysis(input, true).expect("Should compute cycle time");
 
         let cycles = hbcn::find_critical_cycles(&solved_hbcn);
-        
+
         for cycle in &cycles {
             let mut tokens = 0;
             for (is, it) in cycle {
@@ -416,7 +412,7 @@ mod tests {
                     tokens += 1;
                 }
             }
-            
+
             // Token count should be reasonable
             assert!(tokens >= 0, "Token count should be non-negative");
         }
@@ -429,8 +425,8 @@ mod tests {
                       Port "b" [("c", 15)]
                       Port "c" []"#;
 
-        let (depth, _) = run_analysis(input, false)
-            .expect("Should compute depth for simple circuit");
+        let (depth, _) =
+            run_analysis(input, false).expect("Should compute depth for simple circuit");
 
         assert!(depth > 0.0, "Depth should be positive");
     }
@@ -442,7 +438,7 @@ mod tests {
 
         // This might fail or succeed depending on implementation
         let result = run_analysis(input, true);
-        
+
         // Either succeeds with valid results or fails gracefully
         if let Ok((cycle_time, _)) = result {
             assert!(cycle_time >= 0.0, "Cycle time should be non-negative");

@@ -1,6 +1,6 @@
-use hbcn::{CLIArguments, constrain_main, analyse_main, depth_main};
-use clap::Parser;
 use anyhow::Result;
+use clap::Parser;
+use hbcn::{CLIArguments, analyse_main, constrain_main, depth_main};
 
 fn main() -> Result<()> {
     let args = CLIArguments::parse();

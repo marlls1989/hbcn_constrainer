@@ -65,7 +65,11 @@ fn src_rails(s: &CircuitNode) -> String {
     }
 }
 
-pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -> io::Result<()> {
+pub fn write_path_constraints(
+    writer: &mut dyn Write,
+    paths: &PathConstraints,
+    pseudoclock_period: f64,
+) -> io::Result<()> {
     for ((src, dst), val) in paths.iter() {
         if let Some(val) = val.min {
             writeln!(
@@ -78,13 +82,15 @@ pub fn write_path_constraints(writer: &mut dyn Write, paths: &PathConstraints) -
         }
 
         if let Some(val) = val.max {
-            writeln!(
-                writer,
-                "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
-                val,
-                src_rails(src),
-                dst_rails(dst),
-            )?;
+            if val != pseudoclock_period {
+                writeln!(
+                    writer,
+                    "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
+                    val,
+                    src_rails(src),
+                    dst_rails(dst),
+                )?;
+            }
         }
     }
 
@@ -116,7 +122,7 @@ mod tests {
         );
 
         let mut output = Cursor::new(Vec::new());
-        write_path_constraints(&mut output, &constraints).expect("Should write SDC");
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write SDC");
 
         let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
 
@@ -146,7 +152,7 @@ mod tests {
         );
 
         let mut output = Cursor::new(Vec::new());
-        write_path_constraints(&mut output, &constraints).expect("Should write SDC");
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write SDC");
 
         let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
 
@@ -163,11 +169,11 @@ mod tests {
     fn test_port_wildcard_generation() {
         // Simple port name
         assert_eq!(port_wildcard("clk"), "clk_*");
-        
+
         // Port with index
         assert_eq!(port_wildcard("data[0]"), "data_*[0] data_ack");
         assert_eq!(port_wildcard("bus[15]"), "bus_*[15] bus_ack");
-        
+
         // Port without index
         assert_eq!(port_wildcard("reset"), "reset_*");
     }
@@ -177,13 +183,13 @@ mod tests {
     fn test_port_instance_generation() {
         // Simple instance
         assert_eq!(port_instance("simple"), "inst:simple");
-        
+
         // Instance with index
         assert_eq!(port_instance("indexed[5]"), "inst:indexed_5");
-        
+
         // Port with path
         assert_eq!(port_instance("port:module/signal"), "inst:module/isignal");
-        
+
         // Complex case
         assert_eq!(port_instance("port:cpu/data[8]"), "inst:cpu/idata_8");
     }
@@ -192,7 +198,7 @@ mod tests {
     #[test]
     fn test_sdc_multiple_constraints() {
         let mut constraints = HashMap::new();
-        
+
         // Port to port
         constraints.insert(
             (
@@ -221,7 +227,7 @@ mod tests {
         );
 
         let mut output = Cursor::new(Vec::new());
-        write_path_constraints(&mut output, &constraints).expect("Should write multiple SDC");
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write multiple SDC");
 
         let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
 

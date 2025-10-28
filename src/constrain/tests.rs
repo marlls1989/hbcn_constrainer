@@ -48,8 +48,9 @@ mod constrain_unit_tests {
             false,
         );
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 10.0, 1.0, None, None)
-            .expect("Proportional constraint generation should succeed");
+        let result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 10.0, 1.0, None, None)
+                .expect("Proportional constraint generation should succeed");
 
         // Pseudoclock period should be reasonable
         assert!(result.pseudoclock_period >= 1.0);
@@ -80,7 +81,8 @@ mod constrain_unit_tests {
         assert!(result.is_err(), "Should fail with infeasible constraints");
 
         // Try proportional with impossible parameters
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 0.1, 10.0, None, None);
+        let result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 0.1, 10.0, None, None);
         assert!(result.is_err(), "Should fail with infeasible constraints");
     }
 
@@ -95,22 +97,33 @@ mod constrain_unit_tests {
         );
 
         // Test with feasible parameters and margin
-        let result_with_margin =
-            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 500.0, 10.0, None, Some(0.5))
-                .expect("Should succeed with forward margin");
+        let result_with_margin = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            500.0,
+            10.0,
+            None,
+            Some(0.5),
+        )
+        .expect("Should succeed with forward margin");
 
-        let result_without_margin =
-            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 500.0, 10.0, None, None)
-                .expect("Should succeed without margin");
+        let result_without_margin = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 500.0, 10.0, None, None,
+        )
+        .expect("Should succeed without margin");
 
         // Both results should be valid
         assert!(result_with_margin.pseudoclock_period >= 10.0);
         assert!(result_without_margin.pseudoclock_period >= 10.0);
 
         // Test with backward margin
-        let result_backward =
-            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 500.0, 10.0, Some(0.5), None)
-                .expect("Should succeed with backward margin");
+        let result_backward = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            500.0,
+            10.0,
+            Some(0.5),
+            None,
+        )
+        .expect("Should succeed with backward margin");
 
         assert!(result_backward.pseudoclock_period >= 10.0);
 
@@ -135,15 +148,17 @@ mod constrain_unit_tests {
         );
 
         // Should work with pseudoclock
-        let pseudo_result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 20.0, 2.0)
-            .expect("Should handle DataReg with pseudoclock");
+        let pseudo_result =
+            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 20.0, 2.0)
+                .expect("Should handle DataReg with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 2.0);
         assert!(!pseudo_result.path_constraints.is_empty());
 
         // Should work with proportional
-        let prop_result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 20.0, 2.0, None, None)
-            .expect("Should handle DataReg with proportional");
+        let prop_result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 20.0, 2.0, None, None)
+                .expect("Should handle DataReg with proportional");
 
         assert!(prop_result.pseudoclock_period >= 2.0);
         assert!(!prop_result.path_constraints.is_empty());
@@ -176,12 +191,23 @@ mod constrain_unit_tests {
         let hbcn_no_fc = create_test_hbcn(input, false);
         let hbcn_with_fc = create_test_hbcn(input, true);
 
-        let result_no_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn_no_fc, 300.0, 10.0, None, None)
-            .expect("Should work without forward completion");
+        let result_no_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn_no_fc,
+            300.0,
+            10.0,
+            None,
+            None,
+        )
+        .expect("Should work without forward completion");
 
-        let result_with_fc =
-            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn_with_fc, 300.0, 10.0, None, None)
-                .expect("Should work with forward completion");
+        let result_with_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn_with_fc,
+            300.0,
+            10.0,
+            None,
+            None,
+        )
+        .expect("Should work with forward completion");
 
         // Results should potentially be different
         // (This tests that forward completion parameter is actually used)
@@ -209,8 +235,9 @@ mod constrain_unit_tests {
             false,
         );
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 50.0, 5.0, None, None)
-            .expect("Should generate valid constraints");
+        let result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 50.0, 5.0, None, None)
+                .expect("Should generate valid constraints");
 
         // Validate all constraints
         for ((src, dst), constraint) in &result.path_constraints {
@@ -299,8 +326,9 @@ mod constrain_unit_tests {
             false,
         );
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 30.0, 3.0, None, None)
-            .expect("Should handle complex multipath circuit");
+        let result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 30.0, 3.0, None, None)
+                .expect("Should handle complex multipath circuit");
 
         // Should have constraints for multiple paths
         assert!(
@@ -332,8 +360,10 @@ mod constrain_unit_tests {
             false,
         );
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 500.0, 10.0, None, None)
-            .expect("Should handle cyclic circuit with feasible parameters");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 500.0, 10.0, None, None,
+        )
+        .expect("Should handle cyclic circuit with feasible parameters");
 
         // Find critical cycles in the result
         let cycles = crate::analyse::hbcn::find_critical_cycles(&result.hbcn);
@@ -358,14 +388,26 @@ mod constrain_unit_tests {
         );
 
         // Test with moderate margins and feasible parameters
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 1000.0, 20.0, Some(0.3), Some(0.3))
-            .expect("Should handle moderate margins");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            1000.0,
+            20.0,
+            Some(0.3),
+            Some(0.3),
+        )
+        .expect("Should handle moderate margins");
 
         assert!(result.pseudoclock_period >= 20.0);
 
         // Test with very loose margins (allowing more flexibility)
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 1000.0, 20.0, Some(0.8), Some(0.8))
-            .expect("Should handle loose margins");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            1000.0,
+            20.0,
+            Some(0.8),
+            Some(0.8),
+        )
+        .expect("Should handle loose margins");
 
         assert!(result.pseudoclock_period >= 20.0);
 
@@ -384,15 +426,17 @@ mod constrain_unit_tests {
         );
 
         // Test pseudoclock constraints on cyclic circuit
-        let pseudo_result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 50.0, 2.0)
-            .expect("Should handle cyclic circuit with pseudoclock");
+        let pseudo_result =
+            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 50.0, 2.0)
+                .expect("Should handle cyclic circuit with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 2.0);
         assert!(!pseudo_result.path_constraints.is_empty());
 
         // Test proportional constraints on cyclic circuit
-        let prop_result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 50.0, 2.0, None, None)
-            .expect("Should handle cyclic circuit with proportional");
+        let prop_result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 50.0, 2.0, None, None)
+                .expect("Should handle cyclic circuit with proportional");
 
         assert!(prop_result.pseudoclock_period >= 2.0);
         assert!(!prop_result.path_constraints.is_empty());
@@ -413,15 +457,23 @@ mod constrain_unit_tests {
         );
 
         // Test with generous cycle time for feedback circuit
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, None, None)
-            .expect("Should handle feedback circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 200.0, 10.0, None, None,
+        )
+        .expect("Should handle feedback circuit");
 
         assert!(result.pseudoclock_period >= 10.0);
         assert!(!result.path_constraints.is_empty());
 
         // Test with margins on cyclic circuit
-        let result_with_margins = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, Some(0.2), Some(0.3))
-            .expect("Should handle feedback circuit with margins");
+        let result_with_margins = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            200.0,
+            10.0,
+            Some(0.2),
+            Some(0.3),
+        )
+        .expect("Should handle feedback circuit with margins");
 
         assert!(result_with_margins.pseudoclock_period >= 10.0);
         assert!(!result_with_margins.path_constraints.is_empty());
@@ -441,15 +493,18 @@ mod constrain_unit_tests {
         );
 
         // Test with very generous cycle time for complex cyclic circuit
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 500.0, 15.0, None, None)
-            .expect("Should handle complex cyclic circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 500.0, 15.0, None, None,
+        )
+        .expect("Should handle complex cyclic circuit");
 
         assert!(result.pseudoclock_period >= 15.0);
         assert!(!result.path_constraints.is_empty());
 
         // Test pseudoclock on complex cyclic circuit
-        let pseudo_result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 500.0, 15.0)
-            .expect("Should handle complex cyclic circuit with pseudoclock");
+        let pseudo_result =
+            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 500.0, 15.0)
+                .expect("Should handle complex cyclic circuit with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 15.0);
         assert!(!pseudo_result.path_constraints.is_empty());
@@ -465,8 +520,10 @@ mod constrain_unit_tests {
             false,
         );
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 100.0, 5.0, None, None)
-            .expect("Should generate valid cyclic constraints");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 100.0, 5.0, None, None,
+        )
+        .expect("Should generate valid cyclic constraints");
 
         // Validate all constraints in cyclic circuit
         for ((src, dst), constraint) in &result.path_constraints {
@@ -503,15 +560,17 @@ mod constrain_unit_tests {
         );
 
         // Test with tight but feasible timing
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 30.0, 2.0, None, None)
-            .expect("Should handle cyclic circuit with tight timing");
+        let result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 30.0, 2.0, None, None)
+                .expect("Should handle cyclic circuit with tight timing");
 
         assert!(result.pseudoclock_period >= 2.0);
         assert!(result.pseudoclock_period <= 30.0);
 
         // Test with very tight timing (might be infeasible)
-        let tight_result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 10.0, 1.0, None, None);
-        
+        let tight_result =
+            crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 10.0, 1.0, None, None);
+
         // Either succeeds with valid constraints or fails gracefully
         match tight_result {
             Ok(result) => {
@@ -534,11 +593,23 @@ mod constrain_unit_tests {
         let hbcn_no_fc = create_test_hbcn(input, false);
         let hbcn_with_fc = create_test_hbcn(input, true);
 
-        let result_no_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn_no_fc, 100.0, 5.0, None, None)
-            .expect("Should work without forward completion on cyclic circuit");
+        let result_no_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn_no_fc,
+            100.0,
+            5.0,
+            None,
+            None,
+        )
+        .expect("Should work without forward completion on cyclic circuit");
 
-        let result_with_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn_with_fc, 100.0, 5.0, None, None)
-            .expect("Should work with forward completion on cyclic circuit");
+        let result_with_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn_with_fc,
+            100.0,
+            5.0,
+            None,
+            None,
+        )
+        .expect("Should work with forward completion on cyclic circuit");
 
         // Both should produce valid results
         assert!(result_no_fc.pseudoclock_period >= 5.0);
@@ -552,14 +623,14 @@ mod constrain_unit_tests {
     /// Helper function to calculate critical cycle time per token
     fn calculate_critical_cycle_time_per_token(delayed_hbcn: &DelayedHBCN) -> f64 {
         let cycles = crate::analyse::hbcn::find_critical_cycles(delayed_hbcn);
-        
+
         if cycles.is_empty() {
             return 0.0;
         }
 
         // Find the cycle with maximum cost per token
         let mut max_cost_per_token: f64 = 0.0;
-        
+
         for cycle in &cycles {
             let mut tokens = 0;
             let cost: f64 = cycle
@@ -573,13 +644,13 @@ mod constrain_unit_tests {
                     e.weight() - e.slack()
                 })
                 .sum();
-            
+
             if tokens > 0 {
                 let cost_per_token = cost / tokens as f64;
                 max_cost_per_token = max_cost_per_token.max(cost_per_token);
             }
         }
-        
+
         max_cost_per_token
     }
 
@@ -595,8 +666,12 @@ mod constrain_unit_tests {
         let requested_cycle_time = 50.0;
         let min_delay = 5.0;
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, requested_cycle_time, min_delay)
-            .expect("Pseudoclock constraint generation should succeed");
+        let result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(
+            &hbcn,
+            requested_cycle_time,
+            min_delay,
+        )
+        .expect("Pseudoclock constraint generation should succeed");
 
         // Calculate the actual critical cycle time per token
         let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
@@ -626,8 +701,14 @@ mod constrain_unit_tests {
         let requested_cycle_time = 60.0;
         let min_delay = 8.0;
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            requested_cycle_time,
+            min_delay,
+            None,
+            None,
+        )
+        .expect("Proportional constraint generation should succeed");
 
         // Calculate the actual critical cycle time per token
         let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
@@ -654,8 +735,14 @@ mod constrain_unit_tests {
         let requested_cycle_time = 80.0;
         let min_delay = 10.0;
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed for cyclic circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            requested_cycle_time,
+            min_delay,
+            None,
+            None,
+        )
+        .expect("Proportional constraint generation should succeed for cyclic circuit");
 
         // Calculate the actual critical cycle time per token
         let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
@@ -683,8 +770,14 @@ mod constrain_unit_tests {
         let requested_cycle_time = 150.0;
         let min_delay = 15.0;
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed for complex circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            requested_cycle_time,
+            min_delay,
+            None,
+            None,
+        )
+        .expect("Proportional constraint generation should succeed for complex circuit");
 
         // Calculate the actual critical cycle time per token
         let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
@@ -708,12 +801,14 @@ mod constrain_unit_tests {
         );
 
         // Test with loose constraints
-        let loose_result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 200.0, 5.0)
-            .expect("Loose constraint generation should succeed");
+        let loose_result =
+            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 200.0, 5.0)
+                .expect("Loose constraint generation should succeed");
 
         // Test with tight constraints
-        let tight_result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
-            .expect("Tight constraint generation should succeed");
+        let tight_result =
+            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+                .expect("Tight constraint generation should succeed");
 
         let loose_cycle_time = calculate_critical_cycle_time_per_token(&loose_result.hbcn);
         let tight_cycle_time = calculate_critical_cycle_time_per_token(&tight_result.hbcn);
@@ -744,8 +839,12 @@ mod constrain_unit_tests {
         let min_delays = vec![1.0, 5.0, 10.0, 20.0];
 
         for min_delay in min_delays {
-            let result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, requested_cycle_time, min_delay)
-                .expect("Constraint generation should succeed for min_delay");
+            let result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(
+                &hbcn,
+                requested_cycle_time,
+                min_delay,
+            )
+            .expect("Constraint generation should succeed for min_delay");
 
             let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);
 
@@ -778,8 +877,14 @@ mod constrain_unit_tests {
         let requested_cycle_time = 80.0;
         let min_delay = 10.0;
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed for cyclic circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn,
+            requested_cycle_time,
+            min_delay,
+            None,
+            None,
+        )
+        .expect("Proportional constraint generation should succeed for cyclic circuit");
 
         // Calculate the actual critical cycle time per token
         let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token(&result.hbcn);

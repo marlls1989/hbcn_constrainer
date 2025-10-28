@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use petgraph::prelude::*;
 
+use crate::AppError;
 use crate::hbcn::*;
 use crate::lp_solver::*;
-use crate::lp_model_builder;
 use crate::structural_graph::CircuitNode;
-use crate::AppError;
+use crate::{constraint, lp_model_builder};
 
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct DelayPair {
@@ -33,12 +33,8 @@ pub fn constrain_cycle_time_pseudoclock(
 
     let mut builder = lp_model_builder!();
 
-    let pseudo_clock = builder.add_variable(
-        "pseudo_clock",
-        VariableType::Continuous,
-        0.0,
-        f64::INFINITY,
-    );
+    let pseudo_clock =
+        builder.add_variable("pseudo_clock", VariableType::Continuous, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId<_>> = hbcn
         .node_indices()
@@ -71,27 +67,17 @@ pub fn constrain_cycle_time_pseudoclock(
             .unwrap();
 
         // Create constraint: delay + arr_var[src] - arr_var[dst] = (if place.token { ct } else { 0.0 })
-        let expr = delay + arr_var[&src] - arr_var[&dst];
-
-        builder.add_constraint(Constraint::new(
-            "",
-            expr,
-            ConstraintSense::Equal,
-            if place.token { ct } else { 0.0 },
-        ));
+        let rhs = if place.token { ct } else { 0.0 };
+        builder.add_constraint(constraint!((delay + arr_var[&src] - arr_var[&dst]) == rhs));
 
         if place.is_internal {
-            let delay_expr = LinearExpression::from_variable(delay);
-            builder.add_constraint(Constraint::new("", delay_expr, ConstraintSense::Greater, min_delay));
+            builder.add_constraint(constraint!((delay) > min_delay));
         } else {
-            let mut delay_expr = LinearExpression::from_variable(delay);
-            delay_expr.add_term(-1.0, pseudo_clock);
-            builder.add_constraint(Constraint::new("", delay_expr, ConstraintSense::Greater, 0.0));
+            builder.add_constraint(constraint!((delay - pseudo_clock) > 0.0));
         }
     }
 
-    let pseudo_clock_expr = LinearExpression::from_variable(pseudo_clock);
-    builder.set_objective(pseudo_clock_expr, OptimizationSense::Maximize);
+    builder.set_objective(pseudo_clock.into(), OptimizationSense::Maximize);
 
     let solution = builder.solve()?;
 
@@ -100,47 +86,45 @@ pub fn constrain_cycle_time_pseudoclock(
             let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(0.0);
             Ok(ConstrainerResult {
                 pseudoclock_period: pseudo_clock_value,
-            path_constraints: delay_vars
-                .iter()
-                .filter_map(|((src, dst), var)| {
-                    var.map(|var_id| {
-                        let delay_value = solution.get_value(var_id)?;
-                        Some((
-                            (CircuitNode::clone(src), CircuitNode::clone(dst)),
-                            DelayPair {
+                path_constraints: delay_vars
+                    .iter()
+                    .filter_map(|((src, dst), var)| {
+                        var.map(|var_id| {
+                            let delay_value = solution.get_value(var_id)?;
+                            Some((
+                                (CircuitNode::clone(src), CircuitNode::clone(dst)),
+                                DelayPair {
+                                    min: None,
+                                    max: Some(delay_value),
+                                },
+                            ))
+                        })
+                        .flatten()
+                    })
+                    .collect(),
+                hbcn: hbcn.map(
+                    |ix, x| TransitionEvent {
+                        transition: x.clone(),
+                        time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
+                    },
+                    |ie, e| {
+                        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+                        let delay_value = delay_vars
+                            [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
+                            .and_then(|var_id| solution.get_value(var_id));
+
+                        DelayedPlace {
+                            place: e.clone(),
+                            slack: None,
+                            delay: DelayPair {
                                 min: None,
-                                max: Some(delay_value),
+                                max: delay_value,
                             },
-                        ))
-                    }).flatten()
-                })
-                .collect(),
-            hbcn: hbcn.map(
-                |ix, x| TransitionEvent {
-                    transition: x.clone(),
-                    time: solution
-                        .get_value(arr_var[&ix])
-                        .unwrap_or(0.0),
-                },
-                |ie, e| {
-                    let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                    let delay_value = delay_vars
-                        [&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())]
-                        .and_then(|var_id| solution.get_value(var_id))
-                        .filter(|x| (*x - min_delay) / min_delay > 0.001);
-                    
-                    DelayedPlace {
-                        place: e.clone(),
-                        slack: None,
-                        delay: DelayPair {
-                            min: None,
-                            max: delay_value,
-                        },
-                    }
-                },
-            ),
-        })
-        },
+                        }
+                    },
+                ),
+            })
+        }
         _ => Err(AppError::Infeasible.into()),
     }
 }
@@ -181,12 +165,9 @@ pub fn constrain_cycle_time_proportional(
         .map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
-            let max = builder
-                .add_variable("", VariableType::Continuous, min_delay, f64::INFINITY);
-            let min = builder
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
-            let slack = builder
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let max = builder.add_variable("", VariableType::Continuous, min_delay, f64::INFINITY);
+            let min = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let slack = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
             (
                 (hbcn[src].circuit_node(), hbcn[dst].circuit_node()),
@@ -204,67 +185,43 @@ pub fn constrain_cycle_time_proportional(
             .expect("malformed StructuralHBCN");
 
         // Constraint: delay_var.max + arr_var[src] - arr_var[dst] = (if place.token { ct } else { 0.0 })
-        let mut expr1 = LinearExpression::new(0.0);
-        expr1.add_term(1.0, delay_var.max);
-        expr1.add_term(1.0, arr_var[&src]);
-        expr1.add_term(-1.0, arr_var[&dst]);
-
-        builder.add_constraint(Constraint::new(
-            "",
-            expr1,
-            ConstraintSense::Equal,
-            if place.token { ct } else { 0.0 },
+        let rhs = if place.token { ct } else { 0.0 };
+        builder.add_constraint(constraint!(
+            (delay_var.max + arr_var[&src] - arr_var[&dst]) == rhs
         ));
 
         // Constraint: delay_var.max - place.weight * factor - delay_var.slack = 0.0
-        let mut expr2 = LinearExpression::new(0.0);
-        expr2.add_term(1.0, delay_var.max);
-        expr2.add_term(-place.weight, factor);
-        expr2.add_term(-1.0, delay_var.slack);
-
-        builder.add_constraint(Constraint::new("", expr2, ConstraintSense::Equal, 0.0));
+        builder.add_constraint(constraint!(
+            (delay_var.max - place.weight * factor - delay_var.slack) == 0.0
+        ));
 
         if !place.is_internal {
             if place.backward {
                 if forward_margin.is_some() {
-                    let mut expr3 = LinearExpression::new(0.0);
-                    expr3.add_term(1.0, delay_var.min);
-                    expr3.add_term(-1.0, matching_delay.max);
-                    expr3.add_term(1.0, matching_delay.min);
-
-                    builder.add_constraint(Constraint::new("", expr3, ConstraintSense::Equal, 0.0));
+                    builder.add_constraint(constraint!(
+                        (delay_var.min - matching_delay.max + matching_delay.min) == 0.0
+                    ));
                 }
                 if let Some(bm) = backward_margin {
-                    let mut expr4 = LinearExpression::new(0.0);
-                    expr4.add_term(bm, delay_var.max);
-                    expr4.add_term(-1.0, delay_var.min);
-
-                    let sense = if forward_margin.is_some() {
-                        ConstraintSense::GreaterEqual
+                    if forward_margin.is_some() {
+                        builder.add_constraint(constraint!(
+                            (bm * delay_var.max - delay_var.min) >= 0.0
+                        ));
                     } else {
-                        ConstraintSense::Equal
-                    };
-
-                    builder.add_constraint(Constraint::new("", expr4, sense, 0.0));
+                        builder.add_constraint(constraint!(
+                            (bm * delay_var.max - delay_var.min) == 0.0
+                        ));
+                    }
                 } else if forward_margin.is_some() {
-                    let mut expr5 = LinearExpression::new(0.0);
-                    expr5.add_term(1.0, delay_var.max);
-                    expr5.add_term(-1.0, delay_var.min);
-
-                    builder.add_constraint(Constraint::new("", expr5, ConstraintSense::GreaterEqual, 0.0));
+                    builder.add_constraint(constraint!((delay_var.max - delay_var.min) >= 0.0));
                 }
             } else if let Some(fm) = forward_margin {
-                let mut expr6 = LinearExpression::new(0.0);
-                expr6.add_term(fm, delay_var.max);
-                expr6.add_term(-1.0, delay_var.min);
-
-                builder.add_constraint(Constraint::new("", expr6, ConstraintSense::Equal, 0.0));
+                builder.add_constraint(constraint!((fm * delay_var.max - delay_var.min) == 0.0));
             }
         }
     }
 
-    let factor_expr = LinearExpression::from_variable(factor);
-    builder.set_objective(factor_expr, OptimizationSense::Maximize);
+    builder.set_objective(factor.into(), OptimizationSense::Maximize);
 
     let solution = builder.solve()?;
 
@@ -274,9 +231,7 @@ pub fn constrain_cycle_time_proportional(
             path_constraints: delay_vars
                 .iter()
                 .map(|((src, dst), var)| {
-                    let min = solution
-                        .get_value(var.min)
-                        .filter(|x| *x > 0.001);
+                    let min = solution.get_value(var.min).filter(|x| *x > 0.001);
                     let max = solution
                         .get_value(var.max)
                         .filter(|x| (*x - min_delay) / min_delay > 0.001);
@@ -289,14 +244,13 @@ pub fn constrain_cycle_time_proportional(
             hbcn: hbcn.map(
                 |ix, x| TransitionEvent {
                     transition: x.clone(),
-                    time: solution
-                        .get_value(arr_var[&ix])
-                        .unwrap_or(0.0),
+                    time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
                 },
                 |ie, e| {
                     let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                    let delay_var = &delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())];
-                    
+                    let delay_var =
+                        &delay_vars[&(hbcn[src].circuit_node(), hbcn[dst].circuit_node())];
+
                     DelayedPlace {
                         place: e.clone(),
                         slack: solution.get_value(delay_var.slack),
@@ -314,30 +268,30 @@ pub fn constrain_cycle_time_proportional(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::structural_graph::parse;
     use crate::hbcn::from_structural_graph;
+    use crate::structural_graph::parse;
 
     /// Test constraint generation with various circuit topologies
     #[test]
     fn test_constraint_algorithms_linear_chain() {
         let input = r#"
             Port "a" [("b", 10)]
-            Port "b" [("c", 20)]
-            Port "c" [("d", 15)]
+            NullReg "b" [("c", 20)]
+            NullReg "c" [("d", 15)]
             Port "d" []
         "#;
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
 
-        // Test pseudoclock algorithm
-        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+        // Test pseudoclock algorithm with tight constraints (4x minimal delay)
+        let pseudo_result = constrain_cycle_time_pseudoclock(&hbcn, 20.0, 5.0)
             .expect("Pseudoclock should work on linear chain");
 
         assert!(pseudo_result.pseudoclock_period >= 5.0);
         assert!(!pseudo_result.path_constraints.is_empty());
 
-        // Test proportional algorithm
-        let prop_result = constrain_cycle_time_proportional(&hbcn, 50.0, 5.0, None, None)
+        // Test proportional algorithm with tight constraints (4x minimal delay)
+        let prop_result = constrain_cycle_time_proportional(&hbcn, 20.0, 5.0, None, None)
             .expect("Proportional should work on linear chain");
 
         assert!(prop_result.pseudoclock_period >= 5.0);
@@ -348,8 +302,8 @@ mod tests {
     fn test_constraint_algorithms_branching() {
         let input = r#"
             Port "input" [("branch1", 25), ("branch2", 30)]
-            Port "branch1" [("merge", 15)]
-            Port "branch2" [("merge", 20)]
+            NullReg "branch1" [("merge", 15)]
+            NullReg "branch2" [("merge", 20)]
             Port "merge" []
         "#;
         let structural_graph = parse(input).expect("Failed to parse");
@@ -374,7 +328,7 @@ mod tests {
             Port "input" [("proc", 40)]
             DataReg "proc" [("output", 35), ("feedback", 25)]
             Port "output" []
-            Port "feedback" [("proc", 30)]
+            NullReg "feedback" [("proc", 30)]
         "#;
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
@@ -471,7 +425,7 @@ mod tests {
     fn test_proportional_vs_pseudoclock_differences() {
         let input = r#"
             Port "input" [("middle", 100)]
-            Port "middle" [("output", 150)]
+            NullReg "middle" [("output", 150)]
             Port "output" []
         "#;
         let structural_graph = parse(input).expect("Failed to parse");
@@ -517,7 +471,7 @@ mod tests {
     fn test_margin_effects_detailed() {
         let input = r#"
             Port "a" [("b", 100)]
-            Port "b" [("c", 200)]
+            NullReg "b" [("c", 200)]
             Port "c" []
         "#;
         let structural_graph = parse(input).expect("Failed to parse");
@@ -613,8 +567,9 @@ mod tests {
         let result_no_fc = constrain_cycle_time_proportional(&hbcn_no_fc, 100.0, 5.0, None, None)
             .expect("Should work without forward completion on cyclic circuit");
 
-        let result_with_fc = constrain_cycle_time_proportional(&hbcn_with_fc, 100.0, 5.0, None, None)
-            .expect("Should work with forward completion on cyclic circuit");
+        let result_with_fc =
+            constrain_cycle_time_proportional(&hbcn_with_fc, 100.0, 5.0, None, None)
+                .expect("Should work with forward completion on cyclic circuit");
 
         // Both should produce valid results
         assert!(result_no_fc.pseudoclock_period >= 5.0);
@@ -641,16 +596,18 @@ mod tests {
     }
 
     /// Helper function to calculate critical cycle time per token for HBCN tests
-    fn calculate_critical_cycle_time_per_token_hbcn(delayed_hbcn: &crate::hbcn::DelayedHBCN) -> f64 {
+    fn calculate_critical_cycle_time_per_token_hbcn(
+        delayed_hbcn: &crate::hbcn::DelayedHBCN,
+    ) -> f64 {
         let cycles = crate::analyse::hbcn::find_critical_cycles(delayed_hbcn);
-        
+
         if cycles.is_empty() {
             return 0.0;
         }
 
-        // Find the cycle with maximum cost per token
+        // Find the cycle with the maximum cost per token
         let mut max_cost_per_token: f64 = 0.0;
-        
+
         for cycle in &cycles {
             let mut tokens = 0;
             let cost: f64 = cycle
@@ -664,13 +621,12 @@ mod tests {
                     e.weight() - e.slack()
                 })
                 .sum();
-            
+
             if tokens > 0 {
                 let cost_per_token = cost / tokens as f64;
                 max_cost_per_token = max_cost_per_token.max(cost_per_token);
             }
         }
-        
         max_cost_per_token
     }
 
@@ -689,7 +645,8 @@ mod tests {
             .expect("Pseudoclock constraint generation should succeed");
 
         // Calculate the actual critical cycle time per token
-        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+        let actual_cycle_time_per_token =
+            calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
 
         // The actual cycle time per token should be less than or equal to the requested cycle time
         assert!(
@@ -715,11 +672,13 @@ mod tests {
         let requested_cycle_time = 60.0;
         let min_delay = 8.0;
 
-        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed");
+        let result =
+            constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+                .expect("Proportional constraint generation should succeed");
 
         // Calculate the actual critical cycle time per token
-        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+        let actual_cycle_time_per_token =
+            calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
 
         // The actual cycle time per token should be less than or equal to the requested cycle time
         assert!(
@@ -739,14 +698,16 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
 
-        let requested_cycle_time = 80.0;
+        let requested_cycle_time = 60.0;
         let min_delay = 10.0;
 
-        let result = constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
-            .expect("Proportional constraint generation should succeed for cyclic circuit");
+        let result =
+            constrain_cycle_time_proportional(&hbcn, requested_cycle_time, min_delay, None, None)
+                .expect("Proportional constraint generation should succeed for cyclic circuit");
 
         // Calculate the actual critical cycle time per token
-        let actual_cycle_time_per_token = calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
+        let actual_cycle_time_per_token =
+            calculate_critical_cycle_time_per_token_hbcn(&result.hbcn);
 
         // The actual cycle time per token should be less than or equal to the requested cycle time
         assert!(
@@ -760,7 +721,7 @@ mod tests {
     /// Test that tighter constraints result in lower cycle times in HBCN
     #[test]
     fn test_hbcn_constraint_tightness_verification() {
-        let input = r#"Port "a" [("b", 100)]
+        let input = r#"Port "a" [("b", 10)]
                       Port "b" []"#;
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
@@ -770,15 +731,23 @@ mod tests {
             .expect("Loose constraint generation should succeed");
 
         // Test with tight constraints
-        let tight_result = constrain_cycle_time_pseudoclock(&hbcn, 50.0, 5.0)
+        let tight_result = constrain_cycle_time_pseudoclock(&hbcn, 20.0, 5.0)
             .expect("Tight constraint generation should succeed");
 
         let loose_cycle_time = calculate_critical_cycle_time_per_token_hbcn(&loose_result.hbcn);
         let tight_cycle_time = calculate_critical_cycle_time_per_token_hbcn(&tight_result.hbcn);
 
         // Both should meet their respective constraints
-        assert!(loose_cycle_time <= 200.0);
-        assert!(tight_cycle_time <= 50.0);
+        assert!(
+            loose_cycle_time <= 200.0,
+            "Loose cycle time {} should be <= 200.0",
+            loose_cycle_time
+        );
+        assert!(
+            tight_cycle_time <= 20.0,
+            "Tight cycle time {} should be <= 20.0",
+            tight_cycle_time
+        );
 
         // The tight constraint should result in a lower or equal cycle time
         assert!(
