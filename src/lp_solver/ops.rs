@@ -82,6 +82,14 @@ impl<Brand> std::ops::Add<f64> for LinearExpression<Brand> {
     }
 }
 
+impl<Brand> std::ops::Add<VariableId<Brand>> for LinearExpression<Brand> {
+    type Output = LinearExpression<Brand>;
+
+    fn add(self, other: VariableId<Brand>) -> Self::Output {
+        self + LinearExpression::from_variable(other)
+    }
+}
+
 impl<Brand> std::ops::Sub<LinearExpression<Brand>> for LinearExpression<Brand> {
     type Output = LinearExpression<Brand>;
 
