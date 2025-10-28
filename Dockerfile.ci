@@ -1,9 +1,12 @@
 # Docker image for CI with CBC dependencies pre-installed
-FROM rust:1.85
+FROM ubuntu:22.04
 
 # Install system dependencies including CBC solver
 RUN apt-get update && \
     apt-get install -y \
+    curl \
+    ca-certificates \
+    build-essential \
     libclang-dev \
     pkg-config \
     coinor-libcbc-dev \
@@ -12,9 +15,6 @@ RUN apt-get update && \
     coinor-libosi-dev && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-
-# Set up cargo cache directory
-RUN mkdir -p /usr/local/cargo/registry
 
 # Create a non-root user for security
 RUN useradd -m -u 1001 runner
