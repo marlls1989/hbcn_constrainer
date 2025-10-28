@@ -201,29 +201,6 @@ use std::env;
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-/// Create a new LP model builder with a unique brand
-/// 
-/// This macro ensures that each model builder has a unique type-level brand,
-/// preventing accidental mixing of variables between different models.
-/// 
-/// # Examples
-/// 
-/// ```rust
-/// use hbcn::lp_model_builder;
-/// use hbcn::lp_solver::VariableType;
-/// 
-/// let mut builder = lp_model_builder!();
-/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-/// // Each call to lp_model_builder!() creates a unique brand
-/// ```
-#[macro_export]
-macro_rules! lp_model_builder {
-    () => {{
-        // Create a unique brand type for each macro invocation
-        struct UniqueBrand;
-        $crate::lp_solver::LPModelBuilder::<UniqueBrand>::new()
-    }};
-}
 
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -634,6 +611,9 @@ impl<Brand> Default for LPModelBuilder<Brand> {
     }
 }
 
+// Macros for convenient syntax
+pub mod macros;
+
 // Operator overloading for linear expressions
 pub mod ops;
 
@@ -643,10 +623,11 @@ pub mod gurobi;
 #[cfg(feature = "coin_cbc")]
 pub mod coin_cbc;
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constraint;
+    use crate::{constraint, lp_model_builder};
 
     #[test]
     fn test_constraint_macro_unnamed() {

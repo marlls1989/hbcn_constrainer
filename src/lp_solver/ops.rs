@@ -24,31 +24,28 @@
 //! let _expr6 = (x + y) * 3.0;   // Parentheses work
 //! ```
 //!
-//! # Constraint Macro
+//! # Constraint Building
 //!
-//! The `constraint!` macro provides a declarative way to create constraints:
+//! Constraints can be built using the `constraint!` macro (from the macros module)
+//! or using the builder methods on `Constraint` directly:
 //!
 //! ```rust,no_run
 //! use hbcn::constraint;
 //! use hbcn::lp_model_builder;
-//! use hbcn::lp_solver::VariableType;
+//! use hbcn::lp_solver::{Constraint, VariableType};
 //!
 //! let mut builder = lp_model_builder!();
 //! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
 //! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
 //!
-//! // Unnamed constraints (most common)
+//! // Using the constraint! macro (most concise)
 //! let c1 = constraint!((x + y) == 10.0);
-//! let c2 = constraint!((2.0 * x) <= 5.0);
-//! let c3 = constraint!((x - y) >= 0.0);
-//! let c4 = constraint!((x) > 1.0);
+//! let c2 = constraint!("my_constraint", (x + y) == 10.0);
 //!
-//! // Named constraints for debugging
-//! let c5 = constraint!("my_constraint", (x + y) == 10.0);
-//! builder.add_constraint(constraint!("my_constraint", (x + y) == 10.0));
+//! // Using builder methods
+//! let c3 = Constraint::eq(x + y, 10.0);
+//! let c4 = Constraint::eq_named("my_constraint", x + y, 10.0);
 //! ```
-//!
-//! **Note:** The left-hand side must be in parentheses: `(expression) == value`
 //!
 //! # Type Safety
 //!
@@ -56,107 +53,6 @@
 //! models cannot be accidentally mixed.
 
 use super::{LinearExpression, LinearTerm, VariableId};
-
-// ============================================================================
-// Constraint Macro
-// ============================================================================
-
-/// Create constraints using natural comparison syntax
-///
-/// This macro provides a declarative way to create `Constraint` objects using
-/// comparison-like syntax. The left-hand side must be in parentheses.
-///
-/// # Examples
-///
-/// ```rust
-/// use hbcn::constraint;
-/// use hbcn::lp_model_builder;
-/// use hbcn::lp_solver::VariableType;
-///
-/// let mut builder = lp_model_builder!();
-/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-/// let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
-///
-/// // Unnamed constraints
-/// let c1 = constraint!((x + y) == 10.0);
-/// let c2 = constraint!((2.0 * x) <= 5.0);
-/// let c3 = constraint!((x - y) >= 0.0);
-/// let c4 = constraint!((x) > 1.0);
-///
-/// // Named constraints
-/// let c5 = constraint!("my_constraint", (x + y) == 10.0);
-/// builder.add_constraint(constraint!("my_constraint", (x + y) == 10.0));
-/// ```
-#[macro_export]
-macro_rules! constraint {
-    // Unnamed constraints (most common case)
-    (($lhs:expr) == $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from(""),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::Equal,
-            $rhs as f64,
-        )
-    };
-    (($lhs:expr) <= $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from(""),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::LessEqual,
-            $rhs as f64,
-        )
-    };
-    (($lhs:expr) >= $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from(""),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::GreaterEqual,
-            $rhs as f64,
-        )
-    };
-    (($lhs:expr) > $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from(""),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::Greater,
-            $rhs as f64,
-        )
-    };
-
-    // Named constraints (with name parameter)
-    ($name:expr, ($lhs:expr) == $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from($name),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::Equal,
-            $rhs as f64,
-        )
-    };
-    ($name:expr, ($lhs:expr) <= $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from($name),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::LessEqual,
-            $rhs as f64,
-        )
-    };
-    ($name:expr, ($lhs:expr) >= $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from($name),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::GreaterEqual,
-            $rhs as f64,
-        )
-    };
-    ($name:expr, ($lhs:expr) > $rhs:expr) => {
-        $crate::lp_solver::Constraint::new(
-            std::sync::Arc::from($name),
-            $lhs,
-            $crate::lp_solver::ConstraintSense::Greater,
-            $rhs as f64,
-        )
-    };
-}
 
 // ============================================================================
 // Operators for LinearExpression
@@ -337,8 +233,8 @@ impl<Brand> std::ops::Sub<VariableId<Brand>> for f64 {
 
 #[cfg(test)]
 mod tests {
+    use crate::{lp_model_builder};
     use crate::lp_solver::VariableType;
-    use crate::lp_model_builder;
 
     #[test]
     fn test_branded_type_safety() {
