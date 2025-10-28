@@ -1355,8 +1355,8 @@ Port "b" []
 
         // Should fail with infeasible problem
         match result {
-            Ok(_) => {}, // println!("Unexpectedly succeeded with tight timing"),
-            Err(_e) => {}, // println!("Failed as expected with infeasible timing: {}", e),
+            Ok(_) => {}   // println!("Unexpectedly succeeded with tight timing"),
+            Err(_e) => {} // println!("Failed as expected with infeasible timing: {}", e),
         }
     }
 
