@@ -8,11 +8,7 @@ use std::{
     fmt,
 };
 
-use petgraph::{
-    graph::NodeIndex,
-    prelude::*,
-    stable_graph::StableGraph,
-};
+use petgraph::{graph::NodeIndex, prelude::*, stable_graph::StableGraph};
 
 // this is the most engineery way to compute the ceiling log base 2 of a number
 fn clog2(x: usize) -> u32 {
@@ -21,7 +17,6 @@ fn clog2(x: usize) -> u32 {
 
 // Timing constants for delay/cost calculations
 const DEFAULT_REGISTER_DELAY: f64 = 10.0;
-
 
 pub trait HasTransition {
     fn transition(&self) -> &Transition;
@@ -133,7 +128,10 @@ impl<P: HasPlace> MarkablePlace for P {
 
 pub type StructuralHBCN = StableGraph<Transition, Place>;
 
-pub fn from_structural_graph(g: &StructuralGraph, forward_completion: bool) -> Option<StructuralHBCN> {
+pub fn from_structural_graph(
+    g: &StructuralGraph,
+    forward_completion: bool,
+) -> Option<StructuralHBCN> {
     let mut ret = StructuralHBCN::new();
     struct VertexItem {
         token: NodeIndex,
@@ -264,7 +262,6 @@ impl TimedEvent for TransitionEvent {
     }
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct DelayedPlace {
     pub place: Place,
@@ -294,16 +291,9 @@ impl SlackablePlace for DelayedPlace {
     }
 }
 
-
 pub type TimedHBCN<T> = StableGraph<TransitionEvent, T>;
 
 pub type DelayedHBCN = TimedHBCN<DelayedPlace>;
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -318,8 +308,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Should have 4 nodes: Data and Spacer transitions for each original node
         assert_eq!(hbcn.node_count(), 4);
@@ -354,8 +344,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Should have 10 nodes: Data and Spacer for each of the 5 circuit nodes
         // (input port, reg data, reg control, reg output, output port)
@@ -374,8 +364,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Check that transitions have correct circuit node references
         for node_idx in hbcn.node_indices() {
@@ -396,8 +386,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Check place properties
         let mut forward_places = 0;
@@ -436,8 +426,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Check that weights are based on virtual_delay when forward_completion=false
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -457,8 +447,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, true).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, true)
+            .expect("Failed to convert to StructuralHBCN");
 
         // With forward_completion=true, weights should consider forward costs
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -479,8 +469,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Should handle multiple connections properly
         assert!(hbcn.node_count() > 4); // More nodes due to DataReg internal structure
@@ -506,8 +496,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Check that token markings are set according to channel phases
         let mut req_data_count = 0;
@@ -547,8 +537,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Check weight calculations
         for edge_idx in hbcn.edge_indices() {
@@ -573,8 +563,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Should have 2 nodes (Data and Spacer for the single port) and no edges
         assert_eq!(hbcn.node_count(), 2);
@@ -593,8 +583,8 @@ mod tests {
         "#;
         let structural_graph = parse(input).expect("Failed to parse structural graph");
 
-        let hbcn =
-            from_structural_graph(&structural_graph, false).expect("Failed to convert to StructuralHBCN");
+        let hbcn = from_structural_graph(&structural_graph, false)
+            .expect("Failed to convert to StructuralHBCN");
 
         // Should successfully convert all register types
         assert!(hbcn.node_count() > 0);

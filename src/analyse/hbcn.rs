@@ -11,15 +11,12 @@ use rayon::prelude::*;
 use crate::{
     AppError,
     constrain::hbcn::DelayPair,
+    constraint,
     hbcn::{
-        DelayedHBCN, DelayedPlace, MarkablePlace, SlackablePlace, StructuralHBCN,
-        TransitionEvent,
-    },
-    lp_solver::{
-        Constraint, ConstraintSense, LinearExpression, OptimizationSense, OptimizationStatus, 
-        VariableType, VariableId,
+        DelayedHBCN, DelayedPlace, MarkablePlace, SlackablePlace, StructuralHBCN, TransitionEvent,
     },
     lp_model_builder,
+    lp_solver::{OptimizationSense, OptimizationStatus, VariableId, VariableType},
 };
 
 /// Find critical cycles in an HBCN graph
@@ -109,41 +106,28 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let place = &hbcn[ie];
 
-            let slack = builder
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let slack = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
-            let delay = builder
-                .add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let delay = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
-            let mut expr1 = LinearExpression::new(0.0);
-            expr1.add_term(1.0, delay);
-            expr1.add_term(-1.0, slack);
-
-            builder.add_constraint(Constraint::new(
-                "",
-                expr1,
-                ConstraintSense::Equal,
-                if weighted { place.weight as f64 } else { 1.0 },
-            ));
+            let weight_value = if weighted { place.weight as f64 } else { 1.0 };
+            builder.add_constraint(constraint!((delay - slack) == weight_value));
 
             // Constraint: arr_var[dst] - arr_var[src] - delay + (if place.token { 1.0 } else { 0.0 }) * cycle_time = 0.0
-            let mut expr2 = LinearExpression::new(0.0);
-            expr2.add_term(1.0, arr_var[dst]);
-            expr2.add_term(-1.0, arr_var[src]);
-            expr2.add_term(-1.0, delay);
             if place.token {
-                expr2.add_term(1.0, cycle_time);
+                builder.add_constraint(constraint!(
+                    (arr_var[dst] - arr_var[src] - delay + cycle_time) == 0.0
+                ));
+            } else {
+                builder.add_constraint(constraint!((arr_var[dst] - arr_var[src] - delay) == 0.0));
             }
-
-            builder.add_constraint(Constraint::new("", expr2, ConstraintSense::Equal, 0.0));
 
             (ie, (delay, slack))
         })
         .collect();
 
-    let cycle_time_expr = LinearExpression::from_variable(cycle_time);
-    builder.set_objective(cycle_time_expr, OptimizationSense::Minimize);
+    builder.set_objective(cycle_time.into(), OptimizationSense::Minimize);
 
     let solution = builder.solve()?;
     if solution.status == OptimizationStatus::InfeasibleOrUnbounded {
@@ -178,8 +162,8 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::hbcn::{TimedEvent, from_structural_graph};
     use crate::structural_graph::parse;
-    use crate::hbcn::{from_structural_graph, TimedEvent};
 
     #[test]
     fn test_critical_cycle_detection() {
@@ -192,8 +176,10 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
 
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 800.0, 20.0, None, None)
-            .expect("Should constrain circuit with feasible parameters");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 800.0, 20.0, None, None,
+        )
+        .expect("Should constrain circuit with feasible parameters");
 
         // Find critical cycles
         let cycles = find_critical_cycles(&result.hbcn);
@@ -227,8 +213,8 @@ mod tests {
         let structural_graph = parse(input).expect("Failed to parse");
         let hbcn = from_structural_graph(&structural_graph, false).expect("Failed to convert");
 
-        let result =
-            crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 500.0, 25.0).expect("Should generate timing");
+        let result = crate::constrain::hbcn::constrain_cycle_time_pseudoclock(&hbcn, 500.0, 25.0)
+            .expect("Should generate timing");
 
         // Check that all transition events have valid timing
         for node_idx in result.hbcn.node_indices() {
@@ -261,8 +247,10 @@ mod tests {
             .expect("Failed to convert cyclic graph to HBCN");
 
         // Generate constraints to get DelayedHBCN
-        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(&hbcn, 200.0, 10.0, None, None)
-            .expect("Should generate constraints for cyclic circuit");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 200.0, 10.0, None, None,
+        )
+        .expect("Should generate constraints for cyclic circuit");
 
         // Find critical cycles in the result
         let cycles = find_critical_cycles(&result.hbcn);
@@ -289,11 +277,14 @@ mod tests {
             .expect("Failed to convert cyclic graph to HBCN");
 
         // Test cycle time computation on cyclic circuit
-        let (cycle_time, delayed_hbcn) = compute_cycle_time(&hbcn, true)
-            .expect("Should compute cycle time for cyclic circuit");
+        let (cycle_time, delayed_hbcn) =
+            compute_cycle_time(&hbcn, true).expect("Should compute cycle time for cyclic circuit");
 
         assert!(cycle_time > 0.0, "Cycle time should be positive");
-        assert!(delayed_hbcn.node_count() > 0, "Delayed HBCN should have nodes");
+        assert!(
+            delayed_hbcn.node_count() > 0,
+            "Delayed HBCN should have nodes"
+        );
 
         // Test that all delays are reasonable
         for edge_idx in delayed_hbcn.edge_indices() {

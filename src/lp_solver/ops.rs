@@ -241,7 +241,7 @@ impl<Brand> std::ops::Sub<VariableId<Brand>> for f64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::{lp_model_builder};
+    use crate::lp_model_builder;
     use crate::lp_solver::VariableType;
 
     #[test]
@@ -288,7 +288,7 @@ mod tests {
     fn test_variable_id_debug() {
         let mut builder = lp_model_builder!();
         let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        
+
         // Test that VariableId can be debug printed
         let debug_str = format!("{:?}", x);
         assert!(debug_str.contains("VariableId"));

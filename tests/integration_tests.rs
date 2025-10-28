@@ -1,9 +1,9 @@
 //! Integration tests for HBCN tools using library API
-//! 
+//!
 //! These tests use the library API directly instead of calling cargo run,
 //! which is much faster and more efficient.
 
-use hbcn::{analyse_main, constrain_main, depth_main, AnalyseArgs, ConstrainArgs, DepthArgs};
+use hbcn::{AnalyseArgs, ConstrainArgs, DepthArgs, analyse_main, constrain_main, depth_main};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
@@ -43,7 +43,7 @@ fn run_hbcn_constrain(
         forward_margin,
         backward_margin,
     };
-    
+
     constrain_main(args).map_err(|e| e.into())
 }
 
@@ -58,7 +58,7 @@ fn run_hbcn_analyse(
         vcd: vcd.map(|p| p.clone()),
         dot: dot.map(|p| p.clone()),
     };
-    
+
     analyse_main(args).map_err(|e| e.into())
 }
 
@@ -67,7 +67,7 @@ fn run_hbcn_depth(input: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     let args = DepthArgs {
         input: input.clone(),
     };
-    
+
     depth_main(args).map_err(|e| e.into())
 }
 
@@ -102,7 +102,11 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation should succeed: {:?}",
+            result
+        );
 
         // Verify output files exist
         assert!(sdc_path.exists(), "SDC file should be generated");
@@ -140,7 +144,11 @@ Port "c" []
             None,
             None,
         );
-        assert!(prop_result.is_ok(), "Proportional constraint generation should succeed: {:?}", prop_result);
+        assert!(
+            prop_result.is_ok(),
+            "Proportional constraint generation should succeed: {:?}",
+            prop_result
+        );
 
         // Generate pseudoclock constraints (no proportional)
         let pseudo_sdc_path = temp_output_dir.path().join("pseudo.sdc");
@@ -157,16 +165,28 @@ Port "c" []
             None,
             None,
         );
-        assert!(pseudo_result.is_ok(), "Pseudoclock constraint generation should succeed: {:?}", pseudo_result);
+        assert!(
+            pseudo_result.is_ok(),
+            "Pseudoclock constraint generation should succeed: {:?}",
+            pseudo_result
+        );
 
         // Verify both files exist and have different content
         assert!(prop_sdc_path.exists(), "Proportional SDC file should exist");
-        assert!(pseudo_sdc_path.exists(), "Pseudoclock SDC file should exist");
+        assert!(
+            pseudo_sdc_path.exists(),
+            "Pseudoclock SDC file should exist"
+        );
 
-        let prop_content = fs::read_to_string(&prop_sdc_path).expect("Failed to read proportional SDC");
-        let pseudo_content = fs::read_to_string(&pseudo_sdc_path).expect("Failed to read pseudoclock SDC");
+        let prop_content =
+            fs::read_to_string(&prop_sdc_path).expect("Failed to read proportional SDC");
+        let pseudo_content =
+            fs::read_to_string(&pseudo_sdc_path).expect("Failed to read pseudoclock SDC");
 
-        assert_ne!(prop_content, pseudo_content, "Proportional and pseudoclock constraints should differ");
+        assert_ne!(
+            prop_content, pseudo_content,
+            "Proportional and pseudoclock constraints should differ"
+        );
     }
 
     /// Test that forward completion option changes constraints
@@ -195,7 +215,11 @@ Port "c" []
             None,
             None,
         );
-        assert!(fc_result.is_ok(), "Forward completion constraint generation should succeed: {:?}", fc_result);
+        assert!(
+            fc_result.is_ok(),
+            "Forward completion constraint generation should succeed: {:?}",
+            fc_result
+        );
 
         // Generate constraints without forward completion
         let no_fc_sdc_path = temp_output_dir.path().join("no_fc.sdc");
@@ -212,17 +236,30 @@ Port "c" []
             None,
             None,
         );
-        assert!(no_fc_result.is_ok(), "No forward completion constraint generation should succeed: {:?}", no_fc_result);
+        assert!(
+            no_fc_result.is_ok(),
+            "No forward completion constraint generation should succeed: {:?}",
+            no_fc_result
+        );
 
         // Verify both files exist
-        assert!(fc_sdc_path.exists(), "Forward completion SDC file should exist");
-        assert!(no_fc_sdc_path.exists(), "No forward completion SDC file should exist");
+        assert!(
+            fc_sdc_path.exists(),
+            "Forward completion SDC file should exist"
+        );
+        assert!(
+            no_fc_sdc_path.exists(),
+            "No forward completion SDC file should exist"
+        );
 
         let fc_content = fs::read_to_string(&fc_sdc_path).expect("Failed to read FC SDC");
         let no_fc_content = fs::read_to_string(&no_fc_sdc_path).expect("Failed to read no-FC SDC");
 
         // The constraints should be different when forward completion is toggled
-        assert_ne!(fc_content, no_fc_content, "Forward completion should change constraints");
+        assert_ne!(
+            fc_content, no_fc_content,
+            "Forward completion should change constraints"
+        );
     }
 
     /// Test margin parameters
@@ -250,7 +287,11 @@ Port "b" []
             Some(5),  // 5% backward margin
         );
 
-        assert!(result.is_ok(), "Constraint generation with margins should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation with margins should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should be generated");
     }
 
@@ -280,7 +321,11 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation with VCD should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation with VCD should succeed: {:?}",
+            result
+        );
         assert!(vcd_path.exists(), "VCD file should be generated");
 
         // Verify VCD content is not empty
@@ -316,7 +361,11 @@ Port "output2" []
             None,
         );
 
-        assert!(result.is_ok(), "Complex circuit constraint generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Complex circuit constraint generation should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should be generated");
     }
 
@@ -350,11 +399,14 @@ Port "b" []
         // The important thing is it doesn't panic
         match result {
             Ok(_) => {
-                assert!(sdc_path.exists(), "SDC file should be generated if successful");
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
             }
-            Err(e) => {
+            Err(_e) => {
                 // Tight timing might be infeasible, which is expected
-                println!("Tight timing failed as expected: {}", e);
+                // println!("Tight timing failed as expected: {}", e);
             }
         }
     }
@@ -384,7 +436,11 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation with zero minimal delay should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation with zero minimal delay should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should be generated");
     }
 
@@ -413,7 +469,11 @@ Port "b" []
             Some(0),
             Some(0),
         );
-        assert!(min_result.is_ok(), "Constraint generation with 0% margins should succeed: {:?}", min_result);
+        assert!(
+            min_result.is_ok(),
+            "Constraint generation with 0% margins should succeed: {:?}",
+            min_result
+        );
 
         // Test with 100% margins (might be infeasible)
         let sdc_path_max = temp_output_dir.path().join("max.sdc");
@@ -461,10 +521,10 @@ Port "b" []
         // Single node might succeed or fail depending on implementation
         match result {
             Ok(_) => {
-                println!("Single node constraint generation succeeded");
+                // println!("Single node constraint generation succeeded");
             }
-            Err(e) => {
-                println!("Single node constraint generation failed: {}", e);
+            Err(_e) => {
+                // println!("Single node constraint generation failed: {}", e);
             }
         }
     }
@@ -548,11 +608,14 @@ Port "c" [("a", 10)]
         // Cyclic paths might succeed or fail depending on timing
         match result {
             Ok(_) => {
-                assert!(sdc_path.exists(), "SDC file should be generated if successful");
-                println!("Cyclic constraint generation succeeded");
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
+                // println!("Cyclic constraint generation succeeded");
             }
-            Err(e) => {
-                println!("Cyclic constraint generation failed: {}", e);
+            Err(_e) => {
+                // println!("Cyclic constraint generation failed: {}", e);
             }
         }
     }
@@ -637,11 +700,14 @@ Port "d" [("a", 30)]
         // Complex cyclic might succeed or fail
         match result {
             Ok(_) => {
-                assert!(sdc_path.exists(), "SDC file should be generated if successful");
-                println!("Complex cyclic constraint generation succeeded");
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
+                // println!("Complex cyclic constraint generation succeeded");
             }
-            Err(e) => {
-                println!("Complex cyclic constraint generation failed: {}", e);
+            Err(_e) => {
+                // println!("Complex cyclic constraint generation failed: {}", e);
             }
         }
     }
@@ -676,10 +742,10 @@ Port "c" [("a", 10)]
         // Tight cyclic timing is likely infeasible
         match result {
             Ok(_) => {
-                println!("Tight cyclic timing succeeded (unexpected)");
+                // println!("Tight cyclic timing succeeded (unexpected)");
             }
-            Err(e) => {
-                println!("Tight cyclic timing failed as expected: {}", e);
+            Err(_e) => {
+                // println!("Tight cyclic timing failed as expected: {}", e);
             }
         }
     }
@@ -715,9 +781,13 @@ Port "output" []
         let vcd_path = temp_output_dir.path().join("test.vcd");
 
         let result = run_hbcn_analyse(&input_path, Some(&vcd_path), None);
-        assert!(result.is_ok(), "Analysis with VCD should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Analysis with VCD should succeed: {:?}",
+            result
+        );
         assert!(vcd_path.exists(), "VCD file should be generated");
-        
+
         let vcd_content = fs::read_to_string(&vcd_path).expect("Failed to read VCD file");
         assert!(!vcd_content.is_empty(), "VCD file should not be empty");
     }
@@ -735,9 +805,13 @@ Port "c" []
         let dot_path = temp_output_dir.path().join("test.dot");
 
         let result = run_hbcn_analyse(&input_path, None, Some(&dot_path));
-        assert!(result.is_ok(), "Analysis with DOT should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Analysis with DOT should succeed: {:?}",
+            result
+        );
         assert!(dot_path.exists(), "DOT file should be generated");
-        
+
         let dot_content = fs::read_to_string(&dot_path).expect("Failed to read DOT file");
         assert!(!dot_content.is_empty(), "DOT file should not be empty");
     }
@@ -756,7 +830,11 @@ Port "c" []
         let dot_path = temp_output_dir.path().join("test.dot");
 
         let result = run_hbcn_analyse(&input_path, Some(&vcd_path), Some(&dot_path));
-        assert!(result.is_ok(), "Analysis with multiple outputs should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Analysis with multiple outputs should succeed: {:?}",
+            result
+        );
         assert!(vcd_path.exists(), "VCD file should be generated");
         assert!(dot_path.exists(), "DOT file should be generated");
     }
@@ -772,7 +850,11 @@ Port "c" [("a", 10)]
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_analyse(&input_path, None, None);
-        assert!(result.is_ok(), "Cyclic circuit analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Cyclic circuit analysis should succeed: {:?}",
+            result
+        );
     }
 
     /// Test analysis with complex circuit
@@ -788,7 +870,11 @@ Port "output2" []
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_analyse(&input_path, None, None);
-        assert!(result.is_ok(), "Complex circuit analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Complex circuit analysis should succeed: {:?}",
+            result
+        );
     }
 
     /// Test depth analysis with simple circuit
@@ -802,7 +888,11 @@ Port "c" []
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_depth(&input_path);
-        assert!(result.is_ok(), "Depth analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Depth analysis should succeed: {:?}",
+            result
+        );
     }
 
     /// Test depth analysis with cyclic circuit
@@ -816,7 +906,11 @@ Port "c" [("a", 10)]
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_depth(&input_path);
-        assert!(result.is_ok(), "Cyclic depth analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Cyclic depth analysis should succeed: {:?}",
+            result
+        );
     }
 
     /// Test analysis with invalid file
@@ -849,7 +943,11 @@ Port "c" [("a", 10)]
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_analyse(&input_path, None, None);
-        assert!(result.is_ok(), "Single node analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Single node analysis should succeed: {:?}",
+            result
+        );
     }
 
     /// Test analysis with tight timing circuit
@@ -864,7 +962,11 @@ Port "d" []
         let (_temp_dir, input_path) = create_test_file(graph_content);
 
         let result = run_hbcn_analyse(&input_path, None, None);
-        assert!(result.is_ok(), "Tight timing analysis should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Tight timing analysis should succeed: {:?}",
+            result
+        );
     }
 }
 
@@ -900,7 +1002,11 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should exist");
 
         // TODO: Add actual verification that the constraints meet the cycle time
@@ -936,7 +1042,11 @@ Port "output" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Constraint generation should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should exist");
     }
 
@@ -974,8 +1084,8 @@ Port "c" [("a", 10)]
             Ok(_) => {
                 assert!(sdc_path.exists(), "SDC file should exist if successful");
             }
-            Err(e) => {
-                println!("Cyclic circuit constraint generation failed: {}", e);
+            Err(_e) => {
+                // println!("Cyclic circuit constraint generation failed: {}", e);
             }
         }
     }
@@ -1011,7 +1121,11 @@ Port "output2" []
             None,
         );
 
-        assert!(result.is_ok(), "Complex circuit constraint generation should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Complex circuit constraint generation should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should exist");
     }
 
@@ -1048,8 +1162,8 @@ Port "b" []
             Ok(_) => {
                 assert!(sdc_path.exists(), "SDC file should exist if successful");
             }
-            Err(e) => {
-                println!("Tight timing failed: {}", e);
+            Err(_e) => {
+                // println!("Tight timing failed: {}", e);
             }
         }
     }
@@ -1166,7 +1280,11 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Simple circuit should succeed with any solver: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Simple circuit should succeed with any solver: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should exist");
     }
 
@@ -1195,12 +1313,18 @@ Port "b" []
             None,
         );
 
-        assert!(result.is_ok(), "Constraint generation should succeed: {:?}", result);
-        
+        assert!(
+            result.is_ok(),
+            "Constraint generation should succeed: {:?}",
+            result
+        );
+
         let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC file");
         assert!(!sdc_content.is_empty(), "SDC file should not be empty");
-        assert!(sdc_content.contains("set_max_delay") || sdc_content.contains("set_min_delay"),
-                "SDC should contain timing constraints");
+        assert!(
+            sdc_content.contains("set_max_delay") || sdc_content.contains("set_min_delay"),
+            "SDC should contain timing constraints"
+        );
     }
 
     /// Test solver consistency with infeasible problem
@@ -1231,8 +1355,8 @@ Port "b" []
 
         // Should fail with infeasible problem
         match result {
-            Ok(_) => println!("Unexpectedly succeeded with tight timing"),
-            Err(e) => println!("Failed as expected with infeasible timing: {}", e),
+            Ok(_) => {}, // println!("Unexpectedly succeeded with tight timing"),
+            Err(_e) => {}, // println!("Failed as expected with infeasible timing: {}", e),
         }
     }
 
@@ -1266,10 +1390,10 @@ Port "c" [("a", 10)]
         match result {
             Ok(_) => {
                 assert!(sdc_path.exists(), "SDC file should exist if successful");
-                println!("Cyclic circuit succeeded");
+                // println!("Cyclic circuit succeeded");
             }
-            Err(e) => {
-                println!("Cyclic circuit failed: {}", e);
+            Err(_e) => {
+                // println!("Cyclic circuit failed: {}", e);
             }
         }
     }
@@ -1302,7 +1426,11 @@ Port "output2" []
             None,
         );
 
-        assert!(result.is_ok(), "Complex circuit should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "Complex circuit should succeed: {:?}",
+            result
+        );
         assert!(sdc_path.exists(), "SDC file should exist");
     }
 

@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use crate::lp_solver::*;
 use ::coin_cbc::{Model, Sense};
 
-/// Round a floating-point number to 6 significant digits
-fn round_to_6_sig_digits(value: f64) -> f64 {
+/// Round a floating-point number to a specified number of significant digits
+/// This is an workaround to mask floating point errors in CBC.
+fn round_to_sig_digits(value: f64, digits: u32) -> f64 {
     if value == 0.0 {
         return 0.0;
     }
-    
+
     let magnitude = value.abs().log10().floor() as i32;
-    let scale = 10_f64.powi(5 - magnitude);
+    let scale = 10_f64.powi(digits as i32 - magnitude - 1);
     (value * scale).round() / scale
 }
 
@@ -18,7 +19,7 @@ fn round_to_6_sig_digits(value: f64) -> f64 {
 pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
     let mut model = Model::default();
     let mut var_map = HashMap::new();
-    
+
     // Add variables to the model
     for (idx, var_info) in builder.variables.iter().enumerate() {
         let col = match var_info.var_type {
@@ -34,9 +35,7 @@ pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolutio
                 model.set_col_upper(col, var_info.upper_bound);
                 col
             }
-            VariableType::Binary => {
-                model.add_binary()
-            }
+            VariableType::Binary => model.add_binary(),
         };
         let var_id = VariableId {
             id: idx,
@@ -44,22 +43,25 @@ pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolutio
         };
         var_map.insert(var_id, col);
     }
-    
+
     // Add constraints
     for constraint in &builder.constraints {
         let row = model.add_row();
-        
+
         for term in &constraint.expression.terms {
             if let Some(&col) = var_map.get(&term.variable) {
                 model.set_weight(row, col, term.coefficient);
             } else {
-                return Err(anyhow::anyhow!("Variable {:?} not found in model", term.variable));
+                return Err(anyhow::anyhow!(
+                    "Variable {:?} not found in model",
+                    term.variable
+                ));
             }
         }
-        
+
         // Handle constant term
         let rhs_adjusted = constraint.rhs - constraint.expression.constant;
-        
+
         // Add constraint based on sense
         match constraint.sense {
             ConstraintSense::LessEqual => {
@@ -77,36 +79,39 @@ pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolutio
             }
         }
     }
-    
+
     // Set objective function
     if let Some(obj_info) = &builder.objective {
         for term in &obj_info.expression.terms {
             if let Some(&col) = var_map.get(&term.variable) {
                 model.set_obj_coeff(col, term.coefficient);
             } else {
-                return Err(anyhow::anyhow!("Variable {:?} not found in model", term.variable));
+                return Err(anyhow::anyhow!(
+                    "Variable {:?} not found in model",
+                    term.variable
+                ));
             }
         }
-        
+
         let sense = match obj_info.sense {
             OptimizationSense::Minimize => Sense::Minimize,
             OptimizationSense::Maximize => Sense::Maximize,
         };
-        
+
         model.set_obj_sense(sense);
     }
-    
+
     // Solve the model
     let solution = model.solve();
-    
+
     // Extract variable values from solution
     let num_vars = builder.variables.len();
     let mut variable_values = vec![0.0; num_vars];
     for (var_id, col) in var_map.iter() {
-        let value = round_to_6_sig_digits(solution.col(*col));
+        let value = round_to_sig_digits(solution.col(*col), 8);
         variable_values[var_id.id] = value;
     }
-    
+
     // Calculate objective value
     let objective_value = if let Some(obj_info) = &builder.objective {
         let mut obj_val = obj_info.expression.constant;
@@ -114,11 +119,11 @@ pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolutio
             let value = variable_values[term.variable.id];
             obj_val += term.coefficient * value;
         }
-        round_to_6_sig_digits(obj_val)
+        round_to_sig_digits(obj_val, 8)
     } else {
         0.0
     };
-    
+
     // Determine optimization status
     let status = if solution.raw().is_proven_optimal() {
         OptimizationStatus::Optimal
@@ -127,7 +132,7 @@ pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolutio
     } else {
         OptimizationStatus::Other("Unknown status")
     };
-    
+
     Ok(LPSolution {
         status,
         objective_value,
