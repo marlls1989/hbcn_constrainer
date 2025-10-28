@@ -135,7 +135,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                 if let Some(min_delay) = constrain.min {
                     writeln!(csv_file, "{:.3}", min_delay)?;
                 } else {
-                    writeln!(csv_file, "")?;
+                    writeln!(csv_file)?;
                 }
             }
         }
