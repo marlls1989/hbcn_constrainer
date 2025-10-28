@@ -82,15 +82,16 @@ pub fn write_path_constraints(
         }
 
         if let Some(val) = val.max
-            && val != pseudoclock_period {
-                writeln!(
-                    writer,
-                    "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
-                    val,
-                    src_rails(src),
-                    dst_rails(dst),
-                )?;
-            }
+            && val != pseudoclock_period
+        {
+            writeln!(
+                writer,
+                "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
+                val,
+                src_rails(src),
+                dst_rails(dst),
+            )?;
+        }
     }
 
     Ok(())

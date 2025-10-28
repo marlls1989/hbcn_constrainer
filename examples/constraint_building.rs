@@ -8,8 +8,8 @@ fn main() -> anyhow::Result<()> {
     let mut builder = lp_model_builder!();
 
     // Create variables
-    let x = builder.add_variable("x", VariableType::Continuous, 0.0, f64::INFINITY);
-    let y = builder.add_variable("y", VariableType::Continuous, 0.0, f64::INFINITY);
+    let x = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
+    let y = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
     // Method 1: Use the constraint! macro (unnamed - most concise)
     println!("Using constraint! macro (unnamed):");

@@ -25,8 +25,8 @@ fn main() {
 fn example_default_brand() {
     let mut builder = lp_model_builder!();
 
-    let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-    let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+    let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+    let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
     // Build expressions and constraints naturally
     builder.add_constraint(constraint!((x + y) <= 10.0));
@@ -62,12 +62,12 @@ fn example_custom_brands() {
     let mut transport: LPModelBuilder<TransportModel> = LPModelBuilder::new();
 
     // Variables from production model
-    let prod_a = production.add_variable("prod_a", VariableType::Continuous, 0.0, 100.0);
-    let prod_b = production.add_variable("prod_b", VariableType::Continuous, 0.0, 100.0);
+    let prod_a = production.add_variable(VariableType::Continuous, 0.0, 100.0);
+    let prod_b = production.add_variable(VariableType::Continuous, 0.0, 100.0);
 
     // Variables from transport model
-    let truck_1 = transport.add_variable("truck_1", VariableType::Integer, 0.0, 10.0);
-    let truck_2 = transport.add_variable("truck_2", VariableType::Integer, 0.0, 10.0);
+    let truck_1 = transport.add_variable(VariableType::Integer, 0.0, 10.0);
+    let truck_2 = transport.add_variable(VariableType::Integer, 0.0, 10.0);
 
     // These work fine - variables match their builder's brand
     production.add_constraint(constraint!((prod_a + prod_b) <= 100.0));

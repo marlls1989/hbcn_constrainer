@@ -19,7 +19,7 @@ pub fn solve_gurobi<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<
         };
 
         let var = model.add_var(
-            &var_info.name,
+            &format!("x_{}", idx),
             vtype,
             0.0, // objective coefficient
             var_info.lower_bound,
@@ -59,7 +59,12 @@ pub fn solve_gurobi<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<
             ConstraintSense::Greater => ConstrSense::Greater,
         };
 
-        let constraint = model.add_constr(&constraint.name, gurobi_expr, sense, constraint.rhs)?;
+        let constraint = model.add_constr(
+            &format!("c_{}", constr_id),
+            gurobi_expr,
+            sense,
+            constraint.rhs,
+        )?;
         constr_map.insert(ConstraintId(constr_id), constraint);
     }
 

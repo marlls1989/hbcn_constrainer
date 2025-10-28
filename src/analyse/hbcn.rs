@@ -88,14 +88,14 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 /// Compute cycle time for an HBCN using linear programming
 pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
     let mut builder = lp_model_builder!();
-    let cycle_time = builder.add_variable("cycle_time", VariableType::Integer, 0.0, f64::INFINITY);
+    let cycle_time = builder.add_variable(VariableType::Integer, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId<_>> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
+                builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -106,9 +106,9 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             let (ref src, ref dst) = hbcn.edge_endpoints(ie).unwrap();
             let place = &hbcn[ie];
 
-            let slack = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let slack = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
-            let delay = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let delay = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
             let weight_value = if weighted { place.weight } else { 1.0 };

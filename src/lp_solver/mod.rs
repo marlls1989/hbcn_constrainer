@@ -21,8 +21,8 @@
 //! use hbcn::constraint;
 //!
 //! let mut builder: LPModelBuilder<()> = LPModelBuilder::new();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // All operations work as expected
 //! builder.add_constraint(constraint!((x + y) <= 10.0));
@@ -45,8 +45,8 @@
 //! let mut builder1 = lp_model_builder!();
 //! let mut builder2 = lp_model_builder!();
 //!
-//! let x = builder1.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder2.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder1.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder2.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // This compiles:
 //! builder1.add_constraint(constraint!((x) <= 5.0));
@@ -115,8 +115,8 @@
 //! use hbcn::lp_solver::{VariableType, OptimizationSense};
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, f64::INFINITY);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, f64::INFINITY);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 //!
 //! // Unnamed constraints (most common)
 //! builder.add_constraint(constraint!((x + y) == 10.0));
@@ -124,8 +124,6 @@
 //! builder.add_constraint(constraint!((x) >= 0.0));
 //! builder.add_constraint(constraint!((y) > 1.0));
 //!
-//! // Named constraints (for debugging)
-//! builder.add_constraint(constraint!("important", (x + y) == 10.0));
 //!
 //! // Set objective and solve
 //! builder.set_objective(x + 2.0 * y, OptimizationSense::Maximize);
@@ -141,7 +139,7 @@
 //! use hbcn::lp_solver::{Constraint, VariableType};
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // Unnamed (cleaner)
 //! builder.add_constraint(Constraint::eq(x + 5.0, 10.0));
@@ -149,9 +147,6 @@
 //! builder.add_constraint(Constraint::ge(x, 0.0));
 //! builder.add_constraint(Constraint::gt(x, 1.0));
 //!
-//! // Named (for debugging)
-//! builder.add_constraint(Constraint::eq_named("balance", x + 5.0, 10.0));
-//! builder.add_constraint(Constraint::le_named("upper", 2.0 * x, 20.0));
 //! ```
 //!
 //! ## 3. Using `Constraint::new` Directly
@@ -163,10 +158,10 @@
 //! use hbcn::lp_solver::{Constraint, ConstraintSense, VariableType};
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
-//! let c = Constraint::new("my_constraint", x + y, ConstraintSense::Equal, 10.0);
+//! let c = Constraint::new(x + y, ConstraintSense::Equal, 10.0);
 //! builder.add_constraint(c);
 //! ```
 //!
@@ -179,8 +174,8 @@
 //! use hbcn::lp_solver::VariableType;
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // Combine variables and constants
 //! let _expr = 2.0 * x + 3.0 * y - 5.0;
@@ -199,7 +194,6 @@
 use anyhow::Result;
 use std::env;
 use std::marker::PhantomData;
-use std::sync::Arc;
 
 /// Variable types supported by LP solvers
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -417,107 +411,63 @@ pub struct ConstraintId(usize);
 /// use hbcn::lp_solver::{Constraint, ConstraintSense, VariableType};
 ///
 /// let mut builder = lp_model_builder!();
-/// let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-/// let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+/// let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+/// let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 ///
 /// // Using the constraint! macro (recommended)
-/// let c = constraint!((x + y) == 10.0);  // unnamed
-/// let c = constraint!("my_constraint", (x + y) == 10.0);  // named
+/// let c = constraint!((x + y) == 10.0);
 ///
 /// // Using builder methods
-/// let c = Constraint::eq(x + y, 10.0);  // unnamed
-/// let c = Constraint::eq_named("my_constraint", x + y, 10.0);  // named
+/// let c = Constraint::eq(x + y, 10.0);
 ///
 /// // Using the constructor directly
-/// let c = Constraint::new("my_constraint", x + y, ConstraintSense::Equal, 10.0);
+/// let c = Constraint::new(x + y, ConstraintSense::Equal, 10.0);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Constraint<Brand> {
-    #[allow(dead_code)]
-    name: Arc<str>,
     expression: LinearExpression<Brand>,
     sense: ConstraintSense,
     rhs: f64,
 }
 
 impl<Brand> Constraint<Brand> {
-    /// Create a new named constraint
+    /// Create a new constraint
     pub fn new(
-        name: impl Into<Arc<str>>,
         expression: impl Into<LinearExpression<Brand>>,
         sense: ConstraintSense,
         rhs: f64,
     ) -> Self {
         Self {
-            name: name.into(),
             expression: expression.into(),
             sense,
             rhs,
         }
     }
 
-    /// Create an unnamed equality constraint: expression == rhs
+    /// Create an equality constraint: expression == rhs
     pub fn eq(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
-        Self::new("", expression, ConstraintSense::Equal, rhs)
+        Self::new(expression, ConstraintSense::Equal, rhs)
     }
 
-    /// Create a named equality constraint: expression == rhs
-    pub fn eq_named(
-        name: impl Into<Arc<str>>,
-        expression: impl Into<LinearExpression<Brand>>,
-        rhs: f64,
-    ) -> Self {
-        Self::new(name, expression, ConstraintSense::Equal, rhs)
-    }
-
-    /// Create an unnamed less-than-or-equal constraint: expression <= rhs
+    /// Create a less-than-or-equal constraint: expression <= rhs
     pub fn le(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
-        Self::new("", expression, ConstraintSense::LessEqual, rhs)
+        Self::new(expression, ConstraintSense::LessEqual, rhs)
     }
 
-    /// Create a named less-than-or-equal constraint: expression <= rhs
-    pub fn le_named(
-        name: impl Into<Arc<str>>,
-        expression: impl Into<LinearExpression<Brand>>,
-        rhs: f64,
-    ) -> Self {
-        Self::new(name, expression, ConstraintSense::LessEqual, rhs)
-    }
-
-    /// Create an unnamed greater-than-or-equal constraint: expression >= rhs
+    /// Create a greater-than-or-equal constraint: expression >= rhs
     pub fn ge(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
-        Self::new("", expression, ConstraintSense::GreaterEqual, rhs)
+        Self::new(expression, ConstraintSense::GreaterEqual, rhs)
     }
 
-    /// Create a named greater-than-or-equal constraint: expression >= rhs
-    pub fn ge_named(
-        name: impl Into<Arc<str>>,
-        expression: impl Into<LinearExpression<Brand>>,
-        rhs: f64,
-    ) -> Self {
-        Self::new(name, expression, ConstraintSense::GreaterEqual, rhs)
-    }
-
-    /// Create an unnamed strictly-greater-than constraint: expression > rhs
+    /// Create a strictly-greater-than constraint: expression > rhs
     pub fn gt(expression: impl Into<LinearExpression<Brand>>, rhs: f64) -> Self {
-        Self::new("", expression, ConstraintSense::Greater, rhs)
-    }
-
-    /// Create a named strictly-greater-than constraint: expression > rhs
-    pub fn gt_named(
-        name: impl Into<Arc<str>>,
-        expression: impl Into<LinearExpression<Brand>>,
-        rhs: f64,
-    ) -> Self {
-        Self::new(name, expression, ConstraintSense::Greater, rhs)
+        Self::new(expression, ConstraintSense::Greater, rhs)
     }
 }
 
 /// Variable information stored in the model
 #[derive(Debug, Clone)]
 struct VariableInfo {
-    #[allow(dead_code)]
-    name: Arc<str>,
     var_type: VariableType,
     lower_bound: f64,
     upper_bound: f64,
@@ -562,7 +512,7 @@ impl<Brand> LPSolution<Brand> {
 /// let mut builder1 = LPModelBuilder::<MyModel>::new();
 ///
 /// // Variables are branded with the builder type
-/// let x = builder1.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+/// let x = builder1.add_variable(VariableType::Continuous, 0.0, 10.0);
 ///
 /// // For simple cases, use the macro to create a unique brand
 /// let mut builder2 = lp_model_builder!();  // Creates unique brand automatically
@@ -588,7 +538,6 @@ impl<Brand> LPModelBuilder<Brand> {
     /// Add a variable to the model
     pub fn add_variable(
         &mut self,
-        name: impl Into<Arc<str>>,
         var_type: VariableType,
         lower_bound: f64,
         upper_bound: f64,
@@ -598,7 +547,6 @@ impl<Brand> LPModelBuilder<Brand> {
             _brand: PhantomData,
         };
         self.variables.push(VariableInfo {
-            name: name.into(),
             var_type,
             lower_bound,
             upper_bound,
@@ -656,57 +604,25 @@ mod tests {
     use crate::{constraint, lp_model_builder};
 
     #[test]
-    fn test_constraint_macro_unnamed() {
+    fn test_constraint_macro() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
-        // Test unnamed constraints
+        // Test constraint creation
         let c = constraint!((x + y) == 10.0);
-        assert_eq!(c.name, Arc::from(""));
         assert_eq!(c.sense, ConstraintSense::Equal);
         assert_eq!(c.rhs, 10.0);
 
         let c = constraint!((2.0 * x) <= 5.0);
-        assert_eq!(c.name, Arc::from(""));
         assert_eq!(c.sense, ConstraintSense::LessEqual);
         assert_eq!(c.rhs, 5.0);
 
         let c = constraint!((x - y) >= 0.0);
-        assert_eq!(c.name, Arc::from(""));
         assert_eq!(c.sense, ConstraintSense::GreaterEqual);
         assert_eq!(c.rhs, 0.0);
 
         let c = constraint!((x) > 1.0);
-        assert_eq!(c.name, Arc::from(""));
-        assert_eq!(c.sense, ConstraintSense::Greater);
-        assert_eq!(c.rhs, 1.0);
-    }
-
-    #[test]
-    fn test_constraint_macro_named() {
-        let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
-
-        // Test named constraints
-        let c = constraint!("eq", (x + y) == 10.0);
-        assert_eq!(c.name, Arc::from("eq"));
-        assert_eq!(c.sense, ConstraintSense::Equal);
-        assert_eq!(c.rhs, 10.0);
-
-        let c = constraint!("le", (2.0 * x) <= 5.0);
-        assert_eq!(c.name, Arc::from("le"));
-        assert_eq!(c.sense, ConstraintSense::LessEqual);
-        assert_eq!(c.rhs, 5.0);
-
-        let c = constraint!("ge", (x - y) >= 0.0);
-        assert_eq!(c.name, Arc::from("ge"));
-        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
-        assert_eq!(c.rhs, 0.0);
-
-        let c = constraint!("gt", (x) > 1.0);
-        assert_eq!(c.name, Arc::from("gt"));
         assert_eq!(c.sense, ConstraintSense::Greater);
         assert_eq!(c.rhs, 1.0);
     }
@@ -714,67 +630,40 @@ mod tests {
     #[test]
     fn test_constraint_macro_with_builder() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
         // Test that constraints can be added to builder
         builder.add_constraint(constraint!((x + y) == 10.0));
-        builder.add_constraint(constraint!("named", (x) <= 5.0));
+        builder.add_constraint(constraint!((x) <= 5.0));
 
         assert_eq!(builder.constraints.len(), 2);
     }
 
     #[test]
-    fn test_constraint_builders_unnamed() {
+    fn test_constraint_builders() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
-        // Test unnamed convenience builders
+        // Test convenience builders
         let c = Constraint::eq(x + 5.0, 10.0);
         assert_eq!(c.sense, ConstraintSense::Equal);
-        assert_eq!(c.name, Arc::from(""));
 
         let c = Constraint::le(x * 2.0, 10.0);
         assert_eq!(c.sense, ConstraintSense::LessEqual);
-        assert_eq!(c.name, Arc::from(""));
 
         let c = Constraint::ge(x - 1.0, 0.0);
         assert_eq!(c.sense, ConstraintSense::GreaterEqual);
-        assert_eq!(c.name, Arc::from(""));
 
         let c = Constraint::gt(x, 0.0);
         assert_eq!(c.sense, ConstraintSense::Greater);
-        assert_eq!(c.name, Arc::from(""));
-    }
-
-    #[test]
-    fn test_constraint_builders_named() {
-        let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-
-        // Test named convenience builders
-        let c = Constraint::eq_named("test_eq", x + 5.0, 10.0);
-        assert_eq!(c.sense, ConstraintSense::Equal);
-        assert_eq!(c.name, Arc::from("test_eq"));
-
-        let c = Constraint::le_named("test_le", x * 2.0, 10.0);
-        assert_eq!(c.sense, ConstraintSense::LessEqual);
-        assert_eq!(c.name, Arc::from("test_le"));
-
-        let c = Constraint::ge_named("test_ge", x - 1.0, 0.0);
-        assert_eq!(c.sense, ConstraintSense::GreaterEqual);
-        assert_eq!(c.name, Arc::from("test_ge"));
-
-        let c = Constraint::gt_named("test_gt", x, 0.0);
-        assert_eq!(c.sense, ConstraintSense::Greater);
-        assert_eq!(c.name, Arc::from("test_gt"));
     }
 
     #[test]
     fn test_add_variable_to_linear_expression() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
         // Build an expression like 2.0 * x + 5.0
         let expr = 2.0 * x + 5.0;

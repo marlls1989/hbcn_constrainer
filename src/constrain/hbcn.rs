@@ -33,15 +33,14 @@ pub fn constrain_cycle_time_pseudoclock(
 
     let mut builder = lp_model_builder!();
 
-    let pseudo_clock =
-        builder.add_variable("pseudo_clock", VariableType::Continuous, 0.0, f64::INFINITY);
+    let pseudo_clock = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId<_>> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
+                builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -56,7 +55,7 @@ pub fn constrain_cycle_time_pseudoclock(
         .collect();
 
     for v in delay_vars.values_mut() {
-        *v = Some(builder.add_variable("", VariableType::Continuous, min_delay, f64::INFINITY));
+        *v = Some(builder.add_variable(VariableType::Continuous, min_delay, f64::INFINITY));
     }
 
     for ie in hbcn.edge_indices() {
@@ -148,14 +147,14 @@ pub fn constrain_cycle_time_proportional(
 
     let mut builder = lp_model_builder!();
 
-    let factor = builder.add_variable("factor", VariableType::Continuous, 0.0, f64::INFINITY);
+    let factor = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
     let arr_var: HashMap<NodeIndex, VariableId<_>> = hbcn
         .node_indices()
         .map(|x| {
             (
                 x,
-                builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY),
+                builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY),
             )
         })
         .collect();
@@ -165,9 +164,9 @@ pub fn constrain_cycle_time_proportional(
         .map(|ie| {
             let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
 
-            let max = builder.add_variable("", VariableType::Continuous, min_delay, f64::INFINITY);
-            let min = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
-            let slack = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
+            let max = builder.add_variable(VariableType::Continuous, min_delay, f64::INFINITY);
+            let min = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
+            let slack = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
             (
                 (hbcn[src].circuit_node(), hbcn[dst].circuit_node()),

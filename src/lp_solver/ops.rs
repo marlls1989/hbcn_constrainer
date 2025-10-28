@@ -12,8 +12,8 @@
 //! use hbcn::lp_solver::VariableType;
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // All of these work naturally:
 //! let _expr1 = x + y;           // Addition
@@ -35,16 +35,14 @@
 //! use hbcn::lp_solver::{Constraint, VariableType};
 //!
 //! let mut builder = lp_model_builder!();
-//! let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-//! let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+//! let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+//! let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 //!
 //! // Using the constraint! macro (most concise)
 //! let c1 = constraint!((x + y) == 10.0);
-//! let c2 = constraint!("my_constraint", (x + y) == 10.0);
 //!
 //! // Using builder methods
-//! let c3 = Constraint::eq(x + y, 10.0);
-//! let c4 = Constraint::eq_named("my_constraint", x + y, 10.0);
+//! let c2 = Constraint::eq(x + y, 10.0);
 //! ```
 //!
 //! # Type Safety
@@ -250,8 +248,8 @@ mod tests {
         let mut builder1 = lp_model_builder!();
         let mut builder2 = lp_model_builder!();
 
-        let x = builder1.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder2.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+        let x = builder1.add_variable(VariableType::Continuous, 0.0, 10.0);
+        let y = builder2.add_variable(VariableType::Continuous, 0.0, 10.0);
 
         // These should work fine
         let _expr1 = x + 2.0;
@@ -264,8 +262,8 @@ mod tests {
     #[test]
     fn test_expression_operations() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
-        let y = builder.add_variable("y", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+        let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
         // Test that expressions work with the macro-created brand
         let expr = 2.0 * x + 3.0 * y + 5.0;
@@ -287,7 +285,7 @@ mod tests {
     #[test]
     fn test_variable_id_debug() {
         let mut builder = lp_model_builder!();
-        let x = builder.add_variable("x", VariableType::Continuous, 0.0, 10.0);
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 
         // Test that VariableId can be debug printed
         let debug_str = format!("{:?}", x);
