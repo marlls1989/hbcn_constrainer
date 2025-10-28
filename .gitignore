@@ -6,7 +6,6 @@
 *.sdc
 *.csv
 *.lp
-*.graph
 *.sol
 *.rpt
 *.vcd
