@@ -1,0 +1,24 @@
+# Docker image for CI with CBC dependencies pre-installed
+FROM rust:1.85
+
+# Install system dependencies including CBC solver
+RUN apt-get update && \
+    apt-get install -y \
+    libclang-dev \
+    pkg-config \
+    coinor-libcbc-dev \
+    coinor-libclp-dev \
+    coinor-libcoinutils-dev \
+    coinor-libosi-dev && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Set up cargo cache directory
+RUN mkdir -p /usr/local/cargo/registry
+
+# Create a non-root user for security
+RUN useradd -m -u 1001 runner
+USER runner
+
+# Set working directory
+WORKDIR /workspace
