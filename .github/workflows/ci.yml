@@ -12,7 +12,6 @@ on:
 env:
   CARGO_TERM_COLOR: always
   REGISTRY: ghcr.io
-  CI_IMAGE: ghcr.io/${{ github.repository }}-ci:latest
 
 jobs:
   build-ci-image:
@@ -44,20 +43,20 @@ jobs:
         context: .
         file: ./Dockerfile.ci
         push: true
-        tags: ${{ env.CI_IMAGE }}
+        tags: ghcr.io/${{ github.repository }}-ci:latest
         cache-from: type=gha
         cache-to: type=gha,mode=max
     
     - name: Output image name
       id: image
-      run: echo "image=${{ env.CI_IMAGE }}" >> $GITHUB_OUTPUT
+      run: echo "image=ghcr.io/${{ github.repository }}-ci:latest" >> $GITHUB_OUTPUT
 
   test:
     needs: build-ci-image
     name: Test
     runs-on: ubuntu-latest
     container:
-      image: ${{ env.CI_IMAGE }}
+      image: ${{ needs.build-ci-image.outputs.image }}
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
