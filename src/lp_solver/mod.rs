@@ -185,11 +185,33 @@
 //!
 //! # Solver Selection
 //!
-//! The solver backend can be selected via the `HBCN_LP_SOLVER` environment variable:
-//! - `"gurobi"` - Use Gurobi (requires `gurobi` feature)
-//! - `"coin_cbc"` or `"cbc"` - Use COIN-OR CBC (requires `coin_cbc` feature)
+//! The solver backend can be controlled via the `HBCN_LP_SOLVER` environment variable:
+//! - `"gurobi"` - Use Gurobi only (requires `gurobi` feature)
+//! - `"coin_cbc"` or `"cbc"` - Use COIN-OR CBC only (requires `coin_cbc` feature)
 //!
-//! If not set, the solver defaults to Gurobi if available, otherwise CBC.
+//! ## Automatic Fallback Behavior
+//!
+//! If `HBCN_LP_SOLVER` is not set, the system implements automatic fallback:
+//!
+//! 1. **Try Gurobi first** (if `gurobi` feature is enabled)
+//! 2. **Fallback to CBC** if Gurobi fails due to license issues or other errors (requires `coin_cbc` feature)
+//! 3. **Use CBC directly** if Gurobi is not available
+//!
+//! This ensures robust operation even when Gurobi licenses are unavailable or expired.
+//! License failures are logged to stderr before falling back to CBC.
+//!
+//! ## Examples
+//!
+//! ```bash
+//! # Force Gurobi only (will fail if license unavailable)
+//! HBCN_LP_SOLVER=gurobi ./your_program
+//!
+//! # Force CBC only
+//! HBCN_LP_SOLVER=coin_cbc ./your_program
+//!
+//! # Use automatic fallback (default - tries Gurobi, falls back to CBC)
+//! ./your_program
+//! ```
 
 use anyhow::Result;
 use std::env;
@@ -566,17 +588,58 @@ impl<Brand> LPModelBuilder<Brand> {
         self.objective = Some(ObjectiveInfo { expression, sense });
     }
 
-    /// Solve the model using the specified solver
+    /// Solve the model with automatic fallback from Gurobi to Coin CBC
+    ///
+    /// This method implements the following solver selection strategy:
+    /// 1. If HBCN_LP_SOLVER environment variable is set, use the specified solver only
+    /// 2. Otherwise, try Gurobi first (if available) and fallback to CBC on failure
+    /// 3. Fallback is triggered by Gurobi license issues or other initialization errors
     pub fn solve(self) -> Result<LPSolution<Brand>> {
-        let solver = SolverBackend::from_env_or_default()?;
+        // Check if user explicitly requested a specific solver
+        if std::env::var("HBCN_LP_SOLVER").is_ok() {
+            let solver = SolverBackend::from_env_or_default()?;
+            return match solver {
+                #[cfg(feature = "gurobi")]
+                SolverBackend::Gurobi => crate::lp_solver::gurobi::solve_gurobi(&self),
 
-        match solver {
-            #[cfg(feature = "gurobi")]
-            SolverBackend::Gurobi => crate::lp_solver::gurobi::solve_gurobi(self),
-
-            #[cfg(feature = "coin_cbc")]
-            SolverBackend::CoinCbc => crate::lp_solver::coin_cbc::solve_coin_cbc(self),
+                #[cfg(feature = "coin_cbc")]
+                SolverBackend::CoinCbc => crate::lp_solver::coin_cbc::solve_coin_cbc(&self),
+            };
         }
+
+        // Default behavior: try Gurobi first, fallback to CBC on failure
+        #[cfg(feature = "gurobi")]
+        {
+            match crate::lp_solver::gurobi::solve_gurobi(&self) {
+                Ok(solution) => Ok(solution),
+                Err(gurobi_error) => {
+                    // Check if CBC is available as fallback
+                    #[cfg(feature = "coin_cbc")]
+                    {
+                        eprintln!("Gurobi failed ({}), falling back to Coin CBC", gurobi_error);
+                        crate::lp_solver::coin_cbc::solve_coin_cbc(&self)
+                    }
+                    #[cfg(not(feature = "coin_cbc"))]
+                    {
+                        Err(gurobi_error.context(
+                            "Gurobi failed and no fallback solver available. Enable coin_cbc feature for fallback support."
+                        ))
+                    }
+                }
+            }
+        }
+
+        // If Gurobi is not available, try CBC directly
+        #[cfg(all(feature = "coin_cbc", not(feature = "gurobi")))]
+        {
+            crate::lp_solver::coin_cbc::solve_coin_cbc(&self)
+        }
+
+        // No solvers available
+        #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
+        Err(anyhow::anyhow!(
+            "No LP solver backend available. Please enable a solver feature (e.g., 'gurobi' or 'coin_cbc')"
+        ))
     }
 }
 

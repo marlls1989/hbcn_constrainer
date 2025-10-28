@@ -6,7 +6,7 @@ use crate::lp_solver::output_suppression::GagHandle;
 use crate::lp_solver::*;
 
 /// Solve an LP model using Gurobi
-pub fn solve_gurobi<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
+pub fn solve_gurobi<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
     // Suppress Gurobi's verbose output
     let _gag_handle = GagHandle::stdout()?;
     let env = Env::new("")?;
