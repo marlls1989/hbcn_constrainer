@@ -50,11 +50,13 @@ fn run_hbcn_constrain(
 // Helper function to run hbcn analyse via library API
 fn run_hbcn_analyse(
     input: &PathBuf,
+    log: Option<&PathBuf>,
     vcd: Option<&PathBuf>,
     dot: Option<&PathBuf>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = AnalyseArgs {
         input: input.clone(),
+        log: log.map(|p| p.clone()),
         vcd: vcd.map(|p| p.clone()),
         dot: dot.map(|p| p.clone()),
     };
@@ -63,9 +65,13 @@ fn run_hbcn_analyse(
 }
 
 // Helper function to run hbcn depth via library API
-fn run_hbcn_depth(input: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+fn run_hbcn_depth(
+    input: &PathBuf,
+    log: Option<&PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let args = DepthArgs {
         input: input.clone(),
+        log: log.map(|p| p.clone()),
     };
 
     depth_main(args).map_err(|e| e.into())
@@ -763,8 +769,10 @@ Port "b" []
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(result.is_ok(), "Analysis should succeed: {:?}", result);
     }
 
@@ -779,8 +787,9 @@ Port "output" []
         let (_temp_dir, input_path) = create_test_file(graph_content);
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let vcd_path = temp_output_dir.path().join("test.vcd");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&vcd_path), None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), None);
         assert!(
             result.is_ok(),
             "Analysis with VCD should succeed: {:?}",
@@ -803,8 +812,9 @@ Port "c" []
         let (_temp_dir, input_path) = create_test_file(graph_content);
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let dot_path = temp_output_dir.path().join("test.dot");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, Some(&dot_path));
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, Some(&dot_path));
         assert!(
             result.is_ok(),
             "Analysis with DOT should succeed: {:?}",
@@ -828,8 +838,9 @@ Port "c" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let vcd_path = temp_output_dir.path().join("test.vcd");
         let dot_path = temp_output_dir.path().join("test.dot");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&vcd_path), Some(&dot_path));
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), Some(&dot_path));
         assert!(
             result.is_ok(),
             "Analysis with multiple outputs should succeed: {:?}",
@@ -848,8 +859,10 @@ Port "c" [("a", 10)]
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(
             result.is_ok(),
             "Cyclic circuit analysis should succeed: {:?}",
@@ -868,8 +881,10 @@ Port "output2" []
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(
             result.is_ok(),
             "Complex circuit analysis should succeed: {:?}",
@@ -886,8 +901,10 @@ Port "c" []
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_depth(&input_path);
+        let result = run_hbcn_depth(&input_path, Some(&log_path));
         assert!(
             result.is_ok(),
             "Depth analysis should succeed: {:?}",
@@ -904,8 +921,10 @@ Port "c" [("a", 10)]
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_depth(&input_path);
+        let result = run_hbcn_depth(&input_path, Some(&log_path));
         assert!(
             result.is_ok(),
             "Cyclic depth analysis should succeed: {:?}",
@@ -918,8 +937,9 @@ Port "c" [("a", 10)]
     fn test_analyse_invalid_file() {
         let temp_dir = TempDir::new().expect("Failed to create temp dir");
         let input_path = temp_dir.path().join("nonexistent.graph");
+        let log_path = temp_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(result.is_err(), "Should fail with non-existent file");
     }
 
@@ -929,8 +949,10 @@ Port "c" [("a", 10)]
         let graph_content = "This is not a valid graph";
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(result.is_err(), "Should fail with malformed input");
     }
 
@@ -941,8 +963,10 @@ Port "c" [("a", 10)]
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(
             result.is_ok(),
             "Single node analysis should succeed: {:?}",
@@ -960,8 +984,10 @@ Port "d" []
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(
             result.is_ok(),
             "Tight timing analysis should succeed: {:?}",
@@ -1442,8 +1468,10 @@ Port "b" []
 "#;
 
         let (_temp_dir, input_path) = create_test_file(graph_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
         assert!(result.is_ok(), "Analysis should succeed: {:?}", result);
     }
 }
