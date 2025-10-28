@@ -18,11 +18,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   - LogisticsModel\n");
 
     // Add variables to each model
-    let widgets = production_model.add_variable("widgets", VariableType::Continuous, 0.0, 1000.0);
-    let gadgets = production_model.add_variable("gadgets", VariableType::Continuous, 0.0, 500.0);
+    let widgets = production_model.add_variable(VariableType::Continuous, 0.0, 1000.0);
+    let gadgets = production_model.add_variable(VariableType::Continuous, 0.0, 500.0);
 
-    let trucks = logistics_model.add_variable("trucks", VariableType::Integer, 0.0, 10.0);
-    let routes = logistics_model.add_variable("routes", VariableType::Integer, 0.0, 20.0);
+    let trucks = logistics_model.add_variable(VariableType::Integer, 0.0, 10.0);
+    let routes = logistics_model.add_variable(VariableType::Integer, 0.0, 20.0);
 
     println!("2. Added variables to each model:");
     println!("   Production: widgets, gadgets");
@@ -30,23 +30,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Add constraints using the constraint! macro
     production_model.add_constraint(constraint!(
-        "production_capacity",
         (widgets + 2.0 * gadgets) <= 1200.0
     ));
     production_model.add_constraint(constraint!(
-        "labor_hours",
         (0.5 * widgets + gadgets) <= 400.0
     ));
 
-    logistics_model.add_constraint(constraint!("fleet_size", (trucks) <= 8.0));
+    logistics_model.add_constraint(constraint!((trucks) <= 8.0));
     logistics_model.add_constraint(constraint!(
-        "route_capacity",
         (routes - 3.0 * trucks) <= 0.0
     ));
 
-    println!("3. Added constraints with descriptive names:");
-    println!("   Production: production_capacity, labor_hours");
-    println!("   Logistics: fleet_size, route_capacity\n");
+    println!("3. Added constraints:");
+    println!("   Production: capacity and labor constraints");
+    println!("   Logistics: fleet size and route capacity constraints\n");
 
     // Set objectives
     production_model.set_objective(50.0 * widgets + 80.0 * gadgets, OptimizationSense::Maximize);
@@ -65,7 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Anonymous brands still work as before
     let mut anonymous_model = lp_model_builder!();
-    let _temp_var = anonymous_model.add_variable("temp", VariableType::Continuous, 0.0, 100.0);
+    let _temp_var = anonymous_model.add_variable(VariableType::Continuous, 0.0, 100.0);
 
     println!("5. Anonymous brands still work:");
     println!("   Created anonymous model with temp variable\n");
@@ -73,7 +70,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Show that each anonymous call creates a unique brand
     let mut another_anonymous = lp_model_builder!();
     let _another_var =
-        another_anonymous.add_variable("another", VariableType::Continuous, 0.0, 100.0);
+        another_anonymous.add_variable(VariableType::Continuous, 0.0, 100.0);
 
     // This would also cause a compile error:
     // let mixed_anonymous = temp_var + another_var;  // ERROR!
