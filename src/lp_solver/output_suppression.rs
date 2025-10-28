@@ -93,7 +93,7 @@ fn redirect_stdout() -> Result<Redirect<std::fs::File>, std::io::Error> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("lp_solver.log")?;
+        .open("hbcn.log")?;
     Redirect::stdout(file).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Redirect already exists")
     })
@@ -103,7 +103,7 @@ fn redirect_stderr() -> Result<Redirect<std::fs::File>, std::io::Error> {
     let file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("lp_solver.log")?;
+        .open("hbcn.log")?;
     Redirect::stderr(file).map_err(|_| {
         std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Redirect already exists")
     })

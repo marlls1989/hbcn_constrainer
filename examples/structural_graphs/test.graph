@@ -1,1 +1,2 @@
-Port "input" [("output", 50)] Port "output" []
+Port "input" [("output", 50)]
+Port "output" []
