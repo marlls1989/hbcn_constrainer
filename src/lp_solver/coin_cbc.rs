@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use crate::lp_solver::*;
+use crate::lp_solver::output_suppression::GagHandle;
 use ::coin_cbc::{Model, Sense};
 
 /// Round a floating-point number to a specified number of significant digits
@@ -17,6 +18,8 @@ fn round_to_sig_digits(value: f64, digits: u32) -> f64 {
 
 /// Solve an LP model using Coin CBC
 pub fn solve_coin_cbc<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
+    // Suppress CBC's verbose output
+    let _gag_handle = GagHandle::stdout()?;
     let mut model = Model::default();
     let mut var_map = HashMap::new();
 

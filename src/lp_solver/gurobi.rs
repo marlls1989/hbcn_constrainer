@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use ::gurobi::{ConstrSense, Env, LinExpr, Model, ModelSense, Status, VarType, attr};
 
 use crate::lp_solver::*;
+use crate::lp_solver::output_suppression::GagHandle;
 
 /// Solve an LP model using Gurobi
 pub fn solve_gurobi<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
+    // Suppress Gurobi's verbose output
+    let _gag_handle = GagHandle::stdout()?;
     let env = Env::new("")?;
     let mut model = Model::new("lp_model", &env)?;
 
