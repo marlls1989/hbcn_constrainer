@@ -1,4 +1,4 @@
-use std::{cmp, fs, path::PathBuf};
+use std::{cmp, fs, io::Write, path::PathBuf};
 
 use anyhow::*;
 use clap::Parser;
@@ -17,6 +17,10 @@ pub struct AnalyseArgs {
     /// Structural graph input file
     pub input: PathBuf,
 
+    /// Log file for analysis results (default: stdout)
+    #[clap(long, short)]
+    pub log: Option<PathBuf>,
+
     /// VCD waveform file with virtual-delay arrival times
     #[clap(long)]
     pub vcd: Option<PathBuf>,
@@ -30,10 +34,20 @@ pub struct AnalyseArgs {
 pub struct DepthArgs {
     /// Structural graph input file
     pub input: PathBuf,
+
+    /// Log file for depth analysis results (default: stdout)
+    #[clap(long, short)]
+    pub log: Option<PathBuf>,
 }
 
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
-    let AnalyseArgs { input, vcd, dot } = args;
+    let AnalyseArgs { input, log, vcd, dot } = args;
+
+    // Create writer for output (file or stdout)
+    let mut writer: Box<dyn Write> = match log {
+        Some(path) => Box::new(fs::File::create(path)?),
+        None => Box::new(std::io::stdout()),
+    };
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
@@ -42,7 +56,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
         hbcn::compute_cycle_time(&hbcn, true)
     }?;
 
-    println!("Worst virtual cycle-time: {}", ct);
+    writeln!(writer, "Worst virtual cycle-time: {}", ct)?;
 
     if let Some(filename) = dot {
         fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
@@ -113,22 +127,29 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
             ]);
         }
 
-        println!(
+        writeln!(
+            writer,
             "\nCycle {}: cost - slack = {} ({} transitions / {} {}):",
             i,
             cost,
             count,
             tokens,
             if tokens == 1 { "token" } else { "tokens" }
-        );
-        table.printstd();
+        )?;
+        table.print(&mut writer)?;
     }
 
     Ok(())
 }
 
 pub fn depth_main(args: DepthArgs) -> Result<()> {
-    let DepthArgs { input } = args;
+    let DepthArgs { input, log } = args;
+
+    // Create writer for output (file or stdout)
+    let mut writer: Box<dyn Write> = match log {
+        Some(path) => Box::new(fs::File::create(path)?),
+        None => Box::new(std::io::stdout()),
+    };
 
     let (ct, solved_hbcn) = {
         let g = read_file(&input)?;
@@ -137,7 +158,7 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
         hbcn::compute_cycle_time(&hbcn, false)
     }?;
 
-    println!("Critical Cycle (Depth/Tokens): {}", ct);
+    writeln!(writer, "Critical Cycle (Depth/Tokens): {}", ct)?;
 
     let mut cycles = hbcn::find_critical_cycles(&solved_hbcn);
 
@@ -177,15 +198,16 @@ pub fn depth_main(args: DepthArgs) -> Result<()> {
             ]);
         }
 
-        println!(
+        writeln!(
+            writer,
             "\nCycle {}: total cost = {} ({} transitions / {} {}):",
             i,
             cost,
             count,
             tokens,
             if tokens == 1 { "token" } else { "tokens" }
-        );
-        table.printstd();
+        )?;
+        table.print(&mut writer)?;
     }
 
     Ok(())
