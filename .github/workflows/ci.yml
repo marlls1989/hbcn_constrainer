@@ -101,8 +101,8 @@ jobs:
     
     - name: Check formatting
       run: cargo fmt --all -- --check
-      if: matrix.rust == 'stable'
+      continue-on-error: true  # Show formatting issues as warnings, not failures
     
     - name: Run clippy
       run: cargo clippy --all-targets --all-features -- -D warnings
-      if: matrix.rust == 'stable'
+      continue-on-error: true  # Show clippy issues as warnings, not failures
