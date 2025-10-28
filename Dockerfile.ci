@@ -9,6 +9,7 @@ RUN apt-get update && \
     build-essential \
     libclang-dev \
     pkg-config \
+    zlib1g-dev \
     coinor-libcbc-dev \
     coinor-libclp-dev \
     coinor-libcoinutils-dev \
