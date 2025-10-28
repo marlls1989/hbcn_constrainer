@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use ::gurobi::{ConstrSense, Env, LinExpr, Model, ModelSense, Status, VarType, attr};
 
-use crate::lp_solver::*;
 use crate::lp_solver::output_suppression::GagHandle;
+use crate::lp_solver::*;
 
 /// Solve an LP model using Gurobi
 pub fn solve_gurobi<Brand>(builder: LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {

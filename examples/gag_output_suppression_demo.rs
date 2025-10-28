@@ -24,12 +24,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let gag1 = GagHandle::stdout()?;
         let gag2 = GagHandle::stdout()?; // Reuses the same underlying Gag
-        
+
         println!("This won't be visible");
-        
+
         drop(gag1);
         println!("Still suppressed because gag2 is active");
-        
+
         drop(gag2);
     }
     println!("Output restored when all handles are dropped\n");
@@ -47,32 +47,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("4. Thread-safe usage:");
     {
         let gag = GagHandle::stdout()?;
-        
-        let handles: Vec<_> = (0..3).map(|i| {
-            thread::spawn(move || {
-                // Each thread can safely get its own handle to the same gag
-                let _thread_gag = GagHandle::stdout().expect("Should get shared gag");
-                
-                thread::sleep(Duration::from_millis(10));
-                
-                // This would normally print, but output is suppressed
-                println!("Thread {} output (suppressed)", i);
-                
-                format!("Thread {} completed", i)
+
+        let handles: Vec<_> = (0..3)
+            .map(|i| {
+                thread::spawn(move || {
+                    // Each thread can safely get its own handle to the same gag
+                    let _thread_gag = GagHandle::stdout().expect("Should get shared gag");
+
+                    thread::sleep(Duration::from_millis(10));
+
+                    // This would normally print, but output is suppressed
+                    println!("Thread {} output (suppressed)", i);
+
+                    format!("Thread {} completed", i)
+                })
             })
-        }).collect();
+            .collect();
 
         // Wait for all threads
         for handle in handles {
             let result = handle.join().unwrap();
             eprintln!("{} (printed to stderr)", result);
         }
-        
+
         drop(gag);
     }
     println!("All threads completed, stdout restored\n");
 
     println!("=== Demo Complete ===");
-    
+
     Ok(())
 }
