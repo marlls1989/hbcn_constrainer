@@ -66,10 +66,7 @@ fn run_hbcn_analyse(
 }
 
 // Helper function to run hbcn depth via library API
-fn run_hbcn_depth(
-    input: &Path,
-    log: Option<&Path>,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn run_hbcn_depth(input: &Path, log: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
     let args = DepthArgs {
         input: input.to_path_buf(),
         log: log.map(|p| p.to_path_buf()),
