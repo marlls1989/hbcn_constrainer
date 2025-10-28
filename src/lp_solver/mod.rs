@@ -598,6 +598,8 @@ pub mod gurobi;
 #[cfg(feature = "coin_cbc")]
 pub mod coin_cbc;
 
+pub mod output_suppression;
+
 #[cfg(test)]
 mod tests {
     use super::*;
