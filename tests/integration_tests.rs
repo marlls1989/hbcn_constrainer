@@ -51,13 +51,13 @@ fn run_hbcn_constrain(
 // Helper function to run hbcn analyse via library API
 fn run_hbcn_analyse(
     input: &Path,
-    log: Option<&Path>,
+    report: Option<&Path>,
     vcd: Option<&Path>,
     dot: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = AnalyseArgs {
         input: input.to_path_buf(),
-        log: log.map(|p| p.to_path_buf()),
+        report: report.map(|p| p.to_path_buf()),
         vcd: vcd.map(|p| p.to_path_buf()),
         dot: dot.map(|p| p.to_path_buf()),
     };
@@ -66,10 +66,10 @@ fn run_hbcn_analyse(
 }
 
 // Helper function to run hbcn depth via library API
-fn run_hbcn_depth(input: &Path, log: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
+fn run_hbcn_depth(input: &Path, report: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
     let args = DepthArgs {
         input: input.to_path_buf(),
-        log: log.map(|p| p.to_path_buf()),
+        report: report.map(|p| p.to_path_buf()),
     };
 
     depth_main(args).map_err(|e| e.into())

@@ -17,9 +17,9 @@ pub struct AnalyseArgs {
     /// Structural graph input file
     pub input: PathBuf,
 
-    /// Log file for analysis results (default: stdout)
+    /// Report file for analysis results (default: stdout)
     #[clap(long, short)]
-    pub log: Option<PathBuf>,
+    pub report: Option<PathBuf>,
 
     /// VCD waveform file with virtual-delay arrival times
     #[clap(long)]
@@ -35,21 +35,21 @@ pub struct DepthArgs {
     /// Structural graph input file
     pub input: PathBuf,
 
-    /// Log file for depth analysis results (default: stdout)
+    /// Report file for depth analysis results (default: stdout)
     #[clap(long, short)]
-    pub log: Option<PathBuf>,
+    pub report: Option<PathBuf>,
 }
 
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     let AnalyseArgs {
         input,
-        log,
+        report,
         vcd,
         dot,
     } = args;
 
     // Create writer for output (file or stdout)
-    let mut writer: Box<dyn Write> = match log {
+    let mut writer: Box<dyn Write> = match report {
         Some(path) => Box::new(fs::File::create(path)?),
         None => Box::new(std::io::stdout()),
     };
@@ -148,10 +148,10 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
 }
 
 pub fn depth_main(args: DepthArgs) -> Result<()> {
-    let DepthArgs { input, log } = args;
+    let DepthArgs { input, report } = args;
 
     // Create writer for output (file or stdout)
-    let mut writer: Box<dyn Write> = match log {
+    let mut writer: Box<dyn Write> = match report {
         Some(path) => Box::new(fs::File::create(path)?),
         None => Box::new(std::io::stdout()),
     };
