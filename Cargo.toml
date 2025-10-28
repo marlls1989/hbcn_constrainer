@@ -2,7 +2,7 @@
 authors = ["Marcos Sartori <marcos.sartori@ncl.ac.uk>"]
 edition = "2024"
 name = "hbcn"
-version = "0.5.0"
+version = "0.6.0"
 
 [features]
 default = ["coin_cbc"]
