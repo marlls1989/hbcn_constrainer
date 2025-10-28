@@ -33,7 +33,13 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libclang-dev pkg-config
+        sudo apt-get install -y \
+          libclang-dev \
+          pkg-config \
+          coinor-libcbc-dev \
+          coinor-libclp-dev \
+          coinor-libcoinutils-dev \
+          coinor-libosi-dev
     
     - name: Cache cargo registry
       uses: actions/cache@v3
@@ -82,7 +88,13 @@ jobs:
     - name: Install system dependencies
       run: |
         sudo apt-get update
-        sudo apt-get install -y libclang-dev pkg-config
+        sudo apt-get install -y \
+          libclang-dev \
+          pkg-config \
+          coinor-libcbc-dev \
+          coinor-libclp-dev \
+          coinor-libcoinutils-dev \
+          coinor-libosi-dev
     
     - name: Test default features
       run: cargo test --verbose --no-default-features --features coin_cbc
