@@ -1,6 +1,17 @@
 mod ast;
 
-lalrpop_util::lalrpop_mod! {parser, "/structural_graph/parser.rs"}
+// Include the generated parser with clippy warnings suppressed
+#[allow(clippy::all)]
+mod parser {
+    #![allow(clippy::all)]
+    #![allow(dead_code)]
+    #![allow(unused_variables)]
+    #![allow(unused_imports)]
+    #![allow(non_snake_case)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_upper_case_globals)]
+    include!(concat!(env!("OUT_DIR"), "/structural_graph/parser.rs"));
+}
 
 use ast::{Entry, EntryType};
 use petgraph::{graph, stable_graph::StableGraph};
