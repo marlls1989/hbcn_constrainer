@@ -373,7 +373,7 @@ mod tests {
             .expect("Should generate constraints");
 
         // Test DelayPair properties in results
-        for (_, constraint) in &result.path_constraints {
+        for constraint in result.path_constraints.values() {
             // At least one delay should be present
             assert!(
                 constraint.min.is_some() || constraint.max.is_some(),
@@ -498,7 +498,7 @@ mod tests {
         assert!(both_margins.pseudoclock_period >= 20.0);
 
         // Margins should affect the results
-        let periods = vec![
+        let periods = [
             no_margin.pseudoclock_period,
             forward_margin.pseudoclock_period,
             backward_margin.pseudoclock_period,
@@ -507,7 +507,7 @@ mod tests {
 
         // Test that all margin combinations produce valid results
         // (Margins may or may not affect results depending on the specific circuit)
-        let all_valid = periods.iter().all(|&p| p >= 20.0 && p <= 400.0);
+        let all_valid = periods.iter().all(|&p| (20.0..=400.0).contains(&p));
         assert!(
             all_valid,
             "All margin combinations should produce valid results"

@@ -30,7 +30,7 @@ mod constrain_unit_tests {
         assert!(!result.path_constraints.is_empty());
 
         // All max delays should be valid
-        for (_, constraint) in &result.path_constraints {
+        for constraint in result.path_constraints.values() {
             if let Some(max_delay) = constraint.max {
                 assert!(max_delay >= 1.0, "Max delay should be at least min_delay");
             }
@@ -337,7 +337,7 @@ mod constrain_unit_tests {
         );
 
         // All constraints should be valid
-        for (_, constraint) in &result.path_constraints {
+        for constraint in result.path_constraints.values() {
             if let Some(max_delay) = constraint.max {
                 assert!(max_delay >= 3.0);
                 assert!(max_delay <= 30.0);
