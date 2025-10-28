@@ -5,7 +5,7 @@
 
 use hbcn::{AnalyseArgs, ConstrainArgs, DepthArgs, analyse_main, constrain_main, depth_main};
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
 // Helper function to create a temporary test file
@@ -17,27 +17,28 @@ fn create_test_file(content: &str) -> (TempDir, PathBuf) {
 }
 
 // Helper function to run hbcn constrain via library API
+#[allow(clippy::too_many_arguments)]
 fn run_hbcn_constrain(
-    input: &PathBuf,
-    sdc: &PathBuf,
+    input: &Path,
+    sdc: &Path,
     cycle_time: f64,
     minimal_delay: f64,
-    csv: Option<&PathBuf>,
-    rpt: Option<&PathBuf>,
-    vcd: Option<&PathBuf>,
+    csv: Option<&Path>,
+    rpt: Option<&Path>,
+    vcd: Option<&Path>,
     no_proportinal: bool,
     no_forward_completion: bool,
     forward_margin: Option<u8>,
     backward_margin: Option<u8>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = ConstrainArgs {
-        input: input.clone(),
-        sdc: sdc.clone(),
+        input: input.to_path_buf(),
+        sdc: sdc.to_path_buf(),
         cycle_time,
         minimal_delay,
-        csv: csv.map(|p| p.clone()),
-        rpt: rpt.map(|p| p.clone()),
-        vcd: vcd.map(|p| p.clone()),
+        csv: csv.map(|p| p.to_path_buf()),
+        rpt: rpt.map(|p| p.to_path_buf()),
+        vcd: vcd.map(|p| p.to_path_buf()),
         no_proportinal,
         no_forward_completion,
         forward_margin,
@@ -49,16 +50,16 @@ fn run_hbcn_constrain(
 
 // Helper function to run hbcn analyse via library API
 fn run_hbcn_analyse(
-    input: &PathBuf,
-    log: Option<&PathBuf>,
-    vcd: Option<&PathBuf>,
-    dot: Option<&PathBuf>,
+    input: &Path,
+    log: Option<&Path>,
+    vcd: Option<&Path>,
+    dot: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = AnalyseArgs {
-        input: input.clone(),
-        log: log.map(|p| p.clone()),
-        vcd: vcd.map(|p| p.clone()),
-        dot: dot.map(|p| p.clone()),
+        input: input.to_path_buf(),
+        log: log.map(|p| p.to_path_buf()),
+        vcd: vcd.map(|p| p.to_path_buf()),
+        dot: dot.map(|p| p.to_path_buf()),
     };
 
     analyse_main(args).map_err(|e| e.into())
@@ -66,12 +67,12 @@ fn run_hbcn_analyse(
 
 // Helper function to run hbcn depth via library API
 fn run_hbcn_depth(
-    input: &PathBuf,
-    log: Option<&PathBuf>,
+    input: &Path,
+    log: Option<&Path>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = DepthArgs {
-        input: input.clone(),
-        log: log.map(|p| p.clone()),
+        input: input.to_path_buf(),
+        log: log.map(|p| p.to_path_buf()),
     };
 
     depth_main(args).map_err(|e| e.into())

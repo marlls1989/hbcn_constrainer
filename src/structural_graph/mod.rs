@@ -262,7 +262,7 @@ mod tests {
             Port "output" []
             "#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         assert_eq!(g.edge_count(), 7);
@@ -307,7 +307,7 @@ mod tests {
             DataReg "inst:ARV/some_output_reg" []
             "#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         // 2 Ports (2 nodes) + 3 DataRegs (9 nodes, 3 each) = 11 nodes total
@@ -328,7 +328,7 @@ mod tests {
             Port "output" []
             "#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         // 2 Ports (2 nodes) + 4 DataRegs (12 nodes, 3 each) = 14 nodes total
@@ -348,7 +348,7 @@ mod tests {
             Port "output" []
             "#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         // 2 Ports + 1 DataReg (3 nodes) + 1 NullReg + 1 ControlReg + 1 UnsafeReg (2 nodes) = 9 nodes total
@@ -366,7 +366,7 @@ mod tests {
             Port "output" []
             "#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         // 2 Ports + 2 DataRegs (6 nodes, 3 each) = 8 nodes total
@@ -381,7 +381,7 @@ mod tests {
         let input = r#"Port "a" [("b", 20)]
 Port "b" []"#;
         let result = parse(input);
-        assert!(matches!(result, Ok(_)));
+        assert!(result.is_ok());
 
         let g = result.unwrap();
         assert_eq!(g.node_count(), 2); // Two ports

@@ -513,12 +513,10 @@ mod tests {
                 } else {
                     req_data_count += 1;
                 }
+            } else if place.backward {
+                ack_null_count += 1;
             } else {
-                if place.backward {
-                    ack_null_count += 1;
-                } else {
-                    req_null_count += 1;
-                }
+                req_null_count += 1;
             }
         }
 
