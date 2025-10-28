@@ -298,11 +298,11 @@ impl SolverBackend {
         }
 
         // Fallback logic: prefer gurobi if available, then coin_cbc
-        #[cfg(all(feature = "gurobi"))]
+        #[cfg(feature = "gurobi")]
         return Ok(SolverBackend::Gurobi);
 
         #[allow(unreachable_code)]
-        #[cfg(all(feature = "coin_cbc"))]
+        #[cfg(feature = "coin_cbc")]
         return Ok(SolverBackend::CoinCbc);
 
         #[cfg(not(any(feature = "gurobi", feature = "coin_cbc")))]
@@ -433,6 +433,7 @@ pub struct ConstraintId(usize);
 /// ```
 #[derive(Debug, Clone)]
 pub struct Constraint<Brand> {
+    #[allow(dead_code)]
     name: Arc<str>,
     expression: LinearExpression<Brand>,
     sense: ConstraintSense,
@@ -515,6 +516,7 @@ impl<Brand> Constraint<Brand> {
 /// Variable information stored in the model
 #[derive(Debug, Clone)]
 struct VariableInfo {
+    #[allow(dead_code)]
     name: Arc<str>,
     var_type: VariableType,
     lower_bound: f64,

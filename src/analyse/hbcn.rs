@@ -50,7 +50,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
             (
                 ix,
                 // Zips together the distance and predecessor list
-                costs.into_iter().zip_eq(predecessors.into_iter()).collect(),
+                costs.into_iter().zip_eq(predecessors).collect(),
             )
         })
         .collect();
@@ -111,7 +111,7 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             let delay = builder.add_variable("", VariableType::Continuous, 0.0, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
-            let weight_value = if weighted { place.weight as f64 } else { 1.0 };
+            let weight_value = if weighted { place.weight } else { 1.0 };
             builder.add_constraint(constraint!((delay - slack) == weight_value));
 
             // Constraint: arr_var[dst] - arr_var[src] - delay + (if place.token { 1.0 } else { 0.0 }) * cycle_time = 0.0
@@ -151,7 +151,6 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                             max: solution.get_value(*delay_var),
                         },
                         slack: solution.get_value(*slack_var),
-                        ..Default::default()
                     })
                 },
             ),
