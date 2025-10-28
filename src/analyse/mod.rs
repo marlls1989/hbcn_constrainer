@@ -41,7 +41,12 @@ pub struct DepthArgs {
 }
 
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
-    let AnalyseArgs { input, log, vcd, dot } = args;
+    let AnalyseArgs {
+        input,
+        log,
+        vcd,
+        dot,
+    } = args;
 
     // Create writer for output (file or stdout)
     let mut writer: Box<dyn Write> = match log {

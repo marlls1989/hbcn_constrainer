@@ -29,17 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Logistics: trucks, routes\n");
 
     // Add constraints using the constraint! macro
-    production_model.add_constraint(constraint!(
-        (widgets + 2.0 * gadgets) <= 1200.0
-    ));
-    production_model.add_constraint(constraint!(
-        (0.5 * widgets + gadgets) <= 400.0
-    ));
+    production_model.add_constraint(constraint!((widgets + 2.0 * gadgets) <= 1200.0));
+    production_model.add_constraint(constraint!((0.5 * widgets + gadgets) <= 400.0));
 
     logistics_model.add_constraint(constraint!((trucks) <= 8.0));
-    logistics_model.add_constraint(constraint!(
-        (routes - 3.0 * trucks) <= 0.0
-    ));
+    logistics_model.add_constraint(constraint!((routes - 3.0 * trucks) <= 0.0));
 
     println!("3. Added constraints:");
     println!("   Production: capacity and labor constraints");
@@ -69,8 +63,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Show that each anonymous call creates a unique brand
     let mut another_anonymous = lp_model_builder!();
-    let _another_var =
-        another_anonymous.add_variable(VariableType::Continuous, 0.0, 100.0);
+    let _another_var = another_anonymous.add_variable(VariableType::Continuous, 0.0, 100.0);
 
     // This would also cause a compile error:
     // let mixed_anonymous = temp_var + another_var;  // ERROR!

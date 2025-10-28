@@ -840,7 +840,12 @@ Port "c" []
         let dot_path = temp_output_dir.path().join("test.dot");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), Some(&dot_path));
+        let result = run_hbcn_analyse(
+            &input_path,
+            Some(&log_path),
+            Some(&vcd_path),
+            Some(&dot_path),
+        );
         assert!(
             result.is_ok(),
             "Analysis with multiple outputs should succeed: {:?}",

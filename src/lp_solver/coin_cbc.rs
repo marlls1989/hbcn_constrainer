@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
-use crate::lp_solver::*;
 use crate::lp_solver::output_suppression::GagHandle;
+use crate::lp_solver::*;
 use ::coin_cbc::{Model, Sense};
 
 /// Round a floating-point number to a specified number of significant digits
