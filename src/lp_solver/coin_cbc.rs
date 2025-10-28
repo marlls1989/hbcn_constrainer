@@ -18,7 +18,7 @@ fn round_to_sig_digits(value: f64, digits: u32) -> f64 {
 
 /// Solve an LP model using Coin CBC
 pub fn solve_coin_cbc<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
-    // Suppress CBC's verbose output
+    // Redirect CBC's verbose output to lp_solver.log
     let _gag_handle = GagHandle::stdout()?;
     let mut model = Model::default();
     let mut var_map = HashMap::new();

@@ -1,20 +1,20 @@
-//! Example demonstrating the thread-safe singleton Gag pattern
+//! Example demonstrating the thread-safe singleton redirection pattern
 //!
-//! This example shows how to use the output suppression utilities to suppress
-//! verbose output from LP solvers across multiple threads safely.
+//! This example shows how to use the output redirection utilities to redirect
+//! verbose output from LP solvers to a log file across multiple threads safely.
 
-use hbcn::lp_solver::output_suppression::{GagHandle, suppress_output};
+use hbcn::lp_solver::output_suppression::{GagHandle, redirect_output};
 use std::thread;
 use std::time::Duration;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    println!("=== Output Suppression Demo ===\n");
+    println!("=== Output Redirection Demo ===\n");
 
     // Example 1: Basic usage
-    println!("1. Basic stdout suppression:");
+    println!("1. Basic stdout redirection to lp_solver.log:");
     {
         let _gag = GagHandle::stdout()?;
-        println!("This line will NOT be printed to stdout!");
+        println!("This line will be redirected to lp_solver.log!");
         eprintln!("But this will still appear on stderr");
     }
     println!("Output restored after gag is dropped\n");
@@ -25,21 +25,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gag1 = GagHandle::stdout()?;
         let gag2 = GagHandle::stdout()?; // Reuses the same underlying Gag
 
-        println!("This won't be visible");
+        println!("This will be redirected to lp_solver.log");
 
         drop(gag1);
-        println!("Still suppressed because gag2 is active");
+        println!("Still redirected because gag2 is active");
 
         drop(gag2);
     }
     println!("Output restored when all handles are dropped\n");
 
-    // Example 3: Suppress both stdout and stderr
-    println!("3. Suppressing both stdout and stderr:");
+    // Example 3: Redirect both stdout and stderr
+    println!("3. Redirecting both stdout and stderr to lp_solver.log:");
     {
-        let (_stdout_gag, _stderr_gag) = suppress_output()?;
-        println!("This stdout message is suppressed");
-        eprintln!("This stderr message is also suppressed");
+        let (_stdout_gag, _stderr_gag) = redirect_output()?;
+        println!("This stdout message is redirected to log file");
+        eprintln!("This stderr message is also redirected to log file");
     }
     println!("Both outputs restored\n");
 
@@ -56,8 +56,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                     thread::sleep(Duration::from_millis(10));
 
-                    // This would normally print, but output is suppressed
-                    println!("Thread {} output (suppressed)", i);
+                    // This would normally print, but output is redirected to log file
+                    println!("Thread {} output (redirected to lp_solver.log)", i);
 
                     format!("Thread {} completed", i)
                 })

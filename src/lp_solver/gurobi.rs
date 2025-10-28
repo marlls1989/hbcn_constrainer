@@ -7,7 +7,7 @@ use crate::lp_solver::*;
 
 /// Solve an LP model using Gurobi
 pub fn solve_gurobi<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
-    // Suppress Gurobi's verbose output
+    // Redirect Gurobi's verbose output to lp_solver.log
     let _gag_handle = GagHandle::stdout()?;
     let env = Env::new("")?;
     let mut model = Model::new("lp_model", &env)?;

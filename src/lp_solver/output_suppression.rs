@@ -1,58 +1,59 @@
-//! Output suppression utilities for LP solvers
+//! Output redirection utilities for LP solvers
 //!
-//! This module provides a thread-safe singleton pattern for suppressing stdout/stderr
-//! output using the `gag` crate. Multiple threads can safely acquire and share the
-//! same gag instance using Arc reference counting.
+//! This module provides a thread-safe singleton pattern for redirecting stdout/stderr
+//! output to a log file using the `gag` crate. Multiple threads can safely acquire and share the
+//! same redirect instance using Arc reference counting.
 //!
 //! **Important**: The `gag` crate can only create one instance per output stream per process.
-//! Once a gag is created, it cannot be recreated. This module manages that limitation.
+//! Once a redirect is created, it cannot be recreated. This module manages that limitation.
 
-use gag::Gag;
+use gag::Redirect;
+use std::fs::OpenOptions;
 use std::sync::{Arc, Mutex, Weak};
 
-/// A thread-safe wrapper around a Gag instance
+/// A thread-safe wrapper around a Redirect instance
 pub struct GagHandle {
-    _gag: Arc<Gag>,
+    _gag: Arc<Redirect<std::fs::File>>,
 }
 
 impl GagHandle {
-    /// Get a handle to suppress stdout. Multiple threads can share the same underlying
-    /// Gag instance. The gag persists until all handles are dropped.
+    /// Get a handle to redirect stdout to lp_solver.log. Multiple threads can share the same underlying
+    /// Redirect instance. The redirect persists until all handles are dropped.
     ///
-    /// **Note**: Due to gag limitations, once created, the stdout gag cannot be recreated
+    /// **Note**: Due to gag limitations, once created, the stdout redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
     pub fn stdout() -> Result<Self, std::io::Error> {
         STDOUT_GAG_MANAGER.get_gag()
     }
 
-    /// Get a handle to suppress stderr. Multiple threads can share the same underlying
-    /// Gag instance. The gag persists until all handles are dropped.
+    /// Get a handle to redirect stderr to lp_solver.log. Multiple threads can share the same underlying
+    /// Redirect instance. The redirect persists until all handles are dropped.
     ///
-    /// **Note**: Due to gag limitations, once created, the stderr gag cannot be recreated
+    /// **Note**: Due to gag limitations, once created, the stderr redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
     pub fn stderr() -> Result<Self, std::io::Error> {
         STDERR_GAG_MANAGER.get_gag()
     }
 }
 
-/// Thread-safe manager for Gag instances using Arc and weak references
+/// Thread-safe manager for Redirect instances using Arc and weak references
 ///
-/// Due to gag's limitations, once a gag is created, it persists for the process lifetime.
+/// Due to gag's limitations, once a redirect is created, it persists for the process lifetime.
 /// This manager ensures thread-safe access and prevents multiple creation attempts.
 struct GagManager {
-    weak_gag: Mutex<Weak<Gag>>,
-    create_gag: fn() -> Result<Gag, std::io::Error>,
+    weak_gag: Mutex<Weak<Redirect<std::fs::File>>>,
+    create_gag: fn() -> Result<Redirect<std::fs::File>, std::io::Error>,
 }
 
 impl GagManager {
-    const fn new(create_fn: fn() -> Result<Gag, std::io::Error>) -> Self {
+    const fn new(create_fn: fn() -> Result<Redirect<std::fs::File>, std::io::Error>) -> Self {
         Self {
             weak_gag: Mutex::new(Weak::new()),
             create_gag: create_fn,
         }
     }
 
-    /// Get or create a Gag instance wrapped in Arc
+    /// Get or create a Redirect instance wrapped in Arc
     fn get_gag(&self) -> Result<GagHandle, std::io::Error> {
         let mut weak_gag_guard = self.weak_gag.lock().unwrap();
 
@@ -87,12 +88,33 @@ impl GagManager {
     }
 }
 
-// Global singleton managers for stdout and stderr
-static STDOUT_GAG_MANAGER: GagManager = GagManager::new(Gag::stdout);
-static STDERR_GAG_MANAGER: GagManager = GagManager::new(Gag::stderr);
+// Functions to redirect stdout and stderr to log file
+fn redirect_stdout() -> Result<Redirect<std::fs::File>, std::io::Error> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("lp_solver.log")?;
+    Redirect::stdout(file).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Redirect already exists")
+    })
+}
 
-/// Convenience function to suppress both stdout and stderr
-pub fn suppress_output() -> Result<(GagHandle, GagHandle), std::io::Error> {
+fn redirect_stderr() -> Result<Redirect<std::fs::File>, std::io::Error> {
+    let file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("lp_solver.log")?;
+    Redirect::stderr(file).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::AlreadyExists, "Redirect already exists")
+    })
+}
+
+// Global singleton managers for stdout and stderr
+static STDOUT_GAG_MANAGER: GagManager = GagManager::new(redirect_stdout);
+static STDERR_GAG_MANAGER: GagManager = GagManager::new(redirect_stderr);
+
+/// Convenience function to redirect both stdout and stderr to log file
+pub fn redirect_output() -> Result<(GagHandle, GagHandle), std::io::Error> {
     Ok((GagHandle::stdout()?, GagHandle::stderr()?))
 }
 
@@ -237,9 +259,9 @@ mod tests {
     }
 
     #[test]
-    fn test_convenience_suppress_output() {
+    fn test_convenience_redirect_output() {
         // Test the convenience function
-        let result = suppress_output();
+        let result = redirect_output();
 
         // Should either succeed or fail gracefully
         match result {
