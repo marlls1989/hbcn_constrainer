@@ -621,7 +621,7 @@ mod constrain_unit_tests {
     }
 
     /// Helper function to calculate critical cycle time per token
-    fn calculate_critical_cycle_time_per_token(delayed_hbcn: &DelayedHBCN) -> f64 {
+    fn calculate_critical_cycle_time_per_token(delayed_hbcn: &SolvedHBCN) -> f64 {
         let cycles = crate::analyse::hbcn::find_critical_cycles(delayed_hbcn);
 
         if cycles.is_empty() {

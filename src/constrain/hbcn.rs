@@ -1,3 +1,14 @@
+//! Constraint generation algorithms for HBCN circuits.
+//!
+//! This module provides the core algorithms for generating timing constraints from HBCN
+//! representations. It supports multiple constraint generation strategies:
+//!
+//! - **Proportional constraints**: Distribute cycle time proportionally across paths
+//! - **Pseudoclock constraints**: Use a pseudo-clock period for external path constraints
+//!
+//! Both algorithms use linear programming to solve for optimal delay constraints that
+//! meet the specified cycle time requirements.
+
 use std::collections::HashMap;
 
 use petgraph::prelude::*;
@@ -5,21 +16,18 @@ use petgraph::prelude::*;
 use crate::AppError;
 use crate::hbcn::*;
 use crate::lp_solver::*;
-use crate::structural_graph::CircuitNode;
 use crate::{constraint, lp_model_builder};
 
-#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
-pub struct DelayPair {
-    pub min: Option<f64>,
-    pub max: Option<f64>,
-}
-
+/// Map of path constraints from (source, destination) circuit node pairs to delay constraints.
+///
+/// This type represents the result of constraint generation, mapping each path in the
+/// circuit to its computed min/max delay constraints.
 pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), DelayPair>;
 
 #[derive(Debug, Clone)]
 pub struct ConstrainerResult {
     pub pseudoclock_period: f64,
-    pub hbcn: DelayedHBCN,
+    pub hbcn: SolvedHBCN,
     pub path_constraints: PathConstraints,
 }
 
@@ -595,9 +603,7 @@ mod tests {
     }
 
     /// Helper function to calculate critical cycle time per token for HBCN tests
-    fn calculate_critical_cycle_time_per_token_hbcn(
-        delayed_hbcn: &crate::hbcn::DelayedHBCN,
-    ) -> f64 {
+    fn calculate_critical_cycle_time_per_token_hbcn(delayed_hbcn: &crate::hbcn::SolvedHBCN) -> f64 {
         let cycles = crate::analyse::hbcn::find_critical_cycles(delayed_hbcn);
 
         if cycles.is_empty() {
