@@ -1,3 +1,41 @@
+//! Analysis tools for HBCN circuits.
+//!
+//! This module provides functionality for analyzing the timing behavior of HBCN circuits,
+//! including cycle time estimation, critical path identification, and visualization.
+//!
+//! # Main Operations
+//!
+//! - **[`analyse_main`]**: Performs comprehensive cycle time analysis, finds critical cycles,
+//!   and can generate VCD waveform files and DOT graph visualizations.
+//!
+//! - **[`depth_main`]**: Computes the longest path depth (critical path length) in the
+//!   circuit, useful for understanding circuit complexity.
+//!
+//! # Workflow
+//!
+//! 1. Parse and convert structural graph to HBCN
+//! 2. Compute cycle time using linear programming
+//! 3. Identify critical cycles (paths with minimal slack)
+//! 4. Generate reports, VCD waveforms, or DOT visualizations
+//!
+//! # Example
+//!
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hbcn::analyse::{AnalyseArgs, analyse_main};
+//!
+//! let args = AnalyseArgs {
+//!     input: "circuit.graph".into(),
+//!     report: Some("analysis.rpt".into()),
+//!     vcd: Some("timing.vcd".into()),
+//!     dot: Some("graph.dot".into()),
+//! };
+//!
+//! analyse_main(args)?;
+//! # Ok(())
+//! # }
+//! ```
+
 use std::{cmp, fs, io::Write, path::PathBuf};
 
 use anyhow::*;
@@ -12,6 +50,7 @@ use crate::{hbcn::*, read_file};
 pub mod hbcn;
 pub mod vcd;
 
+/// Command-line arguments for the analysis command.
 #[derive(Parser, Debug)]
 pub struct AnalyseArgs {
     /// Structural graph input file
@@ -30,6 +69,7 @@ pub struct AnalyseArgs {
     pub dot: Option<PathBuf>,
 }
 
+/// Command-line arguments for the depth analysis command.
 #[derive(Parser, Debug)]
 pub struct DepthArgs {
     /// Structural graph input file
@@ -40,6 +80,42 @@ pub struct DepthArgs {
     pub report: Option<PathBuf>,
 }
 
+/// Perform comprehensive cycle time analysis on an HBCN circuit.
+///
+/// This function:
+/// 1. Reads and parses the structural graph
+/// 2. Converts it to an HBCN representation
+/// 3. Computes cycle time using weighted linear programming
+/// 4. Identifies critical cycles (paths with minimal slack)
+/// 5. Generates formatted reports and optional visualizations
+///
+/// # Arguments
+///
+/// * `args` - Analysis configuration including input file and optional output files
+///
+/// # Outputs
+///
+/// - **Report** (stdout or file): Detailed cycle analysis with critical path information
+/// - **VCD** (optional): Waveform file with timing information for visualization
+/// - **DOT** (optional): Graph visualization file in Graphviz format
+///
+/// # Example
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hbcn::analyse::{AnalyseArgs, analyse_main};
+///
+/// let args = AnalyseArgs {
+///     input: "circuit.graph".into(),
+///     report: None,  // Print to stdout
+///     vcd: Some("waves.vcd".into()),
+///     dot: Some("graph.dot".into()),
+/// };
+///
+/// analyse_main(args)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     let AnalyseArgs {
         input,
@@ -147,6 +223,35 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     Ok(())
 }
 
+/// Compute the longest path depth (critical path length) in an HBCN circuit.
+///
+/// This function uses unweighted cycle time computation to find the longest path
+/// through the circuit, measured in number of transitions. This is useful for
+/// understanding circuit complexity and identifying bottlenecks.
+///
+/// # Arguments
+///
+/// * `args` - Depth analysis configuration including input file and optional report file
+///
+/// # Outputs
+///
+/// - **Report** (stdout or file): Critical cycle depth information
+///
+/// # Example
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hbcn::analyse::{DepthArgs, depth_main};
+///
+/// let args = DepthArgs {
+///     input: "circuit.graph".into(),
+///     report: None,  // Print to stdout
+/// };
+///
+/// depth_main(args)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn depth_main(args: DepthArgs) -> Result<()> {
     let DepthArgs { input, report } = args;
 
@@ -233,7 +338,7 @@ mod tests {
     }
 
     /// Helper function to run analysis and capture output
-    fn run_analysis(input: &str, weighted: bool) -> Result<(f64, DelayedHBCN)> {
+    fn run_analysis(input: &str, weighted: bool) -> Result<(f64, SolvedHBCN)> {
         let hbcn = create_test_hbcn(input)?;
         hbcn::compute_cycle_time(&hbcn, weighted)
     }

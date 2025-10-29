@@ -1,3 +1,51 @@
+//! Timing constraint generation for HBCN circuits.
+//!
+//! This module provides functionality to generate timing constraints for EDA tools
+//! (primarily Cadence Genus) from HBCN circuit analysis. It supports multiple
+//! constraint generation algorithms and output formats.
+//!
+//! # Constraint Generation Algorithms
+//!
+//! - **Proportional Constraints** (default): Distributes cycle time proportionally
+//!   across paths based on their virtual delays.
+//!
+//! - **Pseudoclock Constraints**: Uses a pseudo-clock period approach where all
+//!   external paths are constrained relative to a clock period.
+//!
+//! # Output Formats
+//!
+//! The module can generate constraints in multiple formats:
+//!
+//! - **SDC** (Synopsys Design Constraints): Required format for Cadence Genus
+//! - **CSV**: Tabular format for analysis and debugging
+//! - **VCD**: Waveform format showing arrival times
+//! - **Report**: Human-readable text reports with cycle analysis
+//!
+//! # Usage Example
+//!
+//! ```no_run
+//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! use hbcn::constrain::{ConstrainArgs, constrain_main};
+//!
+//! let args = ConstrainArgs {
+//!     input: "circuit.graph".into(),
+//!     sdc: "constraints.sdc".into(),
+//!     cycle_time: 10.0,
+//!     minimal_delay: 1.0,
+//!     csv: Some("constraints.csv".into()),
+//!     rpt: Some("report.rpt".into()),
+//!     vcd: None,
+//!     no_proportinal: false,
+//!     no_forward_completion: false,
+//!     forward_margin: None,
+//!     backward_margin: None,
+//! };
+//!
+//! constrain_main(args)?;
+//! # Ok(())
+//! # }
+//! ```
+
 use std::{
     collections::HashMap,
     fs,
@@ -11,13 +59,30 @@ use ordered_float::OrderedFloat;
 use prettytable::*;
 use rayon::prelude::*;
 
-use crate::{hbcn::*, read_file, structural_graph::CircuitNode};
+use crate::{hbcn::*, read_file};
 
 pub mod hbcn;
-mod sdc;
+/// SDC (Synopsys Design Constraints) file generation for Cadence Genus.
+///
+/// This module generates SDC constraint files that are compatible with Cadence Genus
+/// for asynchronous circuit synthesis. The SDC format specifies timing constraints
+/// between circuit components using `set_min_delay` and `set_max_delay` commands.
+///
+/// # SDC Format
+///
+/// The generated SDC files include:
+///
+/// - Clock period definition (`create_clock`)
+/// - Minimum delay constraints (`set_min_delay -through ...`)
+/// - Maximum delay constraints (`set_max_delay -through ...`)
+///
+/// Constraints are formatted to match Cadence Genus's expected syntax for asynchronous
+/// circuit components, including proper handling of ports, registers, and vector signals.
+pub mod sdc;
 #[cfg(test)]
 mod tests;
 
+/// Command-line arguments for the constraint generation command.
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
     /// Structural graph input file
@@ -64,6 +129,50 @@ pub struct ConstrainArgs {
     pub backward_margin: Option<u8>,
 }
 
+/// Generate timing constraints for an HBCN circuit.
+///
+/// This is the main entry point for constraint generation. It:
+///
+/// 1. Reads and parses the structural graph
+/// 2. Converts to HBCN representation
+///// 3. Generates timing constraints using the specified algorithm
+/// 4. Writes constraints in the requested output formats (SDC, CSV, VCD, Report)
+///
+/// # Arguments
+///
+/// * `args` - Configuration including input file, cycle time, output paths, and algorithm options
+///
+/// # Outputs
+///
+/// - **SDC** (required): Timing constraints for Cadence Genus
+/// - **CSV** (optional): Tabular constraint data
+/// - **VCD** (optional): Waveform with arrival times
+/// - **Report** (optional): Human-readable cycle analysis
+///
+/// # Example
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hbcn::constrain::{ConstrainArgs, constrain_main};
+///
+/// let args = ConstrainArgs {
+///     input: "circuit.graph".into(),
+///     sdc: "output.sdc".into(),
+///     cycle_time: 10.0,
+///     minimal_delay: 1.0,
+///     csv: None,
+///     rpt: None,
+///     vcd: None,
+///     no_proportinal: false,
+///     no_forward_completion: false,
+///     forward_margin: None,
+///     backward_margin: None,
+/// };
+///
+/// constrain_main(args)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let ConstrainArgs {
         input,

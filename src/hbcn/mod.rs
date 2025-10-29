@@ -1,37 +1,231 @@
-use super::{
-    constrain::hbcn::DelayPair,
-    structural_graph::{Channel, ChannelPhase, CircuitNode, StructuralGraph, Symbol},
-};
+//! Half-Buffer Channel Network (HBCN) representation for asynchronous circuit timing analysis.
+//!
+//! This module provides the core data structures and algorithms for representing and analyzing
+//! Half-Buffer Channel Networks, which model the timing behavior of asynchronous digital circuits.
+//!
+//! # Overview
+//!
+//! An HBCN is a directed graph where:
+//! - **Nodes** represent circuit transitions (data or spacer transitions at circuit nodes)
+//! - **Edges** represent places that model timing dependencies between transitions
+//!
+//! The HBCN model is central to timing analysis in asynchronous circuits because it captures the
+//! handshaking protocol behavior inherent in half-buffer channel networks, where data flows
+//! through channels with explicit acknowledgment signaling.
+//!
+//! # Core Concepts
+//!
+//! ## Transitions
+//!
+//! A [`Transition`] represents an event at a circuit node and can be either:
+//! - **Data**: A data transition carrying information
+//! - **Spacer**: A spacer/null transition that enables the next data phase
+//!
+//! Each transition is associated with a [`CircuitNode`] that identifies the physical location
+//! in the circuit where the transition occurs.
+//!
+//! ## Places
+//!
+//! A [`Place`] represents timing dependencies between transitions:
+//! - **Forward places** (`backward = false`): Model forward data flow timing
+//! - **Backward places** (`backward = true`): Model acknowledgment/return path timing
+//! - **Token marking** (`token`): Indicates whether a place initially contains a token
+//! - **Weight** (`weight`): Represents the delay/cost associated with traversing the place
+//!
+//! ## Graph Types
+//!
+//! The module defines two main HBCN graph types:
+//!
+//! - **[`StructuralHBCN`]**: Initial HBCN structure created from a structural graph,
+//!   with `Transition` nodes and `Place` edges. This represents the circuit structure before
+//!   timing analysis.
+//!
+//! - **[`SolvedHBCN`]**: HBCN after timing analysis, with `TransitionEvent` nodes (transitions
+//!   with timing information) and `DelayedPlace` edges (places with computed delay constraints
+//!   and slack values). This represents the circuit with resolved timing constraints.
+//!
+//! # Usage Example
+//!
+//! ```no_run
+//! use hbcn::hbcn::*;
+//! use hbcn::structural_graph::parse;
+//!
+//! // Parse a structural graph from input
+//! let structural_graph = parse(r#"
+//!     Port "input" [("output", 100)]
+//!     Port "output" []
+//! "#).unwrap();
+//!
+//! // Convert to HBCN
+//! let hbcn = from_structural_graph(&structural_graph, false).unwrap();
+//!
+//! // The HBCN can now be used for timing analysis and constraint generation
+//! ```
+//!
+//! # Traits
+//!
+//! The module provides several trait abstractions for working with HBCN components:
+//!
+//! - **[`HasTransition`]**: Types that have an associated transition
+//! - **[`HasCircuitNode`]**: Types that reference a circuit node
+//! - **[`Named`]**: Types that have a name (derived from circuit nodes)
+//! - **[`TimedEvent`]**: Types that have a time value
+//! - **[`MarkablePlace`]**: Places that can be marked/unmarked (token state)
+//! - **[`WeightedPlace`]**: Places that have a weight/delay
+//! - **[`SlackablePlace`]**: Places that have computed slack values
+//! - **[`HasPlace`]**: Types that contain or are a place
+//!
+//! These traits enable generic algorithms that work across different HBCN representations.
+//!
+//! # Re-exported Types
+//!
+//! This module also provides simplified versions of types for use with HBCN:
+//!
+//! - **[`CircuitNode`]**: Simplified circuit node representation (without cost field)
+//! - **[`DelayPair`]**: Min/max delay constraint representation used in timing analysis
 
-use std::{
-    collections::{HashMap, HashSet},
-    fmt,
-};
+pub mod parser;
+pub mod structural_graph;
+pub use structural_graph::from_structural_graph;
 
-use petgraph::{graph::NodeIndex, prelude::*, stable_graph::StableGraph};
+use crate::Symbol;
+use petgraph::stable_graph::StableGraph;
+use std::fmt;
+use crate::structural_graph::CircuitNode as StructuralCircuitNode;
 
-// this is the most engineery way to compute the ceiling log base 2 of a number
-fn clog2(x: usize) -> u32 {
-    usize::BITS - x.leading_zeros()
-}
-
-// Timing constants for delay/cost calculations
-const DEFAULT_REGISTER_DELAY: f64 = 10.0;
-
+/// Trait for types that have an associated transition.
 pub trait HasTransition {
+    /// Returns a reference to the associated transition.
     fn transition(&self) -> &Transition;
 }
 
+/// Trait for types that have a name.
+///
+/// Implemented automatically for types that implement [`HasCircuitNode`],
+/// since circuit nodes provide names.
 pub trait Named {
+    /// Returns a reference to the name of this element.
     fn name(&self) -> &Symbol;
 }
 
+/// Trait for types that reference a circuit node.
+///
+/// Circuit nodes represent physical elements in the structural circuit graph.
 pub trait HasCircuitNode {
+    /// Returns a reference to the associated circuit node.
     fn circuit_node(&self) -> &CircuitNode;
 }
 
-#[allow(dead_code)]
+/// Represents a delay pair with optional minimum and maximum delay constraints.
+///
+/// This type is used throughout the HBCN constraint generation process to specify
+/// timing requirements on paths between circuit nodes.
+///
+/// # Fields
+///
+/// - `min`: Optional minimum delay constraint (in time units)
+/// - `max`: Optional maximum delay constraint (in time units)
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::DelayPair;
+///
+/// // Path with both min and max delays
+/// let constraint = DelayPair {
+///     min: Some(1.0),
+///     max: Some(8.5),
+/// };
+///
+/// // Path with only max delay
+/// let max_only = DelayPair {
+///     min: None,
+///     max: Some(10.0),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
+pub struct DelayPair {
+    /// Optional minimum delay constraint.
+    pub min: Option<f64>,
+    /// Optional maximum delay constraint.
+    pub max: Option<f64>,
+}
+
+impl DelayPair {
+    /// Create a new delay pair with the specified min and max values.
+    pub fn new(min: Option<f64>, max: Option<f64>) -> Self {
+        Self { min, max }
+    }
+}
+
+/// Simplified representation of a circuit node for HBCN operations.
+///
+/// This is a simplified version of the structural graph's `CircuitNode` that removes
+/// the cost field (which is only needed during structural graph construction). This
+/// type is used throughout HBCN analysis and constraint generation.
+///
+/// # Variants
+///
+/// - **`Port(Symbol)`**: An external interface port (input or output)
+/// - **`Register { name: Symbol }`**: A register component
+///
+/// # Conversion
+///
+/// This type can be created from a structural graph `CircuitNode` using the
+/// `From` trait implementation, which discards the cost information.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::CircuitNode;
+/// use string_cache::DefaultAtom;
+///
+/// let port = CircuitNode::Port(DefaultAtom::from("input"));
+/// let register = CircuitNode::Register {
+///     name: DefaultAtom::from("reg1"),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum CircuitNode {
+    /// External interface port.
+    Port(Symbol),
+    /// Register component.
+    Register {
+        /// Register name/identifier.
+        name: Symbol,
+    },
+}
+
+impl From<StructuralCircuitNode> for CircuitNode {
+    fn from(node: StructuralCircuitNode) -> Self {
+        match node {
+            StructuralCircuitNode::Port(name) => CircuitNode::Port(name),
+            StructuralCircuitNode::Register { name, .. } => CircuitNode::Register { name },
+        }
+    }
+}
+
+impl Named for CircuitNode {
+    fn name(&self) -> &Symbol {
+        match self {
+            CircuitNode::Port(name) => name,
+            CircuitNode::Register { name } => name,
+        }
+    }
+}
+
+impl fmt::Display for CircuitNode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            CircuitNode::Port(name) => write!(f, "Port \"{}\"", name),
+            CircuitNode::Register { name } => write!(f, "Register \"{}\"", name),
+        }
+    }
+}
+
+/// Trait for types that have an associated time value.
 pub trait TimedEvent {
+    /// Returns the time value associated with this event.
     fn time(&self) -> f64;
 }
 
@@ -47,9 +241,40 @@ impl<T: HasCircuitNode> Named for T {
     }
 }
 
+/// Represents a transition event at a circuit node in the HBCN.
+///
+/// Transitions are the fundamental events in half-buffer channel networks. They represent
+/// either data propagation or spacer/null propagation through a circuit node. The alternation
+/// between data and spacer transitions ensures proper handshaking protocol behavior.
+///
+/// # Variants
+///
+/// - **`Data`**: A data transition, representing the transmission of actual data through
+///   the circuit node. This corresponds to the data phase of the handshaking protocol.
+///
+/// - **`Spacer`**: A spacer (null) transition, representing the return-to-zero or null
+///   phase that prepares the channel for the next data transmission. This corresponds to
+///   the acknowledgment/return phase of the handshaking protocol.
+///
+/// Each variant contains a [`CircuitNode`] that identifies the physical location in the
+/// circuit where this transition occurs.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::{Transition, CircuitNode};
+/// use string_cache::DefaultAtom;
+///
+/// let node = CircuitNode::Port(DefaultAtom::from("input"));
+///
+/// let data_transition = Transition::Data(node.clone());
+/// let spacer_transition = Transition::Spacer(node);
+/// ```
 #[derive(PartialEq, Eq, Debug, Clone, PartialOrd, Ord)]
 pub enum Transition {
+    /// Spacer/null transition at a circuit node.
     Spacer(CircuitNode),
+    /// Data transition at a circuit node.
     Data(CircuitNode),
 }
 
@@ -71,32 +296,81 @@ impl fmt::Display for Transition {
     }
 }
 
+/// Represents a place (edge) in the HBCN graph.
+///
+/// Places model timing dependencies between transitions in the HBCN. They represent
+/// the channels and synchronization points in the asynchronous circuit, capturing the
+/// timing relationships needed for correct handshaking behavior.
+///
+/// # Fields
+///
+/// - **`backward`**: Whether this place is in the backward (acknowledgment) direction.
+///   - `false`: Forward place (data flow direction)
+///   - `true`: Backward place (acknowledgment/return direction)
+///
+/// - **`token`**: Whether this place initially contains a token. Tokens represent the
+///   initial state of the place in the handshaking protocol and affect the initial marking
+///   of the HBCN graph.
+///
+/// - **`weight`**: The delay or cost associated with traversing this place. In timing
+///   analysis, this represents the minimum time required for a transition to propagate
+///   through this place.
+///
+/// - **`is_internal`**: Whether this place represents an internal connection (between
+///   internal circuit components) versus an external channel.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::Place;
+///
+/// let forward_place = Place {
+///     backward: false,
+///     token: true,
+///     weight: 10.0,
+///     is_internal: false,
+/// };
+/// ```
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Place {
+    /// Whether this place is in the backward direction.
     pub backward: bool,
+    /// Whether this place initially contains a token.
     pub token: bool,
+    /// The delay/cost weight of this place.
     pub weight: f64,
+    /// Whether this place represents an internal connection.
     pub is_internal: bool,
-    pub relative_endpoints: HashSet<NodeIndex>,
 }
 
-#[allow(dead_code)]
+/// Trait for places that can be marked or unmarked (token state).
 pub trait MarkablePlace {
+    /// Mark or unmark this place (set token state).
     fn mark(&mut self, mark: bool);
+    /// Check if this place is marked (has a token).
     fn is_marked(&self) -> bool;
 }
 
+/// Trait for places that have a computed slack value.
+///
+/// Slack represents the difference between required arrival time and actual arrival time,
+/// indicating how much timing margin exists for this place.
 pub trait SlackablePlace {
+    /// Returns the slack value for this place.
     fn slack(&self) -> f64;
 }
 
+/// Trait for places that have a weight/delay value.
 pub trait WeightedPlace {
+    /// Returns the weight (delay/cost) of this place.
     fn weight(&self) -> f64;
 }
 
-#[allow(dead_code)]
+/// Trait for types that contain or are a place.
 pub trait HasPlace {
+    /// Returns a reference to the place.
     fn place(&self) -> &Place;
+    /// Returns a mutable reference to the place.
     fn place_mut(&mut self) -> &mut Place;
 }
 
@@ -126,127 +400,40 @@ impl<P: HasPlace> MarkablePlace for P {
     }
 }
 
-pub type StructuralHBCN = StableGraph<Transition, Place>;
+/// Generic HBCN graph type parameterized by node and edge types.
+///
+/// The HBCN is implemented as a stable graph from the `petgraph` crate, which provides
+/// efficient graph operations while maintaining stable node indices even after graph modifications.
+pub type HBCN<T, P> = StableGraph<T, P>;
 
-pub fn from_structural_graph(
-    g: &StructuralGraph,
-    forward_completion: bool,
-) -> Option<StructuralHBCN> {
-    let mut ret = StructuralHBCN::new();
-    struct VertexItem {
-        token: NodeIndex,
-        spacer: NodeIndex,
-        backward_cost: f64,
-        forward_cost: f64,
-        base_cost: f64,
-    }
-    let vertice_map: HashMap<NodeIndex, VertexItem> = g
-        .node_indices()
-        .map(|ix| {
-            let val = &g[ix];
-            let token = ret.add_node(Transition::Data(val.clone()));
-            let spacer = ret.add_node(Transition::Spacer(val.clone()));
-            let base_cost = val.base_cost() as f64;
-            let backward_cost = DEFAULT_REGISTER_DELAY
-                * clog2(g.edges_directed(ix, Direction::Outgoing).count()) as f64;
-            let forward_cost = DEFAULT_REGISTER_DELAY
-                * clog2(g.edges_directed(ix, Direction::Incoming).count()) as f64;
-            (
-                ix,
-                VertexItem {
-                    token,
-                    spacer,
-                    backward_cost,
-                    forward_cost,
-                    base_cost,
-                },
-            )
-        })
-        .collect();
+/// Structural HBCN representation before timing analysis.
+///
+/// This is the initial HBCN structure created from a structural graph. Nodes are [`Transition`]s
+/// and edges are [`Place`]s. This representation captures the circuit structure and topology
+/// but does not yet contain computed timing information.
+pub type StructuralHBCN = HBCN<Transition, Place>;
 
-    for ix in g.edge_indices() {
-        let Channel { is_internal, .. } = g[ix];
+/// Solved HBCN representation after timing analysis.
+///
+/// This is the HBCN after timing constraints have been computed. Nodes are [`TransitionEvent`]s
+/// (transitions with timing information) and edges are [`DelayedPlace`]s (places with computed
+/// delays and slack values). This representation is produced by constraint generation algorithms
+/// and used for generating timing constraint outputs.
+pub type SolvedHBCN = HBCN<TransitionEvent, DelayedPlace>;
 
-        let (ref src, ref dst) = g.edge_endpoints(ix)?;
-        let VertexItem {
-            token: src_token,
-            spacer: src_spacer,
-            backward_cost,
-            base_cost: src_base_cost,
-            ..
-        } = vertice_map.get(src)?;
-        let VertexItem {
-            token: dst_token,
-            spacer: dst_spacer,
-            forward_cost,
-            base_cost: dst_base_cost,
-            ..
-        } = vertice_map.get(dst)?;
-        let Channel {
-            initial_phase,
-            virtual_delay,
-            ..
-        } = g[ix];
-
-        let forward_cost = if forward_completion {
-            virtual_delay.max(*forward_cost + *src_base_cost)
-        } else {
-            virtual_delay
-        };
-        let backward_cost = *backward_cost + *dst_base_cost;
-
-        ret.add_edge(
-            *src_token,
-            *dst_token,
-            Place {
-                backward: false,
-                token: initial_phase == ChannelPhase::ReqData,
-                relative_endpoints: HashSet::new(),
-                weight: forward_cost,
-                is_internal,
-            },
-        );
-        ret.add_edge(
-            *src_spacer,
-            *dst_spacer,
-            Place {
-                backward: false,
-                token: initial_phase == ChannelPhase::ReqNull,
-                relative_endpoints: HashSet::new(),
-                weight: forward_cost,
-                is_internal,
-            },
-        );
-        ret.add_edge(
-            *dst_token,
-            *src_spacer,
-            Place {
-                backward: true,
-                token: initial_phase == ChannelPhase::AckData,
-                relative_endpoints: HashSet::new(),
-                weight: backward_cost,
-                is_internal,
-            },
-        );
-        ret.add_edge(
-            *dst_spacer,
-            *src_token,
-            Place {
-                backward: true,
-                token: initial_phase == ChannelPhase::AckNull,
-                relative_endpoints: HashSet::new(),
-                weight: backward_cost,
-                is_internal,
-            },
-        );
-    }
-
-    Some(ret)
-}
-
+/// A transition event with associated timing information.
+///
+/// This represents a transition that has been assigned a time value during timing analysis.
+/// The `time` field indicates when this transition occurs in the circuit's timing schedule,
+/// while `transition` identifies what type of transition (data or spacer) occurs at which
+/// circuit node.
+///
+/// `TransitionEvent` is used in [`SolvedHBCN`] to represent transitions with resolved timing.
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct TransitionEvent {
+    /// The time at which this transition occurs.
     pub time: f64,
+    /// The underlying transition (data or spacer).
     pub transition: Transition,
 }
 
@@ -262,10 +449,48 @@ impl TimedEvent for TransitionEvent {
     }
 }
 
+/// A place with computed delay constraints and slack information.
+///
+/// This represents a place after timing analysis has determined the delay constraints
+/// required to meet the cycle time requirements. The `delay` field contains the computed
+/// min/max delay values, while `slack` optionally contains the timing slack for this place.
+///
+/// `DelayedPlace` is used in [`SolvedHBCN`] to represent places with resolved timing constraints.
+///
+/// # Weight Calculation
+///
+/// When computing weights, `DelayedPlace` uses the maximum delay from `delay.max` if available,
+/// otherwise it falls back to the base `place.weight`. This ensures that computed delay constraints
+/// take precedence over initial weight estimates.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::{DelayedPlace, Place, DelayPair};
+///
+/// let place = Place {
+///     backward: false,
+///     token: true,
+///     weight: 10.0,
+///     is_internal: false,
+/// };
+///
+/// let delayed_place = DelayedPlace {
+///     place,
+///     delay: DelayPair {
+///         min: Some(1.0),
+///         max: Some(8.5),
+///     },
+///     slack: Some(1.5),
+/// };
+/// ```
 #[derive(Debug, Clone, Default)]
 pub struct DelayedPlace {
+    /// The underlying place structure.
     pub place: Place,
+    /// Computed delay constraints (min and/or max delay values).
     pub delay: DelayPair,
+    /// Optional timing slack for this place.
     pub slack: Option<f64>,
 }
 
@@ -288,315 +513,5 @@ impl HasPlace for DelayedPlace {
 impl SlackablePlace for DelayedPlace {
     fn slack(&self) -> f64 {
         self.slack.unwrap_or(0.0)
-    }
-}
-
-pub type TimedHBCN<T> = StableGraph<TransitionEvent, T>;
-
-pub type DelayedHBCN = TimedHBCN<DelayedPlace>;
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::structural_graph::parse;
-    #[test]
-    fn test_simple_two_node_conversion() {
-        // Test basic conversion with two connected nodes
-        let input = r#"
-            Port "input" [("output", 100)]
-            Port "output" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Should have 4 nodes: Data and Spacer transitions for each original node
-        assert_eq!(hbcn.node_count(), 4);
-
-        // Should have 4 edges: forward and backward places for the connection
-        assert_eq!(hbcn.edge_count(), 4);
-
-        // Verify node types exist
-        let nodes: Vec<_> = hbcn.node_indices().map(|i| &hbcn[i]).collect();
-        assert_eq!(nodes.len(), 4);
-
-        // Count Data and Spacer transitions
-        let data_count = nodes
-            .iter()
-            .filter(|n| matches!(n, Transition::Data(_)))
-            .count();
-        let spacer_count = nodes
-            .iter()
-            .filter(|n| matches!(n, Transition::Spacer(_)))
-            .count();
-        assert_eq!(data_count, 2);
-        assert_eq!(spacer_count, 2);
-    }
-
-    #[test]
-    fn test_data_register_conversion() {
-        // Test conversion with DataReg which has internal structure
-        let input = r#"
-            Port "input" [("reg", 50)]
-            DataReg "reg" [("output", 75)]
-            Port "output" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Should have 10 nodes: Data and Spacer for each of the 5 circuit nodes
-        // (input port, reg data, reg control, reg output, output port)
-        assert_eq!(hbcn.node_count(), 10);
-
-        // Should have 16 edges: each channel creates 4 places
-        // 4 edges per channel, 4 channels total
-        assert_eq!(hbcn.edge_count(), 16);
-    }
-
-    #[test]
-    fn test_transition_properties() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Check that transitions have correct circuit node references
-        for node_idx in hbcn.node_indices() {
-            let transition = &hbcn[node_idx];
-            match transition {
-                Transition::Data(node) | Transition::Spacer(node) => {
-                    assert!(node.name().as_ref() == "a" || node.name().as_ref() == "b");
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_place_properties() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Check place properties
-        let mut forward_places = 0;
-        let mut backward_places = 0;
-
-        for edge_idx in hbcn.edge_indices() {
-            let place = &hbcn[edge_idx];
-
-            // Weight should be positive
-            assert!(place.weight >= 0.0);
-
-            // Count forward and backward places
-            if place.backward {
-                backward_places += 1;
-            } else {
-                forward_places += 1;
-            }
-
-            // relative_endpoints should be initialised
-            assert!(place.relative_endpoints.is_empty()); // Should be empty since reflexive paths are removed
-        }
-
-        // For this simple two-port graph, we should have equal numbers of forward and backward places
-        // Each channel creates 2 forward places (token->token, spacer->spacer) and 2 backward places (token->spacer, spacer->token)
-        assert_eq!(
-            forward_places, backward_places,
-            "Forward and backward places should be equal in a simple chain"
-        );
-    }
-
-    #[test]
-    fn test_forward_completion_disabled() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Check that weights are based on virtual_delay when forward_completion=false
-        let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
-        for place in places {
-            if !place.backward {
-                // Forward places should use virtual_delay (100 in this case)
-                assert_eq!(place.weight, 100.0);
-            }
-        }
-    }
-
-    #[test]
-    fn test_forward_completion_enabled() {
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, true)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // With forward_completion=true, weights should consider forward costs
-        let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
-        assert!(!places.is_empty());
-
-        // Should still produce valid HBCN
-        assert!(hbcn.node_count() > 0);
-        assert!(hbcn.edge_count() > 0);
-    }
-
-    #[test]
-    fn test_complex_graph_conversion() {
-        let input = r#"
-            Port "input" [("reg1", 10), ("reg2", 20)]
-            DataReg "reg1" [("output", 50)]
-            DataReg "reg2" [("output", 60)]
-            Port "output" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Should handle multiple connections properly
-        assert!(hbcn.node_count() > 4); // More nodes due to DataReg internal structure
-        assert!(hbcn.edge_count() > 8); // More edges due to multiple connections
-
-        // All transitions should be valid
-        for node_idx in hbcn.node_indices() {
-            let transition = &hbcn[node_idx];
-            match transition {
-                Transition::Data(node) | Transition::Spacer(node) => {
-                    assert!(!node.name().as_ref().is_empty());
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn test_channel_phases() {
-        // Test that different channel phases are handled correctly
-        let input = r#"
-            Port "a" [("b", 100)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Check that token markings are set according to channel phases
-        let mut req_data_count = 0;
-        let mut req_null_count = 0;
-        let mut ack_data_count = 0;
-        let mut ack_null_count = 0;
-
-        for edge_idx in hbcn.edge_indices() {
-            let place = &hbcn[edge_idx];
-            if place.token {
-                if place.backward {
-                    ack_data_count += 1;
-                } else {
-                    req_data_count += 1;
-                }
-            } else if place.backward {
-                ack_null_count += 1;
-            } else {
-                req_null_count += 1;
-            }
-        }
-
-        // Should have balanced counts based on the protocol
-        assert_eq!(
-            req_data_count + req_null_count + ack_data_count + ack_null_count,
-            hbcn.edge_count()
-        );
-    }
-
-    #[test]
-    fn test_weight_calculations() {
-        let input = r#"
-            Port "a" [("b", 150)]
-            Port "b" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Check weight calculations
-        for edge_idx in hbcn.edge_indices() {
-            let place = &hbcn[edge_idx];
-            assert!(place.weight >= 0.0, "Weight should be non-negative");
-
-            if !place.backward {
-                // Forward places should have weight based on virtual_delay
-                assert_eq!(place.weight, 150.0);
-            } else {
-                // Backward places should include register delays
-                assert!(place.weight >= DEFAULT_REGISTER_DELAY);
-            }
-        }
-    }
-
-    #[test]
-    fn test_empty_graph() {
-        // Test edge case with minimal graph
-        let input = r#"
-            Port "single" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Should have 2 nodes (Data and Spacer for the single port) and no edges
-        assert_eq!(hbcn.node_count(), 2);
-        assert_eq!(hbcn.edge_count(), 0);
-    }
-
-    #[test]
-    fn test_register_types() {
-        // Test conversion with different register types
-        let input = r#"
-            Port "input" [("null_reg", 100)]
-            NullReg "null_reg" [("control_reg", 200)]
-            ControlReg "control_reg" [("unsafe_reg", 300)]
-            UnsafeReg "unsafe_reg" [("output", 400)]
-            Port "output" []
-        "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
-
-        // Should successfully convert all register types
-        assert!(hbcn.node_count() > 0);
-        assert!(hbcn.edge_count() > 0);
-
-        // Verify all transitions have valid circuit nodes
-        for node_idx in hbcn.node_indices() {
-            let transition = &hbcn[node_idx];
-            match transition {
-                Transition::Data(node) | Transition::Spacer(node) => {
-                    // All nodes should have valid names
-                    assert!(!node.name().as_ref().is_empty());
-                }
-            }
-        }
     }
 }

@@ -1,3 +1,25 @@
+//! HBCN analysis algorithms for cycle time computation and critical cycle detection.
+//!
+//! This module provides core algorithms for analyzing the timing behavior of HBCN circuits:
+//!
+//! - **Cycle time computation**: Uses linear programming to determine optimal cycle times
+//! - **Critical cycle detection**: Identifies cycles with minimal slack using shortest path algorithms
+//!
+//! # Algorithms
+//!
+//! ## Cycle Time Computation
+//!
+//! The [`compute_cycle_time`] function formulates the cycle time problem as a linear program:
+//! - Variables: Arrival times for each transition
+//! - Constraints: Timing relationships based on place weights and token markings
+//! - Objective: Minimize or maximize cycle time (depending on weighted flag)
+//!
+//! ## Critical Cycle Detection
+//!
+//! The [`find_critical_cycles`] function uses a modified Bellman-Ford algorithm to find
+//! cycles that include marked places (tokens). These cycles represent critical paths
+//! through the circuit.
+
 use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
@@ -9,17 +31,47 @@ use petgraph::{
 use rayon::prelude::*;
 
 use crate::{
-    AppError,
-    constrain::hbcn::DelayPair,
-    constraint,
+    AppError, Transition, WeightedPlace, constraint,
     hbcn::{
-        DelayedHBCN, DelayedPlace, MarkablePlace, SlackablePlace, StructuralHBCN, TransitionEvent,
+        DelayPair, DelayedPlace, HasPlace, MarkablePlace, SlackablePlace, SolvedHBCN,
+        TransitionEvent,
     },
     lp_model_builder,
     lp_solver::{OptimizationSense, OptimizationStatus, VariableId, VariableType},
 };
 
-/// Find critical cycles in an HBCN graph
+/// Find critical cycles in an HBCN graph.
+///
+/// Critical cycles are cycles that contain at least one marked place (token).
+/// These cycles are important because they represent paths that can limit the
+/// overall cycle time of the circuit.
+///
+/// The algorithm:
+/// 1. Filters the graph to only include marked places
+/// 2. Uses parallel Bellman-Ford shortest path algorithms from start points
+/// 3. Reconstructs cycles from loop-breaking edges back to start points
+///
+/// # Arguments
+///
+/// * `hbcn` - The solved HBCN graph (must have computed slack values)
+///
+/// # Returns
+///
+/// A vector of cycles, where each cycle is represented as a vector of (source, destination)
+/// node index pairs.
+///
+/// # Example
+///
+/// ```no_run
+/// use hbcn::analyse::hbcn::find_critical_cycles;
+/// use hbcn::hbcn::SolvedHBCN;
+/// # let solved_hbcn = SolvedHBCN::default(); // Example only
+///
+/// let cycles = find_critical_cycles(&solved_hbcn);
+/// for cycle in cycles {
+///     println!("Found critical cycle with {} transitions", cycle.len());
+/// }
+/// ```
 pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
     hbcn: &StableGraph<N, P>,
 ) -> Vec<Vec<(NodeIndex, NodeIndex)>> {
@@ -85,8 +137,44 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
     paths
 }
 
-/// Compute cycle time for an HBCN using linear programming
-pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64, DelayedHBCN)> {
+/// Compute cycle time for an HBCN using linear programming.
+///
+/// This function formulates the cycle time problem as a linear programming problem
+/// and solves it to find the optimal cycle time. The problem considers:
+///
+/// - Place weights (delays) between transitions
+/// - Token markings (which places are initially marked)
+/// - Timing constraints ensuring proper handshaking
+///
+/// # Arguments
+///
+/// * `hbcn` - The structural HBCN graph to analyze
+/// * `weighted` - If `true`, uses weighted cycle time (considers delays).
+///                If `false`, uses unweighted cycle time (counts transitions only).
+///
+/// # Returns
+///
+/// A tuple containing:
+/// 1. The computed cycle time
+/// 2. A solved HBCN with timing information and slack values
+///
+/// # Example
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hbcn::analyse::hbcn::compute_cycle_time;
+/// use hbcn::hbcn::StructuralHBCN;
+/// # let hbcn = StructuralHBCN::default(); // Example only
+///
+/// let (cycle_time, solved_hbcn) = compute_cycle_time(&hbcn, true)?;
+/// println!("Optimal cycle time: {}", cycle_time);
+/// # Ok(())
+/// # }
+/// ```
+pub fn compute_cycle_time<P: WeightedPlace + MarkablePlace + HasPlace>(
+    hbcn: &StableGraph<Transition, P>,
+    weighted: bool,
+) -> Result<(f64, SolvedHBCN)> {
     let mut builder = lp_model_builder!();
     let cycle_time = builder.add_variable(VariableType::Integer, 0.0, f64::INFINITY);
 
@@ -111,11 +199,11 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
             let delay = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
-            let weight_value = if weighted { place.weight } else { 1.0 };
+            let weight_value = if weighted { place.weight() } else { 1.0 };
             builder.add_constraint(constraint!((delay - slack) == weight_value));
 
             // Constraint: arr_var[dst] - arr_var[src] - delay + (if place.token { 1.0 } else { 0.0 }) * cycle_time = 0.0
-            if place.token {
+            if place.is_marked() {
                 builder.add_constraint(constraint!(
                     (arr_var[dst] - arr_var[src] - delay + cycle_time) == 0.0
                 ));
@@ -145,7 +233,7 @@ pub fn compute_cycle_time(hbcn: &StructuralHBCN, weighted: bool) -> Result<(f64,
                 |ie, e| {
                     let (delay_var, slack_var) = &delay_slack_var[&ie];
                     Some(DelayedPlace {
-                        place: e.clone(),
+                        place: e.place().clone(),
                         delay: DelayPair {
                             min: None,
                             max: solution.get_value(*delay_var),
@@ -163,6 +251,7 @@ mod tests {
     use super::*;
     use crate::hbcn::{TimedEvent, from_structural_graph};
     use crate::structural_graph::parse;
+    use crate::Named;
 
     #[test]
     fn test_critical_cycle_detection() {

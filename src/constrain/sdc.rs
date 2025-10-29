@@ -1,7 +1,9 @@
-use crate::{constrain::hbcn::PathConstraints, structural_graph::CircuitNode};
+use crate::{constrain::hbcn::PathConstraints};
 use lazy_static::*;
 use regex::Regex;
 use std::io::{self, Write};
+
+use crate::hbcn::CircuitNode;
 
 fn port_wildcard(s: &str) -> String {
     lazy_static! {
@@ -43,7 +45,7 @@ fn dst_rails(s: &CircuitNode) -> String {
                 port_instance(name),
             )
         }
-        CircuitNode::Register { name, .. } => format!(
+        CircuitNode::Register { name } => format!(
             "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == in}}]",
             name
         ),
@@ -58,13 +60,45 @@ fn src_rails(s: &CircuitNode) -> String {
                 port_wildcard(name),
             )
         }
-        CircuitNode::Register { name, .. } => format!(
+        CircuitNode::Register { name } => format!(
             "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == out}}]",
             name
         ),
     }
 }
 
+/// Write SDC timing constraints to a writer.
+///
+/// This function generates SDC format constraints for all paths in the path constraints
+/// map. It creates `set_min_delay` and `set_max_delay` commands with proper `-through`
+/// clauses that reference the source and destination circuit nodes.
+///
+/// # Arguments
+///
+/// * `writer` - Output writer for the SDC file
+/// * `paths` - Map of (source, destination) pairs to delay constraints
+/// * `pseudoclock_period` - The pseudo-clock period (used to filter max delays equal to the clock)
+///
+/// # Returns
+///
+/// Returns `Ok(())` on success, or an I/O error if writing fails.
+///
+/// # Example
+///
+/// ```no_run
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use hbcn::constrain::sdc::write_path_constraints;
+/// use std::collections::HashMap;
+/// use std::io::BufWriter;
+/// use std::fs::File;
+/// use hbcn::hbcn::{DelayPair, CircuitNode};
+/// # let path_constraints: std::collections::HashMap<(CircuitNode, CircuitNode), DelayPair> = HashMap::new();
+///
+/// let mut writer = BufWriter::new(File::create("constraints.sdc")?);
+/// write_path_constraints(&mut writer, &path_constraints, 10.0)?;
+/// # Ok(())
+/// # }
+/// ```
 pub fn write_path_constraints(
     writer: &mut dyn Write,
     paths: &PathConstraints,
@@ -100,8 +134,8 @@ pub fn write_path_constraints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::constrain::hbcn::DelayPair;
-    use crate::structural_graph::CircuitNode;
+    use crate::hbcn::DelayPair;
+    use crate::hbcn::CircuitNode;
     use std::collections::HashMap;
     use std::io::Cursor;
     use string_cache::DefaultAtom;
@@ -142,7 +176,6 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("clk")),
                 CircuitNode::Register {
                     name: DefaultAtom::from("reg1"),
-                    cost: 10,
                 },
             ),
             DelayPair {
@@ -217,7 +250,6 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("clk")),
                 CircuitNode::Register {
                     name: DefaultAtom::from("counter"),
-                    cost: 20,
                 },
             ),
             DelayPair {
