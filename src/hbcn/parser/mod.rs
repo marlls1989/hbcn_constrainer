@@ -41,10 +41,10 @@ use petgraph::graph::NodeIndex;
 /// use hbcn::hbcn::parser::parse_hbcn;
 ///
 /// let input = r#"
-///     * +{"port:in"} => +{"reg1"} : (1.0, 2.0)
-///     +{"reg1"} => -{"port:in"} : (0.5, 1.5)
-///     -{"port:in"} => -{"reg1"} : (0.5, 1.0)
-///     -{"reg1"} => +{"port:in"} : (0.0, 1.0)
+///     * +{port:in} => +{reg1} : (1.0, 2.0)
+///     +{reg1} => -{port:in} : (0.5, 1.5)
+///     -{port:in} => -{reg1} : (0.5, 1.0)
+///     -{reg1} => +{port:in} : (0.0, 1.0)
 /// "#;
 ///
 /// let hbcn = parse_hbcn(input).unwrap();
@@ -151,10 +151,10 @@ mod tests {
         
         // Channel from port:a to reg1
         let input = r#"
-            * +{"port:a"} => +{"reg1"} : (1.0, 2.0)
-            +{"reg1"} => -{"port:a"} : (0.5, 1.5)
-            -{"port:a"} => -{"reg1"} : (0.5, 1.0)
-            -{"reg1"} => +{"port:a"} : (0.0, 1.0)
+            * +{port:a} => +{reg1} : (1.0, 2.0)
+            +{reg1} => -{port:a} : (0.5, 1.5)
+            -{port:a} => -{reg1} : (0.5, 1.0)
+            -{reg1} => +{port:a} : (0.0, 1.0)
         "#;
         let result = parse_hbcn(input);
         if let Err(e) = &result {
@@ -168,10 +168,10 @@ mod tests {
         // Test parsing HBCN with token markers
         // Channel from a to b with token on Data(a) -> Data(b)
         let input = r#"
-            * +{"a"} => +{"b"} : (1.0, 2.0)
-            +{"b"} => -{"a"} : (0.5, 1.5)
-            -{"a"} => -{"b"} : (0.5, 1.0)
-            -{"b"} => +{"a"} : (0.0, 1.0)
+            * +{a} => +{b} : (1.0, 2.0)
+            +{b} => -{a} : (0.5, 1.5)
+            -{a} => -{b} : (0.5, 1.0)
+            -{b} => +{a} : (0.0, 1.0)
         "#;
         let result = parse_hbcn(input);
         if let Err(e) = &result {
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn parse_single_edge_without_token() {
-        let input = r#"+{"a"} => -{"b"} : (1,2)"#;
+        let input = r#"+{a} => -{b} : (1,2)"#;
         let list = super::parser::AdjencyListParser::new()
             .parse(input)
             .expect("should parse single edge");
@@ -223,7 +223,7 @@ mod tests {
 
     #[test]
     fn parse_single_edge_with_token() {
-        let input = r#"* -{"x"} => +{"y"} : 3.5"#;
+        let input = r#"* -{x} => +{y} : 3.5"#;
         let list = super::parser::AdjencyListParser::new()
             .parse(input)
             .expect("should parse token edge");
@@ -245,9 +245,9 @@ mod tests {
     #[test]
     fn parse_multiple_edges_and_delay_variants() {
         let input = r#"
-            +{"n1"} => +{"n2"} : (0.5,0.0)
-            -{"n2"} => -{"n3"} : 0.0 
-            * +{"n3"} => -{"n1"} : (2,4.25)
+            +{n1} => +{n2} : (0.5,0.0)
+            -{n2} => -{n3} : 0.0 
+            * +{n3} => -{n1} : (2,4.25)
         "#;
         let list = super::parser::AdjencyListParser::new()
             .parse(input)
@@ -273,8 +273,8 @@ mod tests {
     #[test]
     fn parse_floating_and_integer_numbers() {
         let input = r#"
-            +{"a"} => +{"b"} : (10,20.75)
-            -{"b"} => +{"c"} : (1.25,2)
+            +{a} => +{b} : (10,20.75)
+            -{b} => +{c} : (1.25,2)
         "#;
         let list = super::parser::AdjencyListParser::new()
             .parse(input)
@@ -297,6 +297,28 @@ mod tests {
             super::ast::Transition::Spacer(s) => ('-', s.as_ref().to_string()),
         };
         (sk, sn, tk, tn, e.delay.min, e.delay.max, e.token)
+    }
+
+    #[test]
+    fn parse_node_with_escaped_braces() {
+        // Test parsing nodes with TCL-style escaped braces
+        let input = r#"+{node\{with\}} => -{other\{name\}} : (1,2)"#;
+        let list = super::parser::AdjencyListParser::new()
+            .parse(input)
+            .expect("should parse node with escaped braces");
+        assert_eq!(list.len(), 1);
+        let e = &list[0];
+
+        match &e.source {
+            ast::Transition::Data(sym) => assert_eq!(sym.as_ref(), "node{with}"),
+            _ => panic!("expected Data transition for source"),
+        }
+        match &e.target {
+            ast::Transition::Spacer(sym) => assert_eq!(sym.as_ref(), "other{name}"),
+            _ => panic!("expected Spacer transition for target"),
+        }
+        assert_eq!(e.delay, DelayPair { min: Some(1.0), max: 2.0 });
+        assert!(!e.token);
     }
 
     #[test]
@@ -376,6 +398,42 @@ mod tests {
 
             assert_eq!((sk, sn, tk, tn), (gsk, gsn, gtk, gtn));
             assert_eq!((min, max, token), (e.delay.min, e.delay.max, e.is_marked()));
+        }
+    }
+
+    #[test]
+    fn serialize_and_parse_round_trip_with_braces_in_name() {
+        // Test that nodes with braces in their names are properly escaped/unescaped
+        use crate::hbcn::{CircuitNode, Transition, Place, DelayedPlace, DelayPair};
+        use petgraph::stable_graph::StableGraph;
+        use string_cache::DefaultAtom;
+
+        let mut hbcn: StableGraph<Transition, DelayedPlace> = StableGraph::new();
+        
+        // Create nodes with braces in names
+        let n1 = hbcn.add_node(Transition::Data(CircuitNode::Port(DefaultAtom::from("node{with}"))));
+        let n2 = hbcn.add_node(Transition::Spacer(CircuitNode::Register(DefaultAtom::from("other{name}"))));
+        
+        hbcn.add_edge(n1, n2, DelayedPlace {
+            place: Place { backward: false, token: false, is_internal: false },
+            delay: DelayPair { min: Some(1.0), max: 2.0 },
+            slack: None,
+        });
+
+        // Serialize and parse back
+        let text = serialize_hbcn_transition(&hbcn);
+        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+
+        assert_eq!(parsed.len(), 1);
+        let e = &parsed[0];
+        
+        match &e.source {
+            ast::Transition::Data(sym) => assert_eq!(sym.as_ref(), "node{with}"),
+            _ => panic!("expected Data transition"),
+        }
+        match &e.target {
+            ast::Transition::Spacer(sym) => assert_eq!(sym.as_ref(), "other{name}"),
+            _ => panic!("expected Spacer transition"),
         }
     }
 }

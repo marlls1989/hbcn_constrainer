@@ -30,7 +30,7 @@ where
 ///
 /// The output format matches the parser grammar:
 /// - Edges: `source => target : delay` or `* source => target : delay` (if token is marked)
-/// - Transitions: `+{"name"}` for Data, `-{"name"}` for Spacer
+/// - Transitions: `+{name}` for Data, `-{name}` for Spacer (TCL-escaped strings)
 /// - DelayPair: `(min, max)` when min is present, or `max` when min is absent
 ///
 /// # Arguments
@@ -144,10 +144,16 @@ fn write_transition<T: AsRef<Transition>, W: fmt::Write>(transition: T, writer: 
     let t = transition.as_ref();
     match t {
         Transition::Data(circuit_node) => {
-            write!(writer, "+{{\"{}\"}}", circuit_node.name().as_ref())
+            let name = circuit_node.name().as_ref();
+            // Escape braces in TCL-style: { -> \{, } -> \}
+            let escaped = name.replace('{', "\\{").replace('}', "\\}");
+            write!(writer, "+{{{}}}", escaped)
         }
         Transition::Spacer(circuit_node) => {
-            write!(writer, "-{{\"{}\"}}", circuit_node.name().as_ref())
+            let name = circuit_node.name().as_ref();
+            // Escape braces in TCL-style: { -> \{, } -> \}
+            let escaped = name.replace('{', "\\{").replace('}', "\\}");
+            write!(writer, "-{{{}}}", escaped)
         }
     }
 }

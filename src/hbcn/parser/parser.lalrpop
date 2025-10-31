@@ -24,7 +24,12 @@ Delay: DelayPair = {
 }
 
 Node: Symbol = {
-    "{" <node:Str> "}" => node,
+    <s:r#"\{(?:\\[{}]|[^}])*\}"#> => {
+        let content = &s[1 .. s.len()-1];
+        // Unescape TCL-style braces: \{ -> {, \} -> }
+        let unescaped = content.replace("\\{", "{").replace("\\}", "}");
+        Symbol::from(unescaped)
+    },
 }
 
 Str: Symbol = {

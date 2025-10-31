@@ -145,8 +145,7 @@ pub struct DelayPair {
 impl DelayPair {
     /// Create a new delay pair with the specified min and max values.
     ///
-    /// This keeps backward compatibility with parser code that may still
-    /// pass `None` for `max` by mapping it to `0.0`.
+    /// `min` is optional (can be `None`), while `max` is required as a concrete `f64` value.
     pub fn new(min: Option<f64>, max: f64) -> Self {
         Self { min, max }
     }
@@ -438,9 +437,9 @@ impl AsRef<Transition> for TransitionEvent {
     }
 }
 
-impl Into<Transition> for TransitionEvent {
-    fn into(self) -> Transition {
-        self.transition
+impl From<TransitionEvent> for Transition {
+    fn from(ev: TransitionEvent) -> Transition {
+        ev.transition
     }
 }
 
@@ -532,9 +531,9 @@ impl AsMut<Place> for WeightedPlace {
     }
 }
 
-impl Into<Place> for WeightedPlace {
-    fn into(self) -> Place {
-        self.place
+impl From<WeightedPlace> for Place {
+    fn from(w: WeightedPlace) -> Place {
+        w.place
     }
 }
 
