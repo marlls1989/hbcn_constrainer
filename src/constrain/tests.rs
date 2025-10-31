@@ -56,13 +56,21 @@ mod constrain_unit_tests {
         // Should have path constraints
         assert!(!result.path_constraints.is_empty());
 
-        // Should have both min and max delays for proportional algorithm
-        let has_min = result.path_constraints.values().any(|c| c.min.is_some());
-        // max is always present now (mandatory)
-        assert!(
-            has_min || result.path_constraints.len() > 0,
-            "Should have at least some min or max constraints"
-        );
+        // DelayPair.min constraints are currently only generated when margins are
+        // provided. There is no guarantee that any constraint will have a min when
+        // no margins are provided. However, all constraints must have max >= min_delay.
+        // Verify this for all constraints.
+        for constraint in result.path_constraints.values() {
+            assert!(
+                constraint.max >= 1.0,
+                "All constraints must have max delay >= min_delay ({} >= {})",
+                constraint.max,
+                1.0
+            );
+            if let Some(min) = constraint.min {
+                assert!(min <= constraint.max, "Min delay should not exceed max delay");
+            }
+        }
     }
 
     /// Test that infeasible constraints are properly detected

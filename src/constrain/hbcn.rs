@@ -99,7 +99,7 @@ where
 
     match solution.status {
         OptimizationStatus::Optimal | OptimizationStatus::Feasible => {
-            let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(0.0);
+            let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(min_delay);
             Ok(ConstrainerResult {
                 pseudoclock_period: pseudo_clock_value,
                 path_constraints: delay_vars
