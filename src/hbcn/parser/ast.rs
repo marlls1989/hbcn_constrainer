@@ -8,17 +8,18 @@ pub enum Transition {
     Spacer(Symbol),
 }
 
-pub struct AdjencyEntry {
+pub struct AdjacencyEntry {
     pub source: Transition,
     pub delay: DelayPair,
     pub target: Transition,
     pub token: bool,
 }
 
-impl AdjencyEntry {
+impl AdjacencyEntry {
     pub fn new(source: Transition, delay: DelayPair, target: Transition, token: bool) -> Self {
         Self { source, delay, target, token }
     }
 }
 
-pub type AdjencyList = Vec<AdjencyEntry>;
+pub type AdjacencyList = Vec<AdjacencyEntry>;
+

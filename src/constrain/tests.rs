@@ -311,6 +311,12 @@ mod constrain_unit_tests {
             );
             if let Some(min_delay) = edge.delay.min {
                 assert!(min_delay >= 0.0, "Edge min delay should be non-negative");
+                assert!(
+                    min_delay <= edge.delay.max,
+                    "Edge min delay should be <= max delay: min_delay={}, max={}",
+                    min_delay,
+                    edge.delay.max
+                );
             }
         }
     }
@@ -538,7 +544,7 @@ mod constrain_unit_tests {
             }
 
             // Max is now mandatory
-            assert!(constraint.max >= 0.0, "Max delay should be non-negative");
+            assert!(constraint.max >= 5.0, "Max delay should be at least min_delay");
             assert!(constraint.max <= 100.0, "Max delay should not exceed cycle time");
 
             // If min exists, min should be <= max
