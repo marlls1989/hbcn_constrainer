@@ -577,6 +577,16 @@ impl From<WeightedPlace> for Place {
     }
 }
 
+impl From<WeightedPlace> for DelayedPlace {
+    fn from(w: WeightedPlace) -> Self {
+        DelayedPlace {
+            place: w.place,
+            delay: DelayPair::new(None, w.weight),
+            slack: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DelayedPlace {
     /// The underlying place structure.
