@@ -45,7 +45,7 @@ fn dst_rails(s: &CircuitNode) -> String {
                 port_instance(name),
             )
         }
-        CircuitNode::Register { name } => format!(
+        CircuitNode::Register(name) => format!(
             "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == in}}]",
             name
         ),
@@ -60,7 +60,7 @@ fn src_rails(s: &CircuitNode) -> String {
                 port_wildcard(name),
             )
         }
-        CircuitNode::Register { name } => format!(
+        CircuitNode::Register(name) => format!(
             "[get_pins -of_objects [get_cells [vfind {{{}/*}}] -filter {{is_sequential == true}}] -filter {{direction == out}}]",
             name
         ),
@@ -115,13 +115,11 @@ pub fn write_path_constraints(
             )?;
         }
 
-        if let Some(val) = val.max
-            && val != pseudoclock_period
-        {
+        if val.max != pseudoclock_period {
             writeln!(
                 writer,
                 "set_max_delay {:.3} \\\n\t-through {} \\\n\t-through {}",
-                val,
+                val.max,
                 src_rails(src),
                 dst_rails(dst),
             )?;
@@ -149,10 +147,7 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("input")),
                 CircuitNode::Port(DefaultAtom::from("output")),
             ),
-            DelayPair {
-                min: Some(2.5),
-                max: Some(10.0),
-            },
+            DelayPair { min: Some(2.5), max: 10.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -174,14 +169,9 @@ mod tests {
         constraints.insert(
             (
                 CircuitNode::Port(DefaultAtom::from("clk")),
-                CircuitNode::Register {
-                    name: DefaultAtom::from("reg1"),
-                },
+                CircuitNode::Register(DefaultAtom::from("reg1")),
             ),
-            DelayPair {
-                min: None,
-                max: Some(5.25),
-            },
+            DelayPair { min: None, max: 5.25 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -238,24 +228,16 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("in1")),
                 CircuitNode::Port(DefaultAtom::from("out1")),
             ),
-            DelayPair {
-                min: Some(1.0),
-                max: Some(5.0),
-            },
+            DelayPair { min: Some(1.0), max: 5.0 },
         );
 
         // Port to register
         constraints.insert(
             (
                 CircuitNode::Port(DefaultAtom::from("clk")),
-                CircuitNode::Register {
-                    name: DefaultAtom::from("counter"),
-                },
+                CircuitNode::Register(DefaultAtom::from("counter")),
             ),
-            DelayPair {
-                min: None,
-                max: Some(8.75),
-            },
+            DelayPair { min: None, max: 8.75 },
         );
 
         let mut output = Cursor::new(Vec::new());

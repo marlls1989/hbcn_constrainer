@@ -31,9 +31,9 @@ use petgraph::{
 use rayon::prelude::*;
 
 use crate::{
-    AppError, Transition, WeightedPlace, constraint,
+    AppError, Transition, constraint,
     hbcn::{
-        DelayPair, DelayedPlace, HasPlace, MarkablePlace, SlackablePlace, SolvedHBCN,
+        DelayPair, DelayedPlace, HasWeight, MarkablePlace, Place, SlackablePlace, SolvedHBCN,
         TransitionEvent,
     },
     lp_model_builder,
@@ -171,7 +171,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 /// # Ok(())
 /// # }
 /// ```
-pub fn compute_cycle_time<P: WeightedPlace + MarkablePlace + HasPlace>(
+pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
     hbcn: &StableGraph<Transition, P>,
     weighted: bool,
 ) -> Result<(f64, SolvedHBCN)> {
@@ -232,11 +232,12 @@ pub fn compute_cycle_time<P: WeightedPlace + MarkablePlace + HasPlace>(
                 },
                 |ie, e| {
                     let (delay_var, slack_var) = &delay_slack_var[&ie];
+                    let place: Place = e.clone().into();
                     Some(DelayedPlace {
-                        place: e.place().clone(),
+                        place: place.clone(),
                         delay: DelayPair {
                             min: None,
-                            max: solution.get_value(*delay_var),
+                            max: solution.get_value(*delay_var).unwrap_or(e.weight()),
                         },
                         slack: solution.get_value(*slack_var),
                     })
@@ -377,9 +378,7 @@ mod tests {
         // Test that all delays are reasonable
         for edge_idx in delayed_hbcn.edge_indices() {
             let edge = &delayed_hbcn[edge_idx];
-            if let Some(max_delay) = edge.delay.max {
-                assert!(max_delay >= 0.0, "Max delay should be non-negative");
-            }
+            assert!(edge.delay.max >= 0.0, "Max delay should be non-negative");
             if let Some(min_delay) = edge.delay.min {
                 assert!(min_delay >= 0.0, "Min delay should be non-negative");
             }

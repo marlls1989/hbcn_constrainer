@@ -12,3 +12,370 @@ mod parser {
     #![allow(non_upper_case_globals)]
     include!(concat!(env!("OUT_DIR"), "/hbcn/parser/parser.rs"));
 }
+
+use crate::hbcn::{HBCN, Transition, CircuitNode, DelayedPlace, Place, validate_hbcn};
+use std::collections::HashMap;
+use anyhow::Result;
+use petgraph::graph::NodeIndex;
+
+/// Parse an HBCN from the grammar format.
+///
+/// This function parses the HBCN format defined in the grammar and generates a
+/// `HBCN<Transition, DelayedPlace>`. Node names are used to determine if a circuit node
+/// is a register or a port: all names starting with "port:" are ports, all others are registers.
+///
+/// After parsing, the HBCN is validated using `validate_hbcn`.
+///
+/// # Arguments
+///
+/// * `input` - The input string to parse
+///
+/// # Returns
+///
+/// Returns `Ok(HBCN<Transition, DelayedPlace>)` if parsing and validation succeed,
+/// or an `Error` if parsing fails or validation fails.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::parser::parse_hbcn;
+///
+/// let input = r#"
+///     * +{"port:in"} => +{"reg1"} : (1.0, 2.0)
+///     +{"reg1"} => -{"port:in"} : (0.5, 1.5)
+///     -{"port:in"} => -{"reg1"} : (0.5, 1.0)
+///     -{"reg1"} => +{"port:in"} : (0.0, 1.0)
+/// "#;
+///
+/// let hbcn = parse_hbcn(input).unwrap();
+/// assert!(hbcn.node_count() > 0);
+/// ```
+pub fn parse_hbcn(input: &str) -> Result<HBCN<Transition, DelayedPlace>> {
+    // Parse the input into adjacency list
+    let adjacency_list = parser::AdjencyListParser::new()
+        .parse(input)
+        .map_err(|e| anyhow::anyhow!("Failed to parse HBCN input: {}", e))?;
+
+    // Create the HBCN graph
+    let mut hbcn = HBCN::<Transition, DelayedPlace>::new();
+    
+    // Map AST transitions to HBCN node indices
+    let mut transition_map: HashMap<ast::Transition, NodeIndex> = HashMap::new();
+
+    // Helper function to convert AST transition to HBCN transition
+    fn convert_transition(ast_transition: &ast::Transition) -> Transition {
+        match ast_transition {
+            ast::Transition::Data(sym) => {
+                let circuit_node = if sym.as_ref().starts_with("port:") {
+                    CircuitNode::Port(sym.clone())
+                } else {
+                    CircuitNode::Register(sym.clone())
+                };
+                Transition::Data(circuit_node)
+            }
+            ast::Transition::Spacer(sym) => {
+                let circuit_node = if sym.as_ref().starts_with("port:") {
+                    CircuitNode::Port(sym.clone())
+                } else {
+                    CircuitNode::Register(sym.clone())
+                };
+                Transition::Spacer(circuit_node)
+            }
+        }
+    }
+
+    // Process all edges from the adjacency list
+    for entry in &adjacency_list {
+        // Get or create source transition node
+        let source_idx = if let Some(&node_idx) = transition_map.get(&entry.source) {
+            node_idx
+        } else {
+            let hbcn_transition = convert_transition(&entry.source);
+            let node_idx = hbcn.add_node(hbcn_transition);
+            transition_map.insert(entry.source.clone(), node_idx);
+            node_idx
+        };
+
+        // Get or create target transition node
+        let target_idx = if let Some(&node_idx) = transition_map.get(&entry.target) {
+            node_idx
+        } else {
+            let hbcn_transition = convert_transition(&entry.target);
+            let node_idx = hbcn.add_node(hbcn_transition);
+            transition_map.insert(entry.target.clone(), node_idx);
+            node_idx
+        };
+
+        // Determine if this is a backward place based on transition types
+        // Backward places: Data(b) -> Spacer(a) or Spacer(b) -> Data(a)
+        let is_backward = matches!(
+            (&entry.source, &entry.target),
+            (ast::Transition::Data(_), ast::Transition::Spacer(_))
+                | (ast::Transition::Spacer(_), ast::Transition::Data(_))
+        );
+
+        // Create the DelayedPlace with the delay from the parser
+        let delayed_place = DelayedPlace {
+            place: Place {
+                backward: is_backward,
+                token: entry.token,
+                is_internal: false, // We don't have this information from the parser
+            },
+            delay: entry.delay.clone(),
+            slack: None,
+        };
+
+        hbcn.add_edge(source_idx, target_idx, delayed_place);
+    }
+
+    // Validate the HBCN
+    validate_hbcn(&hbcn)
+        .map_err(|e| anyhow::anyhow!("HBCN validation failed: {}", e))?;
+
+    Ok(hbcn)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::hbcn::{DelayPair, Transition, Named, MarkablePlace, validate_hbcn};
+    use crate::hbcn::test_helpers::create_valid_two_channel_hbcn;
+    use crate::hbcn::serialisation::serialize_hbcn_transition;
+
+    #[test]
+    fn test_parse_hbcn_basic() {
+        // Test parsing a basic HBCN with ports and registers
+        // For a valid channel from a to b, we need 4 places:
+        // Data(a) -> Data(b), Data(b) -> Spacer(a), Spacer(a) -> Spacer(b), Spacer(b) -> Data(a)
+        // And exactly one token
+        
+        // Channel from port:a to reg1
+        let input = r#"
+            * +{"port:a"} => +{"reg1"} : (1.0, 2.0)
+            +{"reg1"} => -{"port:a"} : (0.5, 1.5)
+            -{"port:a"} => -{"reg1"} : (0.5, 1.0)
+            -{"reg1"} => +{"port:a"} : (0.0, 1.0)
+        "#;
+        let result = parse_hbcn(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {}", e);
+        }
+        assert!(result.is_ok(), "Should parse basic HBCN");
+    }
+
+    #[test]
+    fn test_parse_hbcn_with_tokens() {
+        // Test parsing HBCN with token markers
+        // Channel from a to b with token on Data(a) -> Data(b)
+        let input = r#"
+            * +{"a"} => +{"b"} : (1.0, 2.0)
+            +{"b"} => -{"a"} : (0.5, 1.5)
+            -{"a"} => -{"b"} : (0.5, 1.0)
+            -{"b"} => +{"a"} : (0.0, 1.0)
+        "#;
+        let result = parse_hbcn(input);
+        if let Err(e) = &result {
+            eprintln!("Parse error: {}", e);
+        }
+        assert!(result.is_ok(), "Should parse HBCN with tokens");
+        let hbcn = result.unwrap();
+        // Check that token edge was marked
+        let mut found_token = false;
+        for edge_idx in hbcn.edge_indices() {
+            let place = &hbcn[edge_idx];
+            if place.is_marked() {
+                found_token = true;
+                break;
+            }
+        }
+        assert!(found_token, "Should find at least one token");
+    }
+
+    #[test]
+    fn parse_empty_adjacency_list() {
+        let input = "";
+        let result = super::parser::AdjencyListParser::new().parse(input);
+        assert!(result.is_ok());
+        let list = result.unwrap();
+        assert!(list.is_empty());
+    }
+
+    #[test]
+    fn parse_single_edge_without_token() {
+        let input = r#"+{"a"} => -{"b"} : (1,2)"#;
+        let list = super::parser::AdjencyListParser::new()
+            .parse(input)
+            .expect("should parse single edge");
+        assert_eq!(list.len(), 1);
+        let e = &list[0];
+
+        match &e.source {
+            ast::Transition::Data(sym) => assert_eq!(sym.as_ref(), "a"),
+            _ => panic!("expected Data transition for source"),
+        }
+        match &e.target {
+            ast::Transition::Spacer(sym) => assert_eq!(sym.as_ref(), "b"),
+            _ => panic!("expected Spacer transition for target"),
+        }
+        assert_eq!(e.delay, DelayPair { min: Some(1.0), max: 2.0 });
+        assert!(!e.token);
+    }
+
+    #[test]
+    fn parse_single_edge_with_token() {
+        let input = r#"* -{"x"} => +{"y"} : 3.5"#;
+        let list = super::parser::AdjencyListParser::new()
+            .parse(input)
+            .expect("should parse token edge");
+        assert_eq!(list.len(), 1);
+        let e = &list[0];
+
+        match &e.source {
+            ast::Transition::Spacer(sym) => assert_eq!(sym.as_ref(), "x"),
+            _ => panic!("expected Spacer source"),
+        }
+        match &e.target {
+            ast::Transition::Data(sym) => assert_eq!(sym.as_ref(), "y"),
+            _ => panic!("expected Data target"),
+        }
+        assert_eq!(e.delay, DelayPair { min: None, max: 3.5 });
+        assert!(e.token);
+    }
+
+    #[test]
+    fn parse_multiple_edges_and_delay_variants() {
+        let input = r#"
+            +{"n1"} => +{"n2"} : (0.5,0.0)
+            -{"n2"} => -{"n3"} : 0.0 
+            * +{"n3"} => -{"n1"} : (2,4.25)
+        "#;
+        let list = super::parser::AdjencyListParser::new()
+            .parse(input)
+            .expect("should parse multiple edges");
+        assert_eq!(list.len(), 3);
+
+        assert_eq!(list[0].delay, DelayPair { min: Some(0.5), max: 0.0 });
+        assert_eq!(list[1].delay, DelayPair { min: None, max: 0.0 });
+        assert_eq!(list[2].delay, DelayPair { min: Some(2.0), max: 4.25 });
+        assert!(list[2].token);
+
+        let get_name = |t: &ast::Transition| match t {
+            ast::Transition::Data(s) | ast::Transition::Spacer(s) => s.as_ref().to_string(),
+        };
+        assert_eq!(get_name(&list[0].source), "n1");
+        assert_eq!(get_name(&list[0].target), "n2");
+        assert_eq!(get_name(&list[1].source), "n2");
+        assert_eq!(get_name(&list[1].target), "n3");
+        assert_eq!(get_name(&list[2].source), "n3");
+        assert_eq!(get_name(&list[2].target), "n1");
+    }
+
+    #[test]
+    fn parse_floating_and_integer_numbers() {
+        let input = r#"
+            +{"a"} => +{"b"} : (10,20.75)
+            -{"b"} => +{"c"} : (1.25,2)
+        "#;
+        let list = super::parser::AdjencyListParser::new()
+            .parse(input)
+            .expect("should parse mixed numbers");
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].delay, DelayPair { min: Some(10.0), max: 20.75 });
+        assert_eq!(list[1].delay, DelayPair { min: Some(1.25), max: 2.0 });
+
+        assert!(!list[0].token);
+        assert!(!list[1].token);
+    }
+
+    fn edge_tuple_from_ast(e: &super::ast::AdjencyEntry) -> (char, String, char, String, Option<f64>, f64, bool) {
+        let (sk, sn) = match &e.source {
+            super::ast::Transition::Data(s) => ('+', s.as_ref().to_string()),
+            super::ast::Transition::Spacer(s) => ('-', s.as_ref().to_string()),
+        };
+        let (tk, tn) = match &e.target {
+            super::ast::Transition::Data(s) => ('+', s.as_ref().to_string()),
+            super::ast::Transition::Spacer(s) => ('-', s.as_ref().to_string()),
+        };
+        (sk, sn, tk, tn, e.delay.min, e.delay.max, e.token)
+    }
+
+    #[test]
+    fn serialize_and_parse_round_trip_basic() {
+        // Create a valid two-channel HBCN: a -> b -> c
+        let g = create_valid_two_channel_hbcn(
+            "a", "b", "c",
+            2.5, 1.0,  // forward and backward weights for (a, b)
+            0.0, 0.5,  // forward and backward weights for (b, c)
+            0,          // token on Data(a) -> Data(b) for channel (a, b)
+            1,          // token on Data(c) -> Spacer(b) for channel (b, c)
+        );
+
+        // Validate the HBCN is valid before serialization
+        validate_hbcn(&g).expect("Created HBCN should be valid");
+
+        let text = serialize_hbcn_transition(&g);
+        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+
+        assert_eq!(g.edge_count(), parsed.len());
+        for (i, e_ast) in parsed.iter().enumerate() {
+            let ie = g.edge_indices().nth(i).unwrap();
+            let (s, t) = g.edge_endpoints(ie).unwrap();
+            let e = &g[ie];
+            let (sk, sn, tk, tn, min, max, token) = edge_tuple_from_ast(e_ast);
+
+            let s_tr = &g[s];
+            let t_tr = &g[t];
+            let (gsk, gsn) = match s_tr {
+                Transition::Data(n) => ('+', n.name().as_ref().to_string()),
+                Transition::Spacer(n) => ('-', n.name().as_ref().to_string()),
+            };
+            let (gtk, gtn) = match t_tr {
+                Transition::Data(n) => ('+', n.name().as_ref().to_string()),
+                Transition::Spacer(n) => ('-', n.name().as_ref().to_string()),
+            };
+
+            assert_eq!((sk, sn, tk, tn), (gsk, gsn, gtk, gtn));
+            assert_eq!((min, max, token), (e.delay.min, e.delay.max, e.is_marked()));
+        }
+    }
+
+    #[test]
+    fn serialize_and_parse_delay_variants() {
+        // Create a valid two-channel HBCN: n1 -> n2 -> n3
+        let g = create_valid_two_channel_hbcn(
+            "n1", "n2", "n3",
+            0.0, 0.0,  // forward and backward weights for (n1, n2)
+            3.0, 0.0,  // forward and backward weights for (n2, n3)
+            2,          // token on Spacer(n1) -> Spacer(n2) for channel (n1, n2)
+            0,          // token on Data(n2) -> Data(n3) for channel (n2, n3)
+        );
+
+        // Validate the HBCN is valid before serialization
+        validate_hbcn(&g).expect("Created HBCN should be valid");
+
+        let text = serialize_hbcn_transition(&g);
+        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+
+        assert_eq!(g.edge_count(), parsed.len());
+        for (i, e_ast) in parsed.iter().enumerate() {
+            let ie = g.edge_indices().nth(i).unwrap();
+            let (s, t) = g.edge_endpoints(ie).unwrap();
+            let e = &g[ie];
+            let (sk, sn, tk, tn, min, max, token) = edge_tuple_from_ast(e_ast);
+
+            let s_tr = &g[s];
+            let t_tr = &g[t];
+            let (gsk, gsn) = match s_tr {
+                Transition::Data(n) => ('+', n.name().as_ref().to_string()),
+                Transition::Spacer(n) => ('-', n.name().as_ref().to_string()),
+            };
+            let (gtk, gtn) = match t_tr {
+                Transition::Data(n) => ('+', n.name().as_ref().to_string()),
+                Transition::Spacer(n) => ('-', n.name().as_ref().to_string()),
+            };
+
+            assert_eq!((sk, sn, tk, tn), (gsk, gsn, gtk, gtn));
+            assert_eq!((min, max, token), (e.delay.min, e.delay.max, e.is_marked()));
+        }
+    }
+}

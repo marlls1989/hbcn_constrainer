@@ -201,9 +201,9 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
                 },
                 s.name(),
                 ttype,
-                format!("{}", e.place.weight()),
-                format!("{}", e.slack()),
                 format!("{}", e.weight()),
+                format!("{}", e.slack()),
+                format!("{}", e.delay.max),
                 format!("{}", s.time),
             ]);
         }
@@ -333,8 +333,9 @@ mod tests {
     /// Helper function to create a test StructuralHBCN from a structural graph string
     fn create_test_hbcn(input: &str) -> Result<StructuralHBCN> {
         let structural_graph = parse(input)?;
-        crate::hbcn::from_structural_graph(&structural_graph, false)
-            .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))
+        let hbcn = crate::hbcn::from_structural_graph(&structural_graph, false)
+            .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))?;
+        Ok(hbcn)
     }
 
     /// Helper function to run analysis and capture output

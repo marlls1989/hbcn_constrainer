@@ -15,10 +15,7 @@ mod sdc_tests {
                 CircuitNode::Port("input".to_string()),
                 CircuitNode::Port("output".to_string()),
             ),
-            DelayPair {
-                min: Some(2.5),
-                max: Some(10.0),
-            },
+            DelayPair { min: Some(2.5), max: 10.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -47,10 +44,7 @@ mod sdc_tests {
                     output_path: "out".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(5.25),
-            },
+            DelayPair { min: None, max: 5.25 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -75,10 +69,7 @@ mod sdc_tests {
                 CircuitNode::Port("input".to_string()),
                 CircuitNode::Port("output".to_string()),
             ),
-            DelayPair {
-                min: Some(1.5),
-                max: None,
-            },
+            DelayPair { min: Some(1.5), max: 0.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -116,10 +107,7 @@ mod sdc_tests {
                 CircuitNode::Port("in1".to_string()),
                 CircuitNode::Port("out1".to_string()),
             ),
-            DelayPair {
-                min: Some(1.0),
-                max: Some(5.0),
-            },
+            DelayPair { min: Some(1.0), max: 5.0 },
         );
 
         // Port to register
@@ -133,10 +121,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(8.75),
-            },
+            DelayPair { min: None, max: 8.75 },
         );
 
         // Register to port
@@ -150,10 +135,7 @@ mod sdc_tests {
                 },
                 CircuitNode::Port("result".to_string()),
             ),
-            DelayPair {
-                min: Some(2.25),
-                max: None,
-            },
+            DelayPair { min: Some(2.25), max: 0.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -330,10 +312,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(5.0),
-                max: Some(20.0),
-            },
+            DelayPair { min: Some(5.0), max: 20.0 },
         );
 
         // DataReg to DataReg constraint (feedback loop)
@@ -352,10 +331,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(3.0),
-                max: Some(15.0),
-            },
+            DelayPair { min: Some(3.0), max: 15.0 },
         );
 
         // DataReg to Port constraint (feedback register to output)
@@ -369,10 +345,7 @@ mod sdc_tests {
                 },
                 CircuitNode::Port("c".to_string()),
             ),
-            DelayPair {
-                min: Some(2.0),
-                max: Some(10.0),
-            },
+            DelayPair { min: Some(2.0), max: 10.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -413,10 +386,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(5.0),
-            },
+            DelayPair { min: None, max: 5.0 },
         );
 
         constraints.insert(
@@ -429,10 +399,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(5.0),
-            },
+            DelayPair { min: None, max: 5.0 },
         );
 
         // Feedback loops between registers
@@ -451,10 +418,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(10.0),
-                max: Some(25.0),
-            },
+            DelayPair { min: Some(10.0), max: 25.0 },
         );
 
         constraints.insert(
@@ -472,10 +436,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(8.0),
-                max: Some(20.0),
-            },
+            DelayPair { min: Some(8.0), max: 20.0 },
         );
 
         // Register to output
@@ -489,10 +450,7 @@ mod sdc_tests {
                 },
                 CircuitNode::Port("output".to_string()),
             ),
-            DelayPair {
-                min: Some(5.0),
-                max: Some(15.0),
-            },
+            DelayPair { min: Some(5.0), max: 15.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -536,10 +494,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(1.0),
-                max: Some(3.0),
-            },
+            DelayPair { min: Some(1.0), max: 3.0 },
         );
 
         constraints.insert(
@@ -557,10 +512,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: Some(0.5),
-                max: Some(2.0),
-            },
+            DelayPair { min: Some(0.5), max: 2.0 },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -595,10 +547,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(12.5),
-            },
+            DelayPair { min: None, max: 12.5 },
         );
 
         constraints.insert(
@@ -616,10 +565,7 @@ mod sdc_tests {
                     output_path: "q".to_string(),
                 },
             ),
-            DelayPair {
-                min: None,
-                max: Some(8.75),
-            },
+            DelayPair { min: None, max: 8.75 },
         );
 
         let mut output = Cursor::new(Vec::new());

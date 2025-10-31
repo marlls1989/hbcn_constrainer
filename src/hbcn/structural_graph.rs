@@ -66,8 +66,8 @@
 //! assert_eq!(hbcn.edge_count(), 4);
 //! ```
 
-use super::{Place, StructuralHBCN, Transition};
-use crate::structural_graph::{Channel, ChannelPhase, StructuralGraph};
+use super::{Place, StructuralHBCN, Transition, WeightedPlace};
+use crate::{structural_graph::{Channel, ChannelPhase, StructuralGraph}, validate_hbcn};
 
 use std::collections::HashMap;
 
@@ -246,42 +246,59 @@ pub fn from_structural_graph(
         ret.add_edge(
             *src_token,
             *dst_token,
-            Place {
-                backward: false,
-                token: initial_phase == ChannelPhase::ReqData,
+            WeightedPlace {
+                place: Place {
+                    backward: false,
+                    token: initial_phase == ChannelPhase::ReqData,
+                    is_internal,
+                },
                 weight: forward_cost,
-                is_internal,
             },
         );
         ret.add_edge(
             *src_spacer,
             *dst_spacer,
-            Place {
-                backward: false,
-                token: initial_phase == ChannelPhase::ReqNull,
+            WeightedPlace {
+                place: Place {
+                    backward: false,
+                    token: initial_phase == ChannelPhase::ReqNull,
+                    is_internal,
+                },
                 weight: forward_cost,
-                is_internal,
             },
         );
         ret.add_edge(
             *dst_token,
             *src_spacer,
-            Place {
-                backward: true,
-                token: initial_phase == ChannelPhase::AckData,
+            WeightedPlace {
+                place: Place {
+                    backward: true,
+                    token: initial_phase == ChannelPhase::AckData,
+                    is_internal,
+                },
                 weight: backward_cost,
-                is_internal,
             },
         );
         ret.add_edge(
             *dst_spacer,
             *src_token,
-            Place {
-                backward: true,
-                token: initial_phase == ChannelPhase::AckNull,
+            WeightedPlace {
+                place: Place {
+                    backward: true,
+                    token: initial_phase == ChannelPhase::AckNull,
+                    is_internal,
+                },
                 weight: backward_cost,
-                is_internal,
             },
+        );
+    }
+
+    #[cfg(debug_assertions)]
+    {
+        debug_assert!(
+            validate_hbcn(&ret).is_ok(),
+            "Generated HBCN failed validation in debug mode: {:?}",
+            validate_hbcn(&ret).err()
         );
     }
 
@@ -293,6 +310,13 @@ mod tests {
     use super::*;
     use crate::{Named, structural_graph::parse};
 
+    /// Helper function to create a validated test HBCN
+    fn create_test_hbcn(input: &str, forward_completion: bool) -> StructuralHBCN {
+        let structural_graph = parse(input).expect("Failed to parse structural graph");
+        from_structural_graph(&structural_graph, forward_completion)
+            .expect("Failed to convert to StructuralHBCN")
+    }
+
     #[test]
     fn test_simple_two_node_conversion() {
         // Test basic conversion with two connected nodes
@@ -300,10 +324,7 @@ mod tests {
             Port "input" [("output", 100)]
             Port "output" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Should have 4 nodes: Data and Spacer transitions for each original node
         assert_eq!(hbcn.node_count(), 4);
@@ -336,10 +357,7 @@ mod tests {
             DataReg "reg" [("output", 75)]
             Port "output" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Should have 10 nodes: Data and Spacer for each of the 5 circuit nodes
         // (input port, reg data, reg control, reg output, output port)
@@ -356,10 +374,7 @@ mod tests {
             Port "a" [("b", 100)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Check that transitions have correct circuit node references
         for node_idx in hbcn.node_indices() {
@@ -378,23 +393,20 @@ mod tests {
             Port "a" [("b", 100)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Check place properties
         let mut forward_places = 0;
         let mut backward_places = 0;
 
         for edge_idx in hbcn.edge_indices() {
-            let place = &hbcn[edge_idx];
+            let weighted_place = &hbcn[edge_idx];
 
             // Weight should be positive
-            assert!(place.weight >= 0.0);
+            assert!(weighted_place.weight >= 0.0);
 
             // Count forward and backward places
-            if place.backward {
+            if weighted_place.place.backward {
                 backward_places += 1;
             } else {
                 forward_places += 1;
@@ -415,17 +427,14 @@ mod tests {
             Port "a" [("b", 100)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Check that weights are based on virtual_delay when forward_completion=false
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
-        for place in places {
-            if !place.backward {
+        for weighted_place in places {
+            if !weighted_place.place.backward {
                 // Forward places should use virtual_delay (100 in this case)
-                assert_eq!(place.weight, 100.0);
+                assert_eq!(weighted_place.weight, 100.0);
             }
         }
     }
@@ -436,10 +445,7 @@ mod tests {
             Port "a" [("b", 100)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, true)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, true);
 
         // With forward_completion=true, weights should consider forward costs
         let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
@@ -458,10 +464,7 @@ mod tests {
             DataReg "reg2" [("output", 60)]
             Port "output" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Should handle multiple connections properly
         assert!(hbcn.node_count() > 4); // More nodes due to DataReg internal structure
@@ -485,10 +488,7 @@ mod tests {
             Port "a" [("b", 100)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Check that token markings are set according to channel phases
         let mut req_data_count = 0;
@@ -498,13 +498,13 @@ mod tests {
 
         for edge_idx in hbcn.edge_indices() {
             let place = &hbcn[edge_idx];
-            if place.token {
-                if place.backward {
+            if place.place.token {
+                if place.place.backward {
                     ack_data_count += 1;
                 } else {
                     req_data_count += 1;
                 }
-            } else if place.backward {
+            } else if place.place.backward {
                 ack_null_count += 1;
             } else {
                 req_null_count += 1;
@@ -524,22 +524,19 @@ mod tests {
             Port "a" [("b", 150)]
             Port "b" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Check weight calculations
         for edge_idx in hbcn.edge_indices() {
-            let place = &hbcn[edge_idx];
-            assert!(place.weight >= 0.0, "Weight should be non-negative");
+            let weighted_place = &hbcn[edge_idx];
+            assert!(weighted_place.weight >= 0.0, "Weight should be non-negative");
 
-            if !place.backward {
+            if !weighted_place.place.backward {
                 // Forward places should have weight based on virtual_delay
-                assert_eq!(place.weight, 150.0);
+                assert_eq!(weighted_place.weight, 150.0);
             } else {
                 // Backward places should include register delays
-                assert!(place.weight >= 10.0);
+                assert!(weighted_place.weight >= 10.0);
             }
         }
     }
@@ -550,10 +547,7 @@ mod tests {
         let input = r#"
             Port "single" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Should have 2 nodes (Data and Spacer for the single port) and no edges
         assert_eq!(hbcn.node_count(), 2);
@@ -570,10 +564,7 @@ mod tests {
             UnsafeReg "unsafe_reg" [("output", 400)]
             Port "output" []
         "#;
-        let structural_graph = parse(input).expect("Failed to parse structural graph");
-
-        let hbcn = from_structural_graph(&structural_graph, false)
-            .expect("Failed to convert to StructuralHBCN");
+        let hbcn = create_test_hbcn(input, false);
 
         // Should successfully convert all register types
         assert!(hbcn.node_count() > 0);
