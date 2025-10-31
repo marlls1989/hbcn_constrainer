@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Implemented `lp_model_builder!()` macro for guaranteed unique branding
   - Added optional brand name parameter to `lp_model_builder!` macro for better type system clarity
   - Moved macros to dedicated `macros` submodule for better organization
-- **Report file support**: Added `--report/-r` option to `analyse` and `depth` commands for redirecting output to files (renamed from log to avoid confusion with hbcn.log)
+- **Report file support**: Added `--report/-r` option to `analyse` command for redirecting output to files (renamed from log to avoid confusion with hbcn.log)
+- **New `expand` command**: Added `expand` command to convert structural graphs to HBCN representation
+- **Enhanced `analyse` command**: Added `--structural` flag to read structural graphs directly and `--depth` flag to perform unweighted depth analysis
 - **Comprehensive benchmarking**: Added Criterion benchmarking framework with performance tests for:
   - Graph parsing performance
   - Pseudoclock constraint generation

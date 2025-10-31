@@ -13,9 +13,9 @@
 //!
 //! The library supports three main operations:
 //!
-//! 1. **Analysis** ([`analyse`]): Estimate cycle times and identify critical paths
-//! 2. **Constraint Generation** ([`constrain`]): Generate SDC timing constraints for synthesis
-//! 3. **Depth Analysis**: Find longest path depth in the circuit
+//! 1. **Expansion** ([`expand`]): Convert structural graphs to HBCN representation
+//! 2. **Analysis** ([`analyse`]): Estimate cycle times and identify critical paths (supports depth analysis with `--depth` flag)
+//! 3. **Constraint Generation** ([`constrain`]): Generate SDC timing constraints for synthesis
 //!
 //! # Usage Example
 //!
@@ -41,6 +41,7 @@
 //! - **[`structural_graph`]**: Parsing and representation of structural circuit graphs
 //! - **[`hbcn`]**: Core HBCN data structures, types (like [`CircuitNode`] and [`DelayPair`]),
 //!   and conversion from structural graphs. Most HBCN-related types are re-exported from this module.
+//! - **[`expand`]**: Conversion of structural graphs to HBCN representation and serialization
 //! - **[`analyse`]**: Cycle time analysis and critical path identification
 //! - **[`constrain`]**: Timing constraint generation using LP optimization
 //! - **[`lp_solver`]**: Linear programming solver abstraction layer
@@ -59,6 +60,7 @@ use std::{error::Error, fmt, fs, path::Path};
 
 pub mod analyse;
 pub mod constrain;
+pub mod expand;
 pub mod hbcn;
 pub mod lp_solver;
 pub mod structural_graph;
@@ -66,6 +68,7 @@ pub mod structural_graph;
 // Re-export the main functions for easy access
 pub use analyse::{AnalyseArgs, analyse_main};
 pub use constrain::{ConstrainArgs, constrain_main};
+pub use expand::{ExpandArgs, expand_main};
 pub use hbcn::*;
 pub use structural_graph::Symbol;
 
@@ -120,8 +123,8 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
 
 /// Command-line interface arguments for the HBCN tools.
 ///
-/// This enum defines the three main commands available:
-/// - `Depth`: Find longest path depth
+/// This enum defines the main commands available:
+/// - `Expand`: Convert structural graphs to HBCN representation
 /// - `Analyse`: Estimate cycle time and analyze critical paths
 /// - `Constrain`: Generate timing constraints for synthesis
 #[derive(Debug, Parser)]
@@ -130,6 +133,8 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
     about = "Pulsar Half-buffer Channel Network timing analysis tools"
 )]
 pub enum CLIArguments {
+    /// Convert a structural graph to HBCN representation.
+    Expand(ExpandArgs),
     /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
     /// Use --depth to analyze cycle depth instead of weighted cycle time.
     Analyse(AnalyseArgs),
