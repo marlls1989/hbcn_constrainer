@@ -224,10 +224,10 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
                 Some((
                     (
-                        hbcn[is].circuit_node().clone(),
-                        hbcn[id].circuit_node().clone(),
+                        AsRef::<CircuitNode>::as_ref(&hbcn[is]).clone(),
+                        AsRef::<CircuitNode>::as_ref(&hbcn[id]).clone(),
                     ),
-                    hbcn[ie].place.weight,
+                    hbcn[ie].weight(),
                 ))
             })
             .collect();
@@ -236,11 +236,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             if let Some(cost) = cost_map.get(key) {
                 let (src, dst) = key;
                 write!(csv_file, "{},{},{:.0},", src.name(), dst.name(), cost,)?;
-                if let Some(max_delay) = constrain.max {
-                    write!(csv_file, "{:.3},", max_delay)?;
-                } else {
-                    write!(csv_file, ",")?;
-                }
+                write!(csv_file, "{:.3},", constrain.max)?;
                 if let Some(min_delay) = constrain.min {
                     writeln!(csv_file, "{:.3}", min_delay)?;
                 } else {
@@ -314,7 +310,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                 let t = &constraints.hbcn[it];
 
                 let slack = e.slack.unwrap_or(0.0);
-                let vdelay = e.place.weight;
+                let vdelay = e.weight();
 
                 let ttype = match (&s.transition, &t.transition) {
                     (Transition::Data(_), Transition::Data(_)) => "Data Prop",
@@ -324,7 +320,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                 };
 
                 let min_delay = e.delay.min.unwrap_or(0.0);
-                let max_delay = e.delay.max.unwrap_or(0.0);
+                let max_delay = e.delay.max;
 
                 table.add_row(row![
                     if e.is_marked() {

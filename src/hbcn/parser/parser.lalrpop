@@ -9,7 +9,8 @@ pub AdjencyList: AdjencyList = {
 }
 
 Edge: AdjencyEntry = {
-    <source:Transition> <delay:DelayPair> <target:Transition> => AdjencyEntry::new(source, delay, target),
+    <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjencyEntry::new(source, delay, target, false),
+    "*" <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjencyEntry::new(source, delay, target, true),
 }
 
 Transition: Transition = {
@@ -17,11 +18,9 @@ Transition: Transition = {
     "-" <Node> => Transition::Spacer(<>),
 }
 
-DelayPair: DelayPair = {
-    "=(" <min:Num> "," <max:Num> ")>" => DelayPair::new(Some(min), Some(max)),
-    "=(" <min:Num> "," ")>" => DelayPair::new(Some(min), None),
-    "=(" "," <max:Num> ")>" => DelayPair::new(None, Some(max)),
-    "=(" "," ")>" => DelayPair::new(None, None),
+Delay: DelayPair = {
+    "(" <min:Num> "," <max:Num> ")" => DelayPair::new(Some(min), max),
+    <max:Num> => DelayPair::new(None, max),
 }
 
 Node: Symbol = {
@@ -29,7 +28,7 @@ Node: Symbol = {
 }
 
 Str: Symbol = {
-    <s:r#""[^"]*""#> => Symbol::from(&s[1 .. s.len()-1]),
+    <s:r#""[^"]*""#> => Symbol::from(s[1 .. s.len()-1].to_string()),
 }
 
 Num: f64 = {

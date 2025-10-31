@@ -30,7 +30,6 @@
 //! - **Forward places** (`backward = false`): Model forward data flow timing
 //! - **Backward places** (`backward = true`): Model acknowledgment/return path timing
 //! - **Token marking** (`token`): Indicates whether a place initially contains a token
-//! - **Weight** (`weight`): Represents the delay/cost associated with traversing the place
 //!
 //! ## Graph Types
 //!
@@ -66,16 +65,16 @@
 //!
 //! The module provides several trait abstractions for working with HBCN components:
 //!
-//! - **[`HasTransition`]**: Types that have an associated transition
-//! - **[`HasCircuitNode`]**: Types that reference a circuit node
 //! - **[`Named`]**: Types that have a name (derived from circuit nodes)
 //! - **[`TimedEvent`]**: Types that have a time value
 //! - **[`MarkablePlace`]**: Places that can be marked/unmarked (token state)
-//! - **[`WeightedPlace`]**: Places that have a weight/delay
+//! - **[`HasWeight`]**: Trait for places that have a weight/delay
 //! - **[`SlackablePlace`]**: Places that have computed slack values
-//! - **[`HasPlace`]**: Types that contain or are a place
+//! - **`AsRef<Place>`** and **`AsMut<Place>`**: Types that can provide references to a place
 //!
-//! These traits enable generic algorithms that work across different HBCN representations.
+//! Types that can be converted to `Transition` implement `Into<Transition>`, and types that can
+//! be converted to `CircuitNode` implement `Into<CircuitNode>`. This enables generic algorithms
+//! that work across different HBCN representations.
 //!
 //! # Re-exported Types
 //!
@@ -85,38 +84,30 @@
 //! - **[`DelayPair`]**: Min/max delay constraint representation used in timing analysis
 
 pub mod parser;
+pub mod serialisation;
 pub mod structural_graph;
+#[cfg(test)]
+pub mod test_helpers;
 pub use structural_graph::from_structural_graph;
 
 use crate::Symbol;
 use petgraph::stable_graph::StableGraph;
+use petgraph::graph::{EdgeIndex, NodeIndex};
 use std::fmt;
+use std::collections::{HashMap, HashSet};
 use crate::structural_graph::CircuitNode as StructuralCircuitNode;
-
-/// Trait for types that have an associated transition.
-pub trait HasTransition {
-    /// Returns a reference to the associated transition.
-    fn transition(&self) -> &Transition;
-}
+use anyhow::{Result, bail};
 
 /// Trait for types that have a name.
 ///
-/// Implemented automatically for types that implement [`HasCircuitNode`],
+/// Implemented automatically for types that implement `AsRef<CircuitNode>`,
 /// since circuit nodes provide names.
 pub trait Named {
     /// Returns a reference to the name of this element.
     fn name(&self) -> &Symbol;
 }
 
-/// Trait for types that reference a circuit node.
-///
-/// Circuit nodes represent physical elements in the structural circuit graph.
-pub trait HasCircuitNode {
-    /// Returns a reference to the associated circuit node.
-    fn circuit_node(&self) -> &CircuitNode;
-}
-
-/// Represents a delay pair with optional minimum and maximum delay constraints.
+/// Represents a delay pair with optional minimum and mandatory maximum delay constraints.
 ///
 /// This type is used throughout the HBCN constraint generation process to specify
 /// timing requirements on paths between circuit nodes.
@@ -124,7 +115,7 @@ pub trait HasCircuitNode {
 /// # Fields
 ///
 /// - `min`: Optional minimum delay constraint (in time units)
-/// - `max`: Optional maximum delay constraint (in time units)
+/// - `max`: Maximum delay constraint (in time units)
 ///
 /// # Example
 ///
@@ -134,26 +125,29 @@ pub trait HasCircuitNode {
 /// // Path with both min and max delays
 /// let constraint = DelayPair {
 ///     min: Some(1.0),
-///     max: Some(8.5),
+///     max: 8.5,
 /// };
 ///
 /// // Path with only max delay
 /// let max_only = DelayPair {
 ///     min: None,
-///     max: Some(10.0),
+///     max: 10.0,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq, PartialOrd, Default)]
 pub struct DelayPair {
     /// Optional minimum delay constraint.
     pub min: Option<f64>,
-    /// Optional maximum delay constraint.
-    pub max: Option<f64>,
+    /// Maximum delay constraint.
+    pub max: f64,
 }
 
 impl DelayPair {
     /// Create a new delay pair with the specified min and max values.
-    pub fn new(min: Option<f64>, max: Option<f64>) -> Self {
+    ///
+    /// This keeps backward compatibility with parser code that may still
+    /// pass `None` for `max` by mapping it to `0.0`.
+    pub fn new(min: Option<f64>, max: f64) -> Self {
         Self { min, max }
     }
 }
@@ -181,36 +175,28 @@ impl DelayPair {
 /// use string_cache::DefaultAtom;
 ///
 /// let port = CircuitNode::Port(DefaultAtom::from("input"));
-/// let register = CircuitNode::Register {
-///     name: DefaultAtom::from("reg1"),
-/// };
+/// let register = CircuitNode::Register(DefaultAtom::from("reg1"));
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum CircuitNode {
     /// External interface port.
     Port(Symbol),
     /// Register component.
-    Register {
-        /// Register name/identifier.
-        name: Symbol,
-    },
+    Register (Symbol),
 }
 
 impl From<StructuralCircuitNode> for CircuitNode {
     fn from(node: StructuralCircuitNode) -> Self {
         match node {
             StructuralCircuitNode::Port(name) => CircuitNode::Port(name),
-            StructuralCircuitNode::Register { name, .. } => CircuitNode::Register { name },
+            StructuralCircuitNode::Register { name, .. } => CircuitNode::Register(name),
         }
     }
 }
 
-impl Named for CircuitNode {
-    fn name(&self) -> &Symbol {
-        match self {
-            CircuitNode::Port(name) => name,
-            CircuitNode::Register { name } => name,
-        }
+impl AsRef<CircuitNode> for CircuitNode {
+    fn as_ref(&self) -> &CircuitNode {
+        self
     }
 }
 
@@ -218,7 +204,7 @@ impl fmt::Display for CircuitNode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             CircuitNode::Port(name) => write!(f, "Port \"{}\"", name),
-            CircuitNode::Register { name } => write!(f, "Register \"{}\"", name),
+            CircuitNode::Register(name) => write!(f, "Register \"{}\"", name),
         }
     }
 }
@@ -229,15 +215,24 @@ pub trait TimedEvent {
     fn time(&self) -> f64;
 }
 
-impl<T: HasTransition> HasCircuitNode for T {
-    fn circuit_node(&self) -> &CircuitNode {
-        self.transition().circuit_node()
+impl Named for CircuitNode {
+    fn name(&self) -> &Symbol {
+        match self {
+            CircuitNode::Port(name) => name,
+            CircuitNode::Register(name) => name,
+        }
     }
 }
 
-impl<T: HasCircuitNode> Named for T {
+impl Named for Transition {
     fn name(&self) -> &Symbol {
-        self.circuit_node().name()
+        AsRef::<CircuitNode>::as_ref(self).name()
+    }
+}
+
+impl Named for TransitionEvent {
+    fn name(&self) -> &Symbol {
+        AsRef::<CircuitNode>::as_ref(self).name()
     }
 }
 
@@ -278,12 +273,18 @@ pub enum Transition {
     Data(CircuitNode),
 }
 
-impl HasCircuitNode for Transition {
-    fn circuit_node(&self) -> &CircuitNode {
+impl AsRef<CircuitNode> for Transition {
+    fn as_ref(&self) -> &CircuitNode {
         match self {
             Transition::Data(id) => id,
             Transition::Spacer(id) => id,
         }
+    }
+}
+
+impl AsRef<Transition> for Transition {
+    fn as_ref(&self) -> &Transition {
+        self
     }
 }
 
@@ -312,10 +313,6 @@ impl fmt::Display for Transition {
 ///   initial state of the place in the handshaking protocol and affect the initial marking
 ///   of the HBCN graph.
 ///
-/// - **`weight`**: The delay or cost associated with traversing this place. In timing
-///   analysis, this represents the minimum time required for a transition to propagate
-///   through this place.
-///
 /// - **`is_internal`**: Whether this place represents an internal connection (between
 ///   internal circuit components) versus an external channel.
 ///
@@ -327,7 +324,6 @@ impl fmt::Display for Transition {
 /// let forward_place = Place {
 ///     backward: false,
 ///     token: true,
-///     weight: 10.0,
 ///     is_internal: false,
 /// };
 /// ```
@@ -337,8 +333,6 @@ pub struct Place {
     pub backward: bool,
     /// Whether this place initially contains a token.
     pub token: bool,
-    /// The delay/cost weight of this place.
-    pub weight: f64,
     /// Whether this place represents an internal connection.
     pub is_internal: bool,
 }
@@ -351,6 +345,16 @@ pub trait MarkablePlace {
     fn is_marked(&self) -> bool;
 }
 
+impl<P: AsRef<Place> + AsMut<Place>> MarkablePlace for P {
+    fn mark(&mut self, mark: bool) {
+        self.as_mut().token = mark;
+    }
+
+    fn is_marked(&self) -> bool {
+        self.as_ref().token
+    }
+}
+
 /// Trait for places that have a computed slack value.
 ///
 /// Slack represents the difference between required arrival time and actual arrival time,
@@ -361,42 +365,27 @@ pub trait SlackablePlace {
 }
 
 /// Trait for places that have a weight/delay value.
-pub trait WeightedPlace {
+pub trait HasWeight {
     /// Returns the weight (delay/cost) of this place.
     fn weight(&self) -> f64;
 }
 
-/// Trait for types that contain or are a place.
-pub trait HasPlace {
-    /// Returns a reference to the place.
-    fn place(&self) -> &Place;
-    /// Returns a mutable reference to the place.
-    fn place_mut(&mut self) -> &mut Place;
+/// Trait for places that have delay constraint information.
+pub trait HasDelay {
+    /// Returns a reference to the delay constraints for this place.
+    fn delay(&self) -> &DelayPair;
 }
 
-impl WeightedPlace for Place {
-    fn weight(&self) -> f64 {
-        self.weight
-    }
-}
 
-impl HasPlace for Place {
-    fn place(&self) -> &Place {
-        self
-    }
-
-    fn place_mut(&mut self) -> &mut Place {
+impl AsRef<Place> for Place {
+    fn as_ref(&self) -> &Place {
         self
     }
 }
 
-impl<P: HasPlace> MarkablePlace for P {
-    fn mark(&mut self, mark: bool) {
-        self.place_mut().token = mark;
-    }
-
-    fn is_marked(&self) -> bool {
-        self.place().token
+impl AsMut<Place> for Place {
+    fn as_mut(&mut self) -> &mut Place {
+        self
     }
 }
 
@@ -409,9 +398,9 @@ pub type HBCN<T, P> = StableGraph<T, P>;
 /// Structural HBCN representation before timing analysis.
 ///
 /// This is the initial HBCN structure created from a structural graph. Nodes are [`Transition`]s
-/// and edges are [`Place`]s. This representation captures the circuit structure and topology
+/// and edges are [`WeightedPlace`]s. This representation captures the circuit structure and topology
 /// but does not yet contain computed timing information.
-pub type StructuralHBCN = HBCN<Transition, Place>;
+pub type StructuralHBCN = HBCN<Transition, WeightedPlace>;
 
 /// Solved HBCN representation after timing analysis.
 ///
@@ -437,9 +426,21 @@ pub struct TransitionEvent {
     pub transition: Transition,
 }
 
-impl HasTransition for TransitionEvent {
-    fn transition(&self) -> &Transition {
+impl AsRef<CircuitNode> for TransitionEvent {
+    fn as_ref(&self) -> &CircuitNode {
+        self.transition.as_ref()
+    }
+}
+
+impl AsRef<Transition> for TransitionEvent {
+    fn as_ref(&self) -> &Transition {
         &self.transition
+    }
+}
+
+impl Into<Transition> for TransitionEvent {
+    fn into(self) -> Transition {
+        self.transition
     }
 }
 
@@ -459,9 +460,8 @@ impl TimedEvent for TransitionEvent {
 ///
 /// # Weight Calculation
 ///
-/// When computing weights, `DelayedPlace` uses the maximum delay from `delay.max` if available,
-/// otherwise it falls back to the base `place.weight`. This ensures that computed delay constraints
-/// take precedence over initial weight estimates.
+/// When computing weights, `DelayedPlace` uses the maximum delay from `delay.max`.
+/// This ensures that computed delay constraints are used for weight calculations.
 ///
 /// # Example
 ///
@@ -471,7 +471,6 @@ impl TimedEvent for TransitionEvent {
 /// let place = Place {
 ///     backward: false,
 ///     token: true,
-///     weight: 10.0,
 ///     is_internal: false,
 /// };
 ///
@@ -479,11 +478,66 @@ impl TimedEvent for TransitionEvent {
 ///     place,
 ///     delay: DelayPair {
 ///         min: Some(1.0),
-///         max: Some(8.5),
+///         max: 8.5,
 ///     },
 ///     slack: Some(1.5),
 /// };
 /// ```
+/// A place with an associated weight/delay value.
+///
+/// This represents a place that has a weight (delay/cost) associated with it.
+/// The `weight` field contains the delay or cost value for this place.
+///
+/// `WeightedPlace` is used in [`StructuralHBCN`] to represent places with weights.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::{WeightedPlace, Place};
+///
+/// let place = Place {
+///     backward: false,
+///     token: true,
+///     is_internal: false,
+/// };
+///
+/// let weighted_place = WeightedPlace {
+///     place,
+///     weight: 10.0,
+/// };
+/// ```
+#[derive(Debug, Clone, Default)]
+pub struct WeightedPlace {
+    /// The underlying place structure.
+    pub place: Place,
+    /// The delay/cost weight of this place.
+    pub weight: f64,
+}
+
+impl HasWeight for WeightedPlace {
+    fn weight(&self) -> f64 {
+        self.weight
+    }
+}
+
+impl AsRef<Place> for WeightedPlace {
+    fn as_ref(&self) -> &Place {
+        &self.place
+    }
+}
+
+impl AsMut<Place> for WeightedPlace {
+    fn as_mut(&mut self) -> &mut Place {
+        &mut self.place
+    }
+}
+
+impl Into<Place> for WeightedPlace {
+    fn into(self) -> Place {
+        self.place
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct DelayedPlace {
     /// The underlying place structure.
@@ -494,19 +548,33 @@ pub struct DelayedPlace {
     pub slack: Option<f64>,
 }
 
-impl WeightedPlace for DelayedPlace {
+impl HasWeight for DelayedPlace {
     fn weight(&self) -> f64 {
-        self.delay.max.unwrap_or(self.place.weight)
+        self.delay.max
     }
 }
 
-impl HasPlace for DelayedPlace {
-    fn place(&self) -> &Place {
+impl HasDelay for DelayedPlace {
+    fn delay(&self) -> &DelayPair {
+        &self.delay
+    }
+}
+
+impl AsRef<Place> for DelayedPlace {
+    fn as_ref(&self) -> &Place {
         &self.place
     }
+}
 
-    fn place_mut(&mut self) -> &mut Place {
+impl AsMut<Place> for DelayedPlace {
+    fn as_mut(&mut self) -> &mut Place {
         &mut self.place
+    }
+}
+
+impl Into<Place> for DelayedPlace {
+    fn into(self) -> Place {
+        self.place
     }
 }
 
@@ -514,4 +582,238 @@ impl SlackablePlace for DelayedPlace {
     fn slack(&self) -> f64 {
         self.slack.unwrap_or(0.0)
     }
+}
+
+/// Validate a channel pair (node_a, node_b) according to the pairing and marking rules.
+///
+/// Validates that all 4 required places exist and at least one is marked:
+/// - Data(a) -> Data(b)
+/// - Data(b) -> Spacer(a)
+/// - Spacer(a) -> Spacer(b)
+/// - Spacer(b) -> Data(a)
+fn validate_channel_pair<T: AsRef<Transition>, P: MarkablePlace>(
+    hbcn: &HBCN<T, P>,
+    edge_map: &HashMap<(NodeIndex, NodeIndex), EdgeIndex>,
+    node_to_data: &HashMap<&CircuitNode, NodeIndex>,
+    node_to_spacer: &HashMap<&CircuitNode, NodeIndex>,
+    node_a: &CircuitNode,
+    node_b: &CircuitNode,
+) -> Result<()> {
+    // Get transition node indices
+    let (Some(&data_a), Some(&data_b)) = (node_to_data.get(node_a), node_to_data.get(node_b)) else {
+        bail!(
+            "Missing Data transitions for nodes {} or {}",
+            node_a, node_b
+        );
+    };
+
+    let (Some(&spacer_a), Some(&spacer_b)) = (node_to_spacer.get(node_a), node_to_spacer.get(node_b)) else {
+        bail!(
+            "Missing Spacer transitions for nodes {} or {}",
+            node_a, node_b
+        );
+    };
+
+    // Check all four required places and their markings
+    let place_1_idx = edge_map.get(&(data_a, data_b));
+    let place_1_marked = place_1_idx
+        .map(|idx| hbcn[*idx].is_marked())
+        .unwrap_or(false);
+
+    let place_2_idx = edge_map.get(&(data_b, spacer_a));
+    let place_2_marked = place_2_idx
+        .map(|idx| hbcn[*idx].is_marked())
+        .unwrap_or(false);
+
+    let place_3_idx = edge_map.get(&(spacer_a, spacer_b));
+    let place_3_marked = place_3_idx
+        .map(|idx| hbcn[*idx].is_marked())
+        .unwrap_or(false);
+
+    let place_4_idx = edge_map.get(&(spacer_b, data_a));
+    let place_4_marked = place_4_idx
+        .map(|idx| hbcn[*idx].is_marked())
+        .unwrap_or(false);
+
+    // Determine if this is an orphaned spacer (has Spacer->Spacer but no Data->Data)
+    // for context-specific error messages
+    let is_orphaned_spacer = place_1_idx.is_none() && place_3_idx.is_some();
+
+    // Validation checks with context-specific error messages
+    if place_1_idx.is_none() {
+        if is_orphaned_spacer {
+            bail!(
+                "Found Spacer({}) -> Spacer({}), but missing corresponding Data({}) -> Data({})",
+                node_a, node_b, node_a, node_b
+            );
+        } else {
+            bail!(
+                "Missing place: Data({}) -> Data({})",
+                node_a, node_b
+            );
+        }
+    }
+
+    if place_2_idx.is_none() {
+        if is_orphaned_spacer {
+            bail!(
+                "Found Spacer({}) -> Spacer({}), but missing paired place: Data({}) -> Spacer({}) (required pairing for Data({}) -> Data({}))",
+                node_a, node_b, node_b, node_a, node_a, node_b
+            );
+        } else {
+            bail!(
+                "Missing paired place: Data({}) -> Spacer({}) (required pairing for Data({}) -> Data({}))",
+                node_b, node_a, node_a, node_b
+            );
+        }
+    }
+
+    if place_3_idx.is_none() {
+        bail!(
+            "Missing place: Spacer({}) -> Spacer({}) (required for Data({}) -> Data({}))",
+            node_a, node_b, node_a, node_b
+        );
+    }
+
+    if place_4_idx.is_none() {
+        bail!(
+            "Missing paired place: Spacer({}) -> Data({}) (required pairing for Spacer({}) -> Spacer({}))",
+            node_b, node_a, node_a, node_b
+        );
+    }
+
+    // Check that exactly one (and only one) of the 4 places is marked
+    let marked_count = [place_1_marked, place_2_marked, place_3_marked, place_4_marked]
+        .iter()
+        .filter(|&&m| m)
+        .count();
+    if marked_count != 1 {
+        bail!(
+            "Exactly one of the 4 places for channel ({}, {}) must be marked (found {})",
+            node_a, node_b, marked_count
+        );
+    }
+
+    Ok(())
+}
+
+/// Validate an HBCN according to the pairing and marking rules.
+///
+/// The validation rules are:
+/// 1. No edge should connect a node to itself (no self-loops)
+/// 2. Every place connecting Data(a) to Data(b) must be paired with a Data(b) to Spacer(a) place
+/// 3. Every Spacer(a) to Spacer(b) must be paired with a Spacer(b) to Data(a) place
+/// 4. For every Data(a) to Data(b) there must exist a Spacer(a) to Spacer(b) and vice-versa
+/// 5. Exactly one of the 4 aforementioned places must be marked
+///
+/// # Arguments
+///
+/// * `hbcn` - The HBCN graph to validate
+///
+/// # Returns
+///
+/// Returns `Ok(())` if validation passes, or an `Error` if validation fails.
+///
+/// # Example
+///
+/// ```no_run
+/// use hbcn::hbcn::{StructuralHBCN, validate_hbcn};
+///
+/// let hbcn = StructuralHBCN::default();
+/// if let Err(e) = validate_hbcn(&hbcn) {
+///     eprintln!("Validation failed: {}", e);
+/// }
+/// ```
+pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(
+    hbcn: &HBCN<T, P>,
+) -> Result<()> {
+    // Build a map of (source, destination) -> edge_index for quick lookup
+    let mut edge_map: HashMap<(NodeIndex, NodeIndex), EdgeIndex> = HashMap::new();
+
+    // Check for self-loops (edges connecting a node to itself)
+    for edge_idx in hbcn.edge_indices() {
+        if let Some((src, dst)) = hbcn.edge_endpoints(edge_idx) {
+            if src == dst {
+                let transition = hbcn[src].as_ref();
+                bail!(
+                    "Found self-loop: edge connecting {} to itself",
+                    transition
+                );
+            }
+            edge_map.insert((src, dst), edge_idx);
+        }
+    }
+
+    // Get a map of circuit nodes to their Data and Spacer transition nodes
+    let mut node_to_data: HashMap<&CircuitNode, NodeIndex> = HashMap::new();
+    let mut node_to_spacer: HashMap<&CircuitNode, NodeIndex> = HashMap::new();
+
+    for node_idx in hbcn.node_indices() {
+        let transition = &hbcn[node_idx];
+        match transition.as_ref() {
+            Transition::Data(circuit_node) => {
+                node_to_data.insert(circuit_node, node_idx);
+            }
+            Transition::Spacer(circuit_node) => {
+                node_to_spacer.insert(circuit_node, node_idx);
+            }
+        }
+    }
+
+    // Collect all channel pairs by examining all edges
+    // Each edge type reveals a channel pair:
+    // - Data(a) -> Data(b) reveals channel (a, b)
+    // - Spacer(a) -> Spacer(b) reveals channel (a, b)
+    // - Data(b) -> Spacer(a) reveals channel (a, b) (backward pairing)
+    // - Spacer(b) -> Data(a) reveals channel (a, b) (backward pairing)
+    let mut channel_pairs: HashSet<(CircuitNode, CircuitNode)> = HashSet::new();
+
+    for edge_idx in hbcn.edge_indices() {
+        if let Some((src_idx, dst_idx)) = hbcn.edge_endpoints(edge_idx) {
+            let src_transition = hbcn[src_idx].as_ref();
+            let dst_transition = hbcn[dst_idx].as_ref();
+
+            // Data(a) -> Data(b) reveals channel (a, b)
+            if let (Transition::Data(node_a), Transition::Data(node_b)) =
+                (src_transition, dst_transition)
+            {
+                channel_pairs.insert((node_a.clone(), node_b.clone()));
+            }
+
+            // Spacer(a) -> Spacer(b) reveals channel (a, b)
+            if let (Transition::Spacer(node_a), Transition::Spacer(node_b)) =
+                (src_transition, dst_transition)
+            {
+                channel_pairs.insert((node_a.clone(), node_b.clone()));
+            }
+
+            // Data(b) -> Spacer(a) reveals channel (a, b) (backward pairing)
+            if let (Transition::Data(node_b), Transition::Spacer(node_a)) =
+                (src_transition, dst_transition)
+            {
+                channel_pairs.insert((node_a.clone(), node_b.clone()));
+            }
+
+            // Spacer(b) -> Data(a) reveals channel (a, b) (backward pairing)
+            if let (Transition::Spacer(node_b), Transition::Data(node_a)) =
+                (src_transition, dst_transition)
+            {
+                channel_pairs.insert((node_a.clone(), node_b.clone()));
+            }
+        }
+    }
+
+    // Validate each channel pair once
+    for (node_a, node_b) in channel_pairs {
+        validate_channel_pair(
+            hbcn,
+            &edge_map,
+            &node_to_data,
+            &node_to_spacer,
+            &node_a,
+            &node_b,
+        )?;
+    }
+
+    Ok(())
 }

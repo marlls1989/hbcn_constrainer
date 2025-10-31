@@ -34,7 +34,7 @@ use petgraph::visit::IntoNodeReferences;
 use rayon::prelude::*;
 use regex::Regex;
 
-use crate::hbcn::{HBCN, HasTransition, Named, TimedEvent, Transition};
+use crate::hbcn::{HBCN, Named, TimedEvent, Transition};
 
 /// Write VCD (Value Change Dump) format output for an HBCN.
 ///
@@ -64,7 +64,7 @@ use crate::hbcn::{HBCN, HasTransition, Named, TimedEvent, Transition};
 /// # Ok(())
 /// # }
 /// ```
-pub fn write_vcd<T: HasTransition + TimedEvent + Send + Sync, P>(
+pub fn write_vcd<T: AsRef<Transition> + TimedEvent + Send + Sync, P>(
     hbcn: &HBCN<T, P>,
     w: &mut dyn io::Write,
 ) -> Result<()> {
@@ -80,7 +80,7 @@ pub fn write_vcd<T: HasTransition + TimedEvent + Send + Sync, P>(
         let mut events: Vec<&T> = hbcn
             .node_references()
             .map(|(_idx, e)| {
-                let cnode = e.transition().name();
+                let cnode = AsRef::<Transition>::as_ref(e).name();
                 if !variables.contains_key(cnode) {
                     variables.insert(
                         cnode.clone(),
@@ -102,7 +102,7 @@ pub fn write_vcd<T: HasTransition + TimedEvent + Send + Sync, P>(
     for (time, events) in events.into_iter().group_by(|x| x.time()).into_iter() {
         writer.timestamp((time.abs() * 1000.0) as u64)?;
         for event in events {
-            match event.transition() {
+            match event.as_ref() {
                 Transition::Data(id) => writer.change_scalar(variables[id.name()], vcd::Value::V1),
                 Transition::Spacer(id) => {
                     writer.change_scalar(variables[id.name()], vcd::Value::V0)

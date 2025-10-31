@@ -31,9 +31,7 @@ mod constrain_unit_tests {
 
         // All max delays should be valid
         for constraint in result.path_constraints.values() {
-            if let Some(max_delay) = constraint.max {
-                assert!(max_delay >= 1.0, "Max delay should be at least min_delay");
-            }
+            assert!(constraint.max >= 1.0, "Max delay should be at least min_delay");
             // Pseudoclock algorithm only generates max constraints
             assert!(constraint.min.is_none());
         }
@@ -60,9 +58,9 @@ mod constrain_unit_tests {
 
         // Should have both min and max delays for proportional algorithm
         let has_min = result.path_constraints.values().any(|c| c.min.is_some());
-        let has_max = result.path_constraints.values().any(|c| c.max.is_some());
+        // max is always present now (mandatory)
         assert!(
-            has_min || has_max,
+            has_min || result.path_constraints.len() > 0,
             "Should have at least some min or max constraints"
         );
     }
@@ -251,14 +249,12 @@ mod constrain_unit_tests {
                 assert!(min_delay <= 50.0, "Min delay should be reasonable");
             }
 
-            if let Some(max_delay) = constraint.max {
-                assert!(max_delay >= 5.0, "Max delay should be at least min_delay");
-                assert!(max_delay <= 50.0, "Max delay should not exceed cycle time");
-            }
+            assert!(constraint.max >= 5.0, "Max delay should be at least min_delay");
+            assert!(constraint.max <= 50.0, "Max delay should not exceed cycle time");
 
-            // If both exist, min should be <= max
-            if let (Some(min), Some(max)) = (constraint.min, constraint.max) {
-                assert!(min <= max, "Min delay should not exceed max delay");
+            // If min exists, min should be <= max
+            if let Some(min) = constraint.min {
+                assert!(min <= constraint.max, "Min delay should not exceed max delay");
             }
         }
     }
@@ -300,13 +296,11 @@ mod constrain_unit_tests {
         // Check that edges have delay information
         for edge_idx in result.hbcn.edge_indices() {
             let edge = &result.hbcn[edge_idx];
-            // Delays should be reasonable if present
-            if let Some(max_delay) = edge.delay.max {
-                assert!(
-                    max_delay >= 1.0,
-                    "Edge max delay should be at least min_delay"
-                );
-            }
+            // Delays should be reasonable (max is always present now)
+            assert!(
+                edge.delay.max >= 1.0,
+                "Edge max delay should be at least min_delay"
+            );
             if let Some(min_delay) = edge.delay.min {
                 assert!(min_delay >= 0.0, "Edge min delay should be non-negative");
             }
@@ -338,10 +332,8 @@ mod constrain_unit_tests {
 
         // All constraints should be valid
         for constraint in result.path_constraints.values() {
-            if let Some(max_delay) = constraint.max {
-                assert!(max_delay >= 3.0);
-                assert!(max_delay <= 30.0);
-            }
+            assert!(constraint.max >= 3.0);
+            assert!(constraint.max <= 30.0);
             if let Some(min_delay) = constraint.min {
                 assert!(min_delay >= 0.0);
                 assert!(min_delay <= 30.0);
@@ -537,14 +529,13 @@ mod constrain_unit_tests {
                 assert!(min_delay <= 100.0, "Min delay should be reasonable");
             }
 
-            if let Some(max_delay) = constraint.max {
-                assert!(max_delay >= 5.0, "Max delay should be at least min_delay");
-                assert!(max_delay <= 100.0, "Max delay should not exceed cycle time");
-            }
+            // Max is now mandatory
+            assert!(constraint.max >= 0.0, "Max delay should be non-negative");
+            assert!(constraint.max <= 100.0, "Max delay should not exceed cycle time");
 
-            // If both exist, min should be <= max
-            if let (Some(min), Some(max)) = (constraint.min, constraint.max) {
-                assert!(min <= max, "Min delay should not exceed max delay");
+            // If min exists, min should be <= max
+            if let Some(min) = constraint.min {
+                assert!(min <= constraint.max, "Min delay should not exceed max delay");
             }
         }
     }
