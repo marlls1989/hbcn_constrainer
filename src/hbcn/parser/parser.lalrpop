@@ -4,13 +4,13 @@ use crate::hbcn::CircuitNode;
 
 grammar;
 
-pub AdjencyList: AdjencyList = {
+pub AdjacencyList: AdjacencyList = {
     Edge*
 }
 
-Edge: AdjencyEntry = {
-    <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjencyEntry::new(source, delay, target, false),
-    "*" <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjencyEntry::new(source, delay, target, true),
+Edge: AdjacencyEntry = {
+    <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjacencyEntry::new(source, delay, target, false),
+    "*" <source:Transition> "=>" <target:Transition> ":" <delay:Delay> => AdjacencyEntry::new(source, delay, target, true),
 }
 
 Transition: Transition = {

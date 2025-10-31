@@ -52,7 +52,7 @@ use petgraph::graph::NodeIndex;
 /// ```
 pub fn parse_hbcn(input: &str) -> Result<HBCN<Transition, DelayedPlace>> {
     // Parse the input into adjacency list
-    let adjacency_list = parser::AdjencyListParser::new()
+    let adjacency_list = parser::AdjacencyListParser::new()
         .parse(input)
         .map_err(|e| anyhow::anyhow!("Failed to parse HBCN input: {}", e))?;
 
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn parse_empty_adjacency_list() {
         let input = "";
-        let result = super::parser::AdjencyListParser::new().parse(input);
+        let result = super::parser::AdjacencyListParser::new().parse(input);
         assert!(result.is_ok());
         let list = result.unwrap();
         assert!(list.is_empty());
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn parse_single_edge_without_token() {
         let input = r#"+{a} => -{b} : (1,2)"#;
-        let list = super::parser::AdjencyListParser::new()
+        let list = super::parser::AdjacencyListParser::new()
             .parse(input)
             .expect("should parse single edge");
         assert_eq!(list.len(), 1);
@@ -224,7 +224,7 @@ mod tests {
     #[test]
     fn parse_single_edge_with_token() {
         let input = r#"* -{x} => +{y} : 3.5"#;
-        let list = super::parser::AdjencyListParser::new()
+        let list = super::parser::AdjacencyListParser::new()
             .parse(input)
             .expect("should parse token edge");
         assert_eq!(list.len(), 1);
@@ -249,7 +249,7 @@ mod tests {
             -{n2} => -{n3} : 0.0 
             * +{n3} => -{n1} : (2,4.25)
         "#;
-        let list = super::parser::AdjencyListParser::new()
+        let list = super::parser::AdjacencyListParser::new()
             .parse(input)
             .expect("should parse multiple edges");
         assert_eq!(list.len(), 3);
@@ -276,7 +276,7 @@ mod tests {
             +{a} => +{b} : (10,20.75)
             -{b} => +{c} : (1.25,2)
         "#;
-        let list = super::parser::AdjencyListParser::new()
+        let list = super::parser::AdjacencyListParser::new()
             .parse(input)
             .expect("should parse mixed numbers");
         assert_eq!(list.len(), 2);
@@ -287,7 +287,7 @@ mod tests {
         assert!(!list[1].token);
     }
 
-    fn edge_tuple_from_ast(e: &super::ast::AdjencyEntry) -> (char, String, char, String, Option<f64>, f64, bool) {
+    fn edge_tuple_from_ast(e: &super::ast::AdjacencyEntry) -> (char, String, char, String, Option<f64>, f64, bool) {
         let (sk, sn) = match &e.source {
             super::ast::Transition::Data(s) => ('+', s.as_ref().to_string()),
             super::ast::Transition::Spacer(s) => ('-', s.as_ref().to_string()),
@@ -303,7 +303,7 @@ mod tests {
     fn parse_node_with_escaped_braces() {
         // Test parsing nodes with TCL-style escaped braces
         let input = r#"+{node\{with\}} => -{other\{name\}} : (1,2)"#;
-        let list = super::parser::AdjencyListParser::new()
+        let list = super::parser::AdjacencyListParser::new()
             .parse(input)
             .expect("should parse node with escaped braces");
         assert_eq!(list.len(), 1);
@@ -336,7 +336,7 @@ mod tests {
         validate_hbcn(&g).expect("Created HBCN should be valid");
 
         let text = serialize_hbcn_transition(&g);
-        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+        let parsed = super::parser::AdjacencyListParser::new().parse(&text).expect("parser should accept serialized output");
 
         assert_eq!(g.edge_count(), parsed.len());
         for (i, e_ast) in parsed.iter().enumerate() {
@@ -376,7 +376,7 @@ mod tests {
         validate_hbcn(&g).expect("Created HBCN should be valid");
 
         let text = serialize_hbcn_transition(&g);
-        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+        let parsed = super::parser::AdjacencyListParser::new().parse(&text).expect("parser should accept serialized output");
 
         assert_eq!(g.edge_count(), parsed.len());
         for (i, e_ast) in parsed.iter().enumerate() {
@@ -422,7 +422,7 @@ mod tests {
 
         // Serialize and parse back
         let text = serialize_hbcn_transition(&hbcn);
-        let parsed = super::parser::AdjencyListParser::new().parse(&text).expect("parser should accept serialized output");
+        let parsed = super::parser::AdjacencyListParser::new().parse(&text).expect("parser should accept serialized output");
 
         assert_eq!(parsed.len(), 1);
         let e = &parsed[0];

@@ -80,7 +80,7 @@ pub fn write_vcd<T: AsRef<Transition> + TimedEvent + Send + Sync, P>(
         let mut events: Vec<&T> = hbcn
             .node_references()
             .map(|(_idx, e)| {
-                let cnode = AsRef::<Transition>::as_ref(e).name();
+                let cnode = e.as_ref().name();
                 if !variables.contains_key(cnode) {
                     variables.insert(
                         cnode.clone(),

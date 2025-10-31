@@ -333,9 +333,8 @@ mod tests {
     /// Helper function to create a test StructuralHBCN from a structural graph string
     fn create_test_hbcn(input: &str) -> Result<StructuralHBCN> {
         let structural_graph = parse(input)?;
-        let hbcn = crate::hbcn::from_structural_graph(&structural_graph, false)
-            .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))?;
-        Ok(hbcn)
+        crate::hbcn::from_structural_graph(&structural_graph, false)
+            .ok_or_else(|| anyhow!("Failed to convert to StructuralHBCN"))
     }
 
     /// Helper function to run analysis and capture output
