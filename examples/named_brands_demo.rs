@@ -3,7 +3,7 @@
 //! This example demonstrates how the optional brand name parameter makes it easier
 //! to identify different models in the type system and debugging.
 
-use hbcn::lp_solver::{OptimizationSense, VariableType};
+use hbcn::lp_solver::{OptimisationSense, VariableType};
 use hbcn::{constraint, lp_model_builder};
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -40,8 +40,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Logistics: fleet size and route capacity constraints\n");
 
     // Set objectives
-    production_model.set_objective(50.0 * widgets + 80.0 * gadgets, OptimizationSense::Maximize);
-    logistics_model.set_objective(trucks * 100.0 + routes * 20.0, OptimizationSense::Minimize);
+    production_model.set_objective(50.0 * widgets + 80.0 * gadgets, OptimisationSense::Maximise);
+    logistics_model.set_objective(trucks * 100.0 + routes * 20.0, OptimisationSense::Minimise);
 
     println!("4. Set different objectives:");
     println!("   Production: Maximize profit (50*widgets + 80*gadgets)");

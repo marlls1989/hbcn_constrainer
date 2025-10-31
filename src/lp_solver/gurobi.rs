@@ -91,30 +91,30 @@ pub fn solve_gurobi<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution
         gurobi_expr = gurobi_expr.add_constant(obj_info.expression.constant);
 
         let sense = match obj_info.sense {
-            OptimizationSense::Minimize => ModelSense::Minimize,
-            OptimizationSense::Maximize => ModelSense::Maximize,
+            OptimisationSense::Minimise => ModelSense::Minimize,
+            OptimisationSense::Maximise => ModelSense::Maximize,
         };
 
         model.set_objective(gurobi_expr, sense)?;
     }
 
-    // Optimize
+    // Optimise
     model.optimize()?;
 
     // Get status
     let status = model.status()?;
-    let optimization_status = match status {
-        Status::Optimal | Status::SubOptimal => OptimizationStatus::Optimal,
-        Status::Infeasible => OptimizationStatus::Infeasible,
-        Status::Unbounded => OptimizationStatus::Unbounded,
-        _ => OptimizationStatus::Other("Unknown status"),
+    let optimisation_status = match status {
+        Status::Optimal | Status::SubOptimal => OptimisationStatus::Optimal,
+        Status::Infeasible => OptimisationStatus::Infeasible,
+        Status::Unbounded => OptimisationStatus::Unbounded,
+        _ => OptimisationStatus::Other("Unknown status"),
     };
 
     // Extract variable values and objective value only if model is feasible
     let num_vars = builder.variables.len();
     let mut variable_values = vec![0.0; num_vars];
-    let objective_value = match optimization_status {
-        OptimizationStatus::Optimal => {
+    let objective_value = match optimisation_status {
+        OptimisationStatus::Optimal => {
             // Get variable values
             for (var_id, var) in &var_map {
                 let value = var.get(&model, attr::X)?;
@@ -131,7 +131,7 @@ pub fn solve_gurobi<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution
     };
 
     Ok(LPSolution {
-        status: optimization_status,
+        status: optimisation_status,
         objective_value,
         variable_values,
         _brand: std::marker::PhantomData,

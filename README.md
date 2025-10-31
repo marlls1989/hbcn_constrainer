@@ -132,7 +132,7 @@ For maximum performance, you can use the commercial Gurobi solver:
 
 **Pros:**
 - Excellent performance for large-scale problems
-- Advanced optimization features
+- Advanced optimisation features
 - Academic licenses available
 
 **Installation Steps:**
@@ -290,7 +290,7 @@ hbcn expand [OPTIONS] --output <OUTPUT> <INPUT>
 ```bash
 hbcn analyse [OPTIONS] <INPUT>
 ```
-- **Description**: Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance. Use `--depth` to analyze cycle depth instead of weighted cycle time.
+- **Description**: Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance. Use `--depth` to analyse cycle depth instead of weighted cycle time.
 - **Arguments**:
   - `<INPUT>`: HBCN input file (default) or structural graph input file if `--structural` is passed
 - **Options**:
@@ -398,7 +398,7 @@ hbcn analyse input.graph --structural --vcd timing.vcd
 # Perform depth analysis (unweighted) instead of weighted cycle time
 hbcn analyse input.graph --structural --depth
 
-# Generate DOT graph visualization
+# Generate DOT graph visualisation
 hbcn analyse input.graph --structural --dot circuit.dot
 
 # Save analysis report to file
@@ -597,7 +597,7 @@ cargo build --features gurobi
 - `prettytable-rs`: Formatted table output for reports
 - `regex`: Regular expression processing
 - `string_cache`: String interning for performance
-- `lazy_static`: Lazy static initialization
+- `lazy_static`: Lazy static initialisation
 - `itertools`: Iterator utilities
 - `rayon`: Parallel processing
 - `ordered-float`: Floating-point ordering
@@ -613,7 +613,7 @@ cargo build --features gurobi
 - **Use Case**: Default choice for open-source deployments
 
 #### Gurobi (Optional)
-- **Type**: Commercial optimization solver
+- **Type**: Commercial optimisation solver
 - **License**: Commercial (academic licenses available)
 - **Performance**: Excellent for large-scale problems
 - **Installation**: Requires separate Gurobi installation and license
@@ -650,7 +650,7 @@ The constrainer uses mathematical optimisation to generate timing constraints th
 
 #### LP Solver Integration
 The constraint generation process leverages Linear Programming (LP) solvers to:
-- **Formulate timing constraints** as linear optimization problems
+- **Formulate timing constraints** as linear optimisation problems
 - **Solve for optimal cycle times** while respecting delay bounds
 - **Generate constraint coefficients** for SDC output
 - **Support multiple solver backends** for different deployment scenarios

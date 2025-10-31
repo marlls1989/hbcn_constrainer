@@ -2,7 +2,7 @@
 //!
 //! This module provides functionality for converting a [`StructuralGraph`] (representing
 //! the circuit's structural connectivity) into a [`StructuralHBCN`] (representing the
-//! timing behavior and handshaking protocol of the asynchronous circuit).
+//! timing behaviour and handshaking protocol of the asynchronous circuit).
 //!
 //! # Conversion Process
 //!

@@ -2339,7 +2339,7 @@ Port "c" [("a", 10)]
             None,
         );
 
-        // Cyclic circuits behavior depends on solver
+        // Cyclic circuits behaviour depends on solver
         match result {
             Ok(_) => {
                 assert!(sdc_path.exists(), "SDC file should exist if successful");

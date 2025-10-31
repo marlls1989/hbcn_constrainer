@@ -57,7 +57,7 @@ macro_rules! lp_model_builder {
 /// use hbcn::lp_solver::VariableType;
 ///
 /// // Use named brand for better type system clarity
-/// let mut builder = lp_model_builder!(OptimizationModel);
+/// let mut builder = lp_model_builder!(OptimisationModel);
 /// let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 /// let y = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
 ///

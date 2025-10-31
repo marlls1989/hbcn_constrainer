@@ -1,13 +1,13 @@
 //! Analysis tools for HBCN circuits.
 //!
-//! This module provides functionality for analyzing the timing behavior of HBCN circuits,
-//! including cycle time estimation, critical path identification, and visualization.
+//! This module provides functionality for analysing the timing behaviour of HBCN circuits,
+//! including cycle time estimation, critical path identification, and visualisation.
 //!
 //! # Main Operations
 //!
 //! - **[`analyse_main`]**: Performs comprehensive cycle time analysis, finds critical cycles,
-//!   and can generate VCD waveform files and DOT graph visualizations.
-//!   Use the `--depth` flag to analyze cycle depth instead of weighted cycle time.
+//!   and can generate VCD waveform files and DOT graph visualisations.
+//!   Use the `--depth` flag to analyse cycle depth instead of weighted cycle time.
 //!
 //! # Workflow
 //!
@@ -15,7 +15,7 @@
 //! 2. If structural graph, convert to HBCN representation
 //! 3. Compute cycle time using linear programming
 //! 4. Identify critical cycles (paths with minimal slack)
-//! 5. Generate reports, VCD waveforms, or DOT visualizations
+//! 5. Generate reports, VCD waveforms, or DOT visualisations
 //!
 //! # Example
 //!
@@ -85,7 +85,7 @@ pub struct AnalyseArgs {
 /// 2. If structural graph, converts it to an HBCN representation
 /// 3. Computes cycle time using weighted linear programming
 /// 4. Identifies critical cycles (paths with minimal slack)
-/// 5. Generates formatted reports and optional visualizations
+/// 5. Generates formatted reports and optional visualisations
 ///
 /// # Arguments
 ///
@@ -94,8 +94,8 @@ pub struct AnalyseArgs {
 /// # Outputs
 ///
 /// - **Report** (stdout or file): Detailed cycle analysis with critical path information
-/// - **VCD** (optional): Waveform file with timing information for visualization
-/// - **DOT** (optional): Graph visualization file in Graphviz format
+/// - **VCD** (optional): Waveform file with timing information for visualisation
+/// - **DOT** (optional): Graph visualisation file in Graphviz format
 ///
 /// # Example
 ///

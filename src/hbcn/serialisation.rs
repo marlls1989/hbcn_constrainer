@@ -1,27 +1,27 @@
-//! Serialization functions for HBCN graphs.
+//! Serialisation functions for HBCN graphs.
 //!
-//! This module provides functions to serialize HBCN graphs to the format
+//! This module provides functions to serialise HBCN graphs to the format
 //! defined by the parser grammar.
 
 use crate::hbcn::{DelayPair, HasDelay, MarkablePlace, Named, Transition};
 use petgraph::stable_graph::StableGraph;
 use std::fmt::{self};
 
-/// Serialize an HBCN to the format defined by the parser grammar into the provided writer.
+/// Serialise an HBCN to the format defined by the parser grammar into the provided writer.
 ///
-/// See `serialize_hbcn` for format details.
-pub fn serialize_hbcn_to<N, P, W>(hbcn: &StableGraph<N, P>, writer: &mut W) -> fmt::Result
+/// See `serialise_hbcn` for format details.
+pub fn serialise_hbcn_to<N, P, W>(hbcn: &StableGraph<N, P>, writer: &mut W) -> fmt::Result
 where
     N: AsRef<Transition>,
     P: MarkablePlace + HasDelay,
     W: fmt::Write,
 {
-    serialize_hbcn_internal(hbcn, |node| node.as_ref(), writer)
+    serialise_hbcn_internal(hbcn, |node| node.as_ref(), writer)
 }
 
-/// Serialize an HBCN to the format defined by the parser grammar.
+/// Serialise an HBCN to the format defined by the parser grammar.
 ///
-/// This function serializes the edges of an HBCN graph where:
+/// This function serialises the edges of an HBCN graph where:
 /// - Nodes are either [`Transition`]s directly or implement `AsRef<Transition>`
 /// - Edges implement [`MarkablePlace`] and [`HasDelay`]
 ///
@@ -32,7 +32,7 @@ where
 ///
 /// # Arguments
 ///
-/// * `hbcn` - The HBCN graph to serialize
+/// * `hbcn` - The HBCN graph to serialise
 ///
 /// # Returns
 ///
@@ -41,7 +41,7 @@ where
 /// # Example
 ///
 /// ```
-/// use hbcn::hbcn::serialisation::serialize_hbcn;
+/// use hbcn::hbcn::serialisation::serialise_hbcn;
 /// use hbcn::hbcn::{TransitionEvent, DelayedPlace, Place, DelayPair, CircuitNode, Transition};
 /// use petgraph::stable_graph::StableGraph;
 /// use string_cache::DefaultAtom;
@@ -61,21 +61,21 @@ where
 ///     slack: None,
 /// });
 ///
-/// let output = serialize_hbcn(&graph);
+/// let output = serialise_hbcn(&graph);
 /// ```
-pub fn serialize_hbcn<N, P>(hbcn: &StableGraph<N, P>) -> String
+pub fn serialise_hbcn<N, P>(hbcn: &StableGraph<N, P>) -> String
 where
     N: AsRef<Transition>,
     P: MarkablePlace + HasDelay,
 {
     let mut out = String::new();
     // Infallible for String
-    let _ = serialize_hbcn_to(hbcn, &mut out);
+    let _ = serialise_hbcn_to(hbcn, &mut out);
     out
 }
 
 /// Internal helper that works with a transition extractor function and a writer.
-fn serialize_hbcn_internal<N, P, W>(
+fn serialise_hbcn_internal<N, P, W>(
     hbcn: &StableGraph<N, P>,
     get_transition: impl Fn(&N) -> &Transition,
     writer: &mut W,
@@ -121,15 +121,15 @@ where
     Ok(())
 }
 
-/// Serialize an HBCN where nodes are directly Transitions.
+/// Serialise an HBCN where nodes are directly Transitions.
 ///
 /// This is a convenience function for HBCNs with `Transition` nodes.
-pub fn serialize_hbcn_transition<P>(hbcn: &StableGraph<Transition, P>) -> String
+pub fn serialise_hbcn_transition<P>(hbcn: &StableGraph<Transition, P>) -> String
 where
     P: MarkablePlace + HasDelay,
 {
     let mut out = String::new();
-    let _ = serialize_hbcn_internal(hbcn, |t| t, &mut out);
+    let _ = serialise_hbcn_internal(hbcn, |t| t, &mut out);
     out
 }
 

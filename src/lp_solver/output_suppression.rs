@@ -162,7 +162,7 @@ mod tests {
         let result = GagHandle::stderr();
 
         // This should either succeed (if the gag is still held in memory) or fail
-        // The behavior depends on the internal implementation of gag
+        // The behaviour depends on the internal implementation of gag
         match result {
             Ok(_) => {
                 // If it succeeds, it means the gag manager is properly keeping

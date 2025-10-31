@@ -1,7 +1,7 @@
 //! Expansion tools for converting structural graphs to HBCN representation.
 //!
 //! This module provides functionality for converting structural graphs to HBCN
-//! representation and serializing the result to the HBCN format.
+//! representation and serialising the result to the HBCN format.
 //!
 //! # Main Operations
 //!
@@ -63,7 +63,7 @@ pub struct ExpandArgs {
 ///
 /// 1. Reads and parses the structural graph
 /// 2. Converts to HBCN representation using `from_structural_graph`
-/// 3. Serializes the HBCN to the output file in the parser format
+/// 3. Serialises the HBCN to the output file in the parser format
 ///
 /// # Arguments
 ///
@@ -99,7 +99,7 @@ pub fn expand_main(args: ExpandArgs) -> Result<()> {
     let hbcn = from_structural_graph(&graph, forward_completion)
         .ok_or_else(|| anyhow!("Failed to convert structural graph to HBCN"))?;
 
-    // Convert StructuralHBCN (WeightedPlace) to SolvedHBCN (DelayedPlace) for serialization
+    // Convert StructuralHBCN (WeightedPlace) to SolvedHBCN (DelayedPlace) for serialisation
     let mut converted_hbcn = SolvedHBCN::new();
     let node_map: HashMap<NodeIndex, NodeIndex> = hbcn
         .node_indices()
@@ -124,9 +124,9 @@ pub fn expand_main(args: ExpandArgs) -> Result<()> {
         converted_hbcn.add_edge(node_map[&src], node_map[&dst], delayed_place);
     }
 
-    // Serialize the HBCN to the output file
-    let serialized = serialisation::serialize_hbcn(&converted_hbcn);
-    fs::write(&output, serialized)?;
+    // Serialise the HBCN to the output file
+    let serialised = serialisation::serialise_hbcn(&converted_hbcn);
+    fs::write(&output, serialised)?;
 
     Ok(())
 }
@@ -175,7 +175,7 @@ mod tests {
             converted_hbcn.add_edge(node_map[&src], node_map[&dst], delayed_place);
         }
 
-        let output = serialisation::serialize_hbcn(&converted_hbcn);
+        let output = serialisation::serialise_hbcn(&converted_hbcn);
 
         // Should contain transitions for both nodes
         assert!(output.contains("+{input}"));

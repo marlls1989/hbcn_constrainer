@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Enhanced macro system**: 
   - Implemented `lp_model_builder!()` macro for guaranteed unique branding
   - Added optional brand name parameter to `lp_model_builder!` macro for better type system clarity
-  - Moved macros to dedicated `macros` submodule for better organization
+  - Moved macros to dedicated `macros` submodule for better organisation
 - **Report file support**: Added `--report/-r` option to `analyse` command for redirecting output to files (renamed from log to avoid confusion with hbcn.log)
 - **New `expand` command**: Added `expand` command to convert structural graphs to HBCN representation
 - **Enhanced `analyse` command**: Added `--structural` flag to read structural graphs directly and `--depth` flag to perform unweighted depth analysis
@@ -32,9 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Simplified `add_variable()` method (now takes 3 parameters instead of 4)
   - Removed all `*_named` constructor functions (`eq_named`, `le_named`, etc.)
   - Simplified `constraint!` macro to only support unnamed constraints
-- **Output behavior**: LP solver output is now redirected to `hbcn.log`
+- **Output behaviour**: LP solver output is now redirected to `hbcn.log`
 - **Solver API**: Changed solver functions to take references instead of ownership for better efficiency
-- **Code organization**: Improved code formatting, organization, and test coverage throughout the project
+- **Code organisation**: Improved code formatting, organisation, and test coverage throughout the project
 - **Minimum Rust version**: Updated MSRV to 1.86.0 (required for Rust 2024 edition)
 
 ### Fixed
@@ -52,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Improved
 - **Error handling**: Better error messages showing actual brand names vs anonymous types
-- **Testing**: Enhanced test suite coverage and organization
+- **Testing**: Enhanced test suite coverage and organisation
 - **Development experience**: 
   - Easier debugging and code documentation with named brands
   - Zero runtime overhead - brands remain phantom types
@@ -63,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added Dockerfile.ci with pre-installed CBC solver libraries
 - GitHub Container Registry integration for image caching
 - Comprehensive benchmark suite with convenience scripts (`run_benchmarks.sh`, `demo_benchmarks.sh`)
-- Updated project structure with better organization of examples and benchmarks
+- Updated project structure with better organisation of examples and benchmarks
 
 ## [0.5.0] - Previous Release
 *(Baseline for this changelog)*

@@ -1,6 +1,6 @@
 //! HBCN analysis algorithms for cycle time computation and critical cycle detection.
 //!
-//! This module provides core algorithms for analyzing the timing behavior of HBCN circuits:
+//! This module provides core algorithms for analysing the timing behaviour of HBCN circuits:
 //!
 //! - **Cycle time computation**: Uses linear programming to determine optimal cycle times
 //! - **Critical cycle detection**: Identifies cycles with minimal slack using shortest path algorithms
@@ -12,7 +12,7 @@
 //! The [`compute_cycle_time`] function formulates the cycle time problem as a linear program:
 //! - Variables: Arrival times for each transition
 //! - Constraints: Timing relationships based on place weights and token markings
-//! - Objective: Minimize or maximize cycle time (depending on weighted flag)
+//! - Objective: Minimise or maximise cycle time (depending on weighted flag)
 //!
 //! ## Critical Cycle Detection
 //!
@@ -37,7 +37,7 @@ use crate::{
         TransitionEvent,
     },
     lp_model_builder,
-    lp_solver::{OptimizationSense, OptimizationStatus, VariableId, VariableType},
+    lp_solver::{OptimisationSense, OptimisationStatus, VariableId, VariableType},
 };
 
 /// Find critical cycles in an HBCN graph.
@@ -148,7 +148,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 ///
 /// # Arguments
 ///
-/// * `hbcn` - The structural HBCN graph to analyze
+/// * `hbcn` - The structural HBCN graph to analyse
 /// * `weighted` - If `true`, uses weighted cycle time (considers delays).
 ///   If `false`, uses unweighted cycle time (counts transitions only).
 ///
@@ -215,10 +215,10 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
         })
         .collect();
 
-    builder.set_objective(cycle_time.into(), OptimizationSense::Minimize);
+    builder.set_objective(cycle_time.into(), OptimisationSense::Minimise);
 
     let solution = builder.solve()?;
-    if solution.status == OptimizationStatus::InfeasibleOrUnbounded {
+    if solution.status == OptimisationStatus::InfeasibleOrUnbounded {
         Err(AppError::Infeasible.into())
     } else {
         Ok((

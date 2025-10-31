@@ -112,7 +112,7 @@
 //! ```rust,no_run
 //! use hbcn::constraint;
 //! use hbcn::lp_model_builder;
-//! use hbcn::lp_solver::{VariableType, OptimizationSense};
+//! use hbcn::lp_solver::{VariableType, OptimisationSense};
 //!
 //! let mut builder = lp_model_builder!();
 //! let x = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
@@ -126,7 +126,7 @@
 //!
 //!
 //! // Set objective and solve
-//! builder.set_objective(x + 2.0 * y, OptimizationSense::Maximize);
+//! builder.set_objective(x + 2.0 * y, OptimisationSense::Maximise);
 //! let _solution = builder.solve();
 //! ```
 //!
@@ -243,19 +243,19 @@ pub enum ConstraintSense {
     Greater,
 }
 
-/// Optimization direction
+/// Optimisation direction
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OptimizationSense {
-    /// Minimize the objective function
-    Minimize,
-    /// Maximize the objective function
-    Maximize,
+pub enum OptimisationSense {
+    /// Minimise the objective function
+    Minimise,
+    /// Maximise the objective function
+    Maximise,
 }
 
-/// Status of the optimization process
+/// Status of the optimisation process
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(dead_code)]
-pub enum OptimizationStatus {
+pub enum OptimisationStatus {
     /// Optimal solution found
     Optimal,
     /// Feasible solution found, but not necessarily optimal
@@ -499,13 +499,13 @@ struct VariableInfo {
 #[derive(Debug, Clone)]
 struct ObjectiveInfo<Brand> {
     expression: LinearExpression<Brand>,
-    sense: OptimizationSense,
+    sense: OptimisationSense,
 }
 
 /// Result of solving an LP model
 #[derive(Debug, Clone)]
 pub struct LPSolution<Brand> {
-    pub status: OptimizationStatus,
+    pub status: OptimisationStatus,
     pub objective_value: f64,
     variable_values: Vec<f64>,
     _brand: PhantomData<fn() -> Brand>,
@@ -584,7 +584,7 @@ impl<Brand> LPModelBuilder<Brand> {
     }
 
     /// Set the objective function
-    pub fn set_objective(&mut self, expression: LinearExpression<Brand>, sense: OptimizationSense) {
+    pub fn set_objective(&mut self, expression: LinearExpression<Brand>, sense: OptimisationSense) {
         self.objective = Some(ObjectiveInfo { expression, sense });
     }
 
@@ -593,7 +593,7 @@ impl<Brand> LPModelBuilder<Brand> {
     /// This method implements the following solver selection strategy:
     /// 1. If HBCN_LP_SOLVER environment variable is set, use the specified solver only
     /// 2. Otherwise, try Gurobi first (if available) and fallback to CBC on failure
-    /// 3. Fallback is triggered by Gurobi license issues or other initialization errors
+    /// 3. Fallback is triggered by Gurobi license issues or other initialisation errors
     pub fn solve(self) -> Result<LPSolution<Brand>> {
         // Check if user explicitly requested a specific solver
         if std::env::var("HBCN_LP_SOLVER").is_ok() {
@@ -607,7 +607,7 @@ impl<Brand> LPModelBuilder<Brand> {
             };
         }
 
-        // Default behavior: try Gurobi first, fallback to CBC on failure
+        // Default behaviour: try Gurobi first, fallback to CBC on failure
         #[cfg(feature = "gurobi")]
         {
             match crate::lp_solver::gurobi::solve_gurobi(&self) {
