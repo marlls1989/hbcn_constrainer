@@ -7,16 +7,15 @@
 //!
 //! - **[`analyse_main`]**: Performs comprehensive cycle time analysis, finds critical cycles,
 //!   and can generate VCD waveform files and DOT graph visualizations.
-//!
-//! - **[`depth_main`]**: Computes the longest path depth (critical path length) in the
-//!   circuit, useful for understanding circuit complexity.
+//!   Use the `--depth` flag to analyze cycle depth instead of weighted cycle time.
 //!
 //! # Workflow
 //!
-//! 1. Parse and convert structural graph to HBCN
-//! 2. Compute cycle time using linear programming
-//! 3. Identify critical cycles (paths with minimal slack)
-//! 4. Generate reports, VCD waveforms, or DOT visualizations
+//! 1. Parse input (HBCN by default, or structural graph if --structural is passed)
+//! 2. If structural graph, convert to HBCN representation
+//! 3. Compute cycle time using linear programming
+//! 4. Identify critical cycles (paths with minimal slack)
+//! 5. Generate reports, VCD waveforms, or DOT visualizations
 //!
 //! # Example
 //!
@@ -25,7 +24,9 @@
 //! use hbcn::analyse::{AnalyseArgs, analyse_main};
 //!
 //! let args = AnalyseArgs {
-//!     input: "circuit.graph".into(),
+//!     input: "circuit.hbcn".into(),
+//!     structural: false,  // Read as HBCN (default)
+//!     depth: false,  // Weighted analysis (default)
 //!     report: Some("analysis.rpt".into()),
 //!     vcd: Some("timing.vcd".into()),
 //!     dot: Some("graph.dot".into()),
@@ -53,14 +54,22 @@ pub mod vcd;
 /// Command-line arguments for the analysis command.
 #[derive(Parser, Debug)]
 pub struct AnalyseArgs {
-    /// Structural graph input file
+    /// HBCN input file (default) or structural graph input file if --structural is passed
     pub input: PathBuf,
+
+    /// Read input as a structural graph instead of an HBCN
+    #[clap(long)]
+    pub structural: bool,
+
+    /// Perform depth analysis (unweighted) instead of weighted cycle time analysis
+    #[clap(long)]
+    pub depth: bool,
 
     /// Report file for analysis results (default: stdout)
     #[clap(long, short)]
     pub report: Option<PathBuf>,
 
-    /// VCD waveform file with virtual-delay arrival times
+    /// VCD waveform file with arrival times
     #[clap(long)]
     pub vcd: Option<PathBuf>,
 
@@ -69,22 +78,11 @@ pub struct AnalyseArgs {
     pub dot: Option<PathBuf>,
 }
 
-/// Command-line arguments for the depth analysis command.
-#[derive(Parser, Debug)]
-pub struct DepthArgs {
-    /// Structural graph input file
-    pub input: PathBuf,
-
-    /// Report file for depth analysis results (default: stdout)
-    #[clap(long, short)]
-    pub report: Option<PathBuf>,
-}
-
 /// Perform comprehensive cycle time analysis on an HBCN circuit.
 ///
 /// This function:
-/// 1. Reads and parses the structural graph
-/// 2. Converts it to an HBCN representation
+/// 1. Reads and parses the input (HBCN by default, or structural graph if --structural is passed)
+/// 2. If structural graph, converts it to an HBCN representation
 /// 3. Computes cycle time using weighted linear programming
 /// 4. Identifies critical cycles (paths with minimal slack)
 /// 5. Generates formatted reports and optional visualizations
@@ -106,7 +104,9 @@ pub struct DepthArgs {
 /// use hbcn::analyse::{AnalyseArgs, analyse_main};
 ///
 /// let args = AnalyseArgs {
-///     input: "circuit.graph".into(),
+///     input: "circuit.hbcn".into(),
+///     structural: false,  // Read as HBCN (default)
+///     depth: false,  // Weighted analysis (default)
 ///     report: None,  // Print to stdout
 ///     vcd: Some("waves.vcd".into()),
 ///     dot: Some("graph.dot".into()),
@@ -119,6 +119,8 @@ pub struct DepthArgs {
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     let AnalyseArgs {
         input,
+        structural,
+        depth,
         report,
         vcd,
         dot,
@@ -130,14 +132,31 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
         None => Box::new(std::io::stdout()),
     };
 
+    let weighted = !depth;
+
     let (ct, solved_hbcn) = {
-        let g = read_file(&input)?;
-        let hbcn = crate::hbcn::from_structural_graph(&g, false)
-            .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
-        hbcn::compute_cycle_time(&hbcn, true)
+        if structural {
+            // Parse as structural graph
+            let g = read_file(&input)?;
+            let hbcn = crate::hbcn::from_structural_graph(&g, false)
+                .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
+            hbcn::compute_cycle_time(&hbcn, weighted)
+        } else {
+            // Parse as HBCN
+            let file_contents = fs::read_to_string(&input)?;
+            let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
+            // DelayedPlace implements HasWeight, so we can use it directly
+            hbcn::compute_cycle_time(&hbcn, weighted)
+        }
     }?;
 
-    writeln!(writer, "Worst virtual cycle-time: {}", ct)?;
+    if depth {
+        writeln!(writer, "Critical Cycle (Depth/Tokens): {}", ct)?;
+    } else if structural {
+        writeln!(writer, "Worst virtual cycle-time: {}", ct)?;
+    } else {
+        writeln!(writer, "Worst cycle-time: {}", ct)?;
+    }
 
     if let Some(filename) = dot {
         fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
@@ -148,10 +167,46 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
         vcd::write_vcd(&solved_hbcn, &mut file)?;
     }
 
-    let mut cycles = hbcn::find_critical_cycles(&solved_hbcn)
-        .into_par_iter()
-        .map(|cycle| {
-            let cost: f64 = cycle
+    let cycles = if depth {
+        // For depth analysis, sort by cycle length (depth)
+        let mut cycles = hbcn::find_critical_cycles(&solved_hbcn);
+        cycles.par_sort_unstable_by_key(|cycle| cmp::Reverse(cycle.len()));
+        cycles
+    } else {
+        // For weighted analysis, sort by delay/weight - slack
+        let mut cycles_with_delay: Vec<(
+            f64,
+            Vec<(petgraph::graph::NodeIndex, petgraph::graph::NodeIndex)>,
+        )> = hbcn::find_critical_cycles(&solved_hbcn)
+            .into_par_iter()
+            .map(|cycle| {
+                let delay_sum: f64 = cycle
+                    .iter()
+                    .map(|(is, it)| {
+                        let ie = solved_hbcn.find_edge(*is, *it).unwrap();
+                        let e = &solved_hbcn[ie];
+                        e.weight() - e.slack()
+                    })
+                    .sum();
+                (delay_sum, cycle)
+            })
+            .collect();
+        cycles_with_delay.par_sort_unstable_by_key(|(delay, _)| cmp::Reverse(OrderedFloat(*delay)));
+        cycles_with_delay
+            .into_iter()
+            .map(|(_, cycle)| cycle)
+            .collect()
+    };
+
+    for (i, cycle) in cycles.into_iter().enumerate() {
+        let mut table = Table::new();
+        let mut tokens = 0;
+        let count = cycle.len();
+
+        if depth {
+            table.set_titles(row!["T", "Node", "Transition", "Slack", "Time"]);
+        } else {
+            let delay_sum: f64 = cycle
                 .iter()
                 .map(|(is, it)| {
                     let ie = solved_hbcn.find_edge(*is, *it).unwrap();
@@ -159,164 +214,108 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
                     e.weight() - e.slack()
                 })
                 .sum();
-            (cost, cycle)
-        })
-        .collect::<Vec<_>>();
 
-    cycles.par_sort_unstable_by_key(|(cost, _)| cmp::Reverse(OrderedFloat(*cost)));
-
-    for (i, (cost, cycle)) in cycles.into_iter().enumerate() {
-        let mut table = Table::new();
-        let mut tokens = 0;
-        let count = cycle.len();
-        table.set_titles(row![
-            "T",
-            "Node",
-            "Transition",
-            "Cost",
-            "Slack",
-            "Delay",
-            "Time",
-        ]);
-        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-
-        for (is, it) in cycle.into_iter() {
-            let ie = solved_hbcn.find_edge(is, it).unwrap();
-            let s = &solved_hbcn[is];
-            let t = &solved_hbcn[it];
-            let e = &solved_hbcn[ie];
-
-            let ttype = match (&s.transition, &t.transition) {
-                (Transition::Data(_), Transition::Data(_)) => "Data Prop",
-                (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
-                (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
-                (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
-            };
-            table.add_row(row![
-                if e.is_marked() {
-                    tokens += 1;
-                    "*"
-                } else {
-                    " "
-                },
-                s.name(),
-                ttype,
-                format!("{}", e.weight()),
-                format!("{}", e.slack()),
-                format!("{}", e.delay.max),
-                format!("{}", s.time),
+            table.set_titles(row![
+                "T",
+                "Node",
+                "Transition",
+                if structural { "Cost" } else { "Delay" },
+                "Slack",
+                "Time",
             ]);
+
+            for (is, it) in cycle.iter() {
+                let ie = solved_hbcn.find_edge(*is, *it).unwrap();
+                let s = &solved_hbcn[*is];
+                let t = &solved_hbcn[*it];
+                let e = &solved_hbcn[ie];
+
+                let ttype = match (&s.transition, &t.transition) {
+                    (Transition::Data(_), Transition::Data(_)) => "Data Prop",
+                    (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
+                    (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
+                    (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
+                };
+
+                table.add_row(row![
+                    if e.is_marked() {
+                        tokens += 1;
+                        "*"
+                    } else {
+                        " "
+                    },
+                    s.name(),
+                    ttype,
+                    format!("{}", e.weight() - e.slack()),
+                    format!("{}", e.slack()),
+                    format!("{}", s.time),
+                ]);
+            }
+
+            table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
+            if structural {
+                writeln!(
+                    writer,
+                    "\nCycle {}: cost - slack = {} ({} transitions / {} {}):",
+                    i,
+                    delay_sum,
+                    count,
+                    tokens,
+                    if tokens == 1 { "token" } else { "tokens" }
+                )?;
+            } else {
+                writeln!(
+                    writer,
+                    "\nCycle {}: delay - slack = {} ({} transitions / {} {}):",
+                    i,
+                    delay_sum,
+                    count,
+                    tokens,
+                    if tokens == 1 { "token" } else { "tokens" }
+                )?;
+            }
         }
 
-        writeln!(
-            writer,
-            "\nCycle {}: cost - slack = {} ({} transitions / {} {}):",
-            i,
-            cost,
-            count,
-            tokens,
-            if tokens == 1 { "token" } else { "tokens" }
-        )?;
-        table.print(&mut writer)?;
-    }
+        if depth {
+            table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
 
-    Ok(())
-}
+            for (is, it) in cycle.iter() {
+                let ie = solved_hbcn.find_edge(*is, *it).unwrap();
+                let s = &solved_hbcn[*is];
+                let t = &solved_hbcn[*it];
+                let e = &solved_hbcn[ie];
 
-/// Compute the longest path depth (critical path length) in an HBCN circuit.
-///
-/// This function uses unweighted cycle time computation to find the longest path
-/// through the circuit, measured in number of transitions. This is useful for
-/// understanding circuit complexity and identifying bottlenecks.
-///
-/// # Arguments
-///
-/// * `args` - Depth analysis configuration including input file and optional report file
-///
-/// # Outputs
-///
-/// - **Report** (stdout or file): Critical cycle depth information
-///
-/// # Example
-///
-/// ```no_run
-/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
-/// use hbcn::analyse::{DepthArgs, depth_main};
-///
-/// let args = DepthArgs {
-///     input: "circuit.graph".into(),
-///     report: None,  // Print to stdout
-/// };
-///
-/// depth_main(args)?;
-/// # Ok(())
-/// # }
-/// ```
-pub fn depth_main(args: DepthArgs) -> Result<()> {
-    let DepthArgs { input, report } = args;
+                let ttype = match (&s.transition, &t.transition) {
+                    (Transition::Data(_), Transition::Data(_)) => "Data Prop",
+                    (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
+                    (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
+                    (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
+                };
 
-    // Create writer for output (file or stdout)
-    let mut writer: Box<dyn Write> = match report {
-        Some(path) => Box::new(fs::File::create(path)?),
-        None => Box::new(std::io::stdout()),
-    };
+                table.add_row(row![
+                    if e.is_marked() {
+                        tokens += 1;
+                        "*"
+                    } else {
+                        " "
+                    },
+                    s.transition.name(),
+                    ttype,
+                    format!("{}", e.slack() as usize),
+                    format!("{}", s.time),
+                ]);
+            }
 
-    let (ct, solved_hbcn) = {
-        let g = read_file(&input)?;
-        let hbcn = crate::hbcn::from_structural_graph(&g, false)
-            .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
-        hbcn::compute_cycle_time(&hbcn, false)
-    }?;
-
-    writeln!(writer, "Critical Cycle (Depth/Tokens): {}", ct)?;
-
-    let mut cycles = hbcn::find_critical_cycles(&solved_hbcn);
-
-    cycles.par_sort_unstable_by_key(|cycle| cmp::Reverse(cycle.len()));
-
-    for (i, cycle) in cycles.into_iter().enumerate() {
-        let cost = cycle.len();
-        let mut table = Table::new();
-        let count = cycle.len();
-        let mut tokens = 0;
-        table.set_titles(row!["T", "Node", "Transition", "Slack", "Time"]);
-        table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
-
-        for (is, it) in cycle.into_iter() {
-            let ie = solved_hbcn.find_edge(is, it).unwrap();
-            let s = &solved_hbcn[is];
-            let t = &solved_hbcn[it];
-            let e = &solved_hbcn[ie];
-
-            let ttype = match (&s.transition, &t.transition) {
-                (Transition::Data(_), Transition::Data(_)) => "Data Prop",
-                (Transition::Spacer(_), Transition::Spacer(_)) => "Null Prop",
-                (Transition::Data(_), Transition::Spacer(_)) => "Data Ack",
-                (Transition::Spacer(_), Transition::Data(_)) => "Null Ack",
-            };
-            table.add_row(row![
-                if e.is_marked() {
-                    tokens += 1;
-                    "*"
-                } else {
-                    " "
-                },
-                s.transition.name(),
-                ttype,
-                format!("{}", e.slack() as usize),
-                format!("{}", s.time),
-            ]);
+            writeln!(
+                writer,
+                "\nCycle {}: total cost = {} ({} transitions / {} {}):",
+                i,
+                count,
+                count,
+                tokens,
+                if tokens == 1 { "token" } else { "tokens" }
+            )?;
         }
-
-        writeln!(
-            writer,
-            "\nCycle {}: total cost = {} ({} transitions / {} {}):",
-            i,
-            cost,
-            count,
-            tokens,
-            if tokens == 1 { "token" } else { "tokens" }
-        )?;
         table.print(&mut writer)?;
     }
 

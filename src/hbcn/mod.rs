@@ -27,9 +27,11 @@
 //! ## Places
 //!
 //! A [`Place`] represents timing dependencies between transitions:
-//! - **Forward places** (`backward = false`): Model forward data flow timing
-//! - **Backward places** (`backward = true`): Model acknowledgment/return path timing
+//! - **Forward places**: Connect transitions of the same type (Data→Data or Spacer→Spacer), modeling forward data flow timing
+//! - **Backward places**: Connect transitions of different types (Data→Spacer or Spacer→Data), modeling acknowledgment/return path timing
 //! - **Token marking** (`token`): Indicates whether a place initially contains a token
+//!
+//! The direction of a place can be determined using [`is_backward_place`] based on the transitions it connects.
 //!
 //! ## Graph Types
 //!
@@ -91,12 +93,12 @@ pub mod test_helpers;
 pub use structural_graph::from_structural_graph;
 
 use crate::Symbol;
-use petgraph::stable_graph::StableGraph;
-use petgraph::graph::{EdgeIndex, NodeIndex};
-use std::fmt;
-use std::collections::{HashMap, HashSet};
 use crate::structural_graph::CircuitNode as StructuralCircuitNode;
 use anyhow::{Result, bail};
+use petgraph::graph::{EdgeIndex, NodeIndex};
+use petgraph::stable_graph::StableGraph;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 /// Trait for types that have a name.
 ///
@@ -181,7 +183,7 @@ pub enum CircuitNode {
     /// External interface port.
     Port(Symbol),
     /// Register component.
-    Register (Symbol),
+    Register(Symbol),
 }
 
 impl From<StructuralCircuitNode> for CircuitNode {
@@ -296,17 +298,55 @@ impl fmt::Display for Transition {
     }
 }
 
+/// Determines if a place is backward based on its source and destination transitions.
+///
+/// A place is backward if it connects transitions of different types (Data to Spacer or Spacer to Data).
+/// A place is forward if it connects transitions of the same type (Data to Data or Spacer to Spacer).
+///
+/// # Arguments
+///
+/// * `src` - The source transition
+/// * `dst` - The destination transition
+///
+/// # Returns
+///
+/// `true` if the place is backward (connects different transition types), `false` if forward.
+///
+/// # Example
+///
+/// ```
+/// use hbcn::hbcn::{Transition, CircuitNode, is_backward_place};
+/// use string_cache::DefaultAtom;
+///
+/// let data_a = Transition::Data(CircuitNode::Port(DefaultAtom::from("a")));
+/// let data_b = Transition::Data(CircuitNode::Port(DefaultAtom::from("b")));
+/// let spacer_a = Transition::Spacer(CircuitNode::Port(DefaultAtom::from("a")));
+///
+/// // Forward place: Data to Data
+/// assert!(!is_backward_place(&data_a, &data_b));
+///
+/// // Backward place: Data to Spacer
+/// assert!(is_backward_place(&data_b, &spacer_a));
+/// ```
+pub fn is_backward_place(src: &Transition, dst: &Transition) -> bool {
+    matches!(
+        (src, dst),
+        (Transition::Data(_), Transition::Spacer(_)) | (Transition::Spacer(_), Transition::Data(_))
+    )
+}
+
 /// Represents a place (edge) in the HBCN graph.
 ///
 /// Places model timing dependencies between transitions in the HBCN. They represent
 /// the channels and synchronization points in the asynchronous circuit, capturing the
 /// timing relationships needed for correct handshaking behavior.
 ///
-/// # Fields
+/// The direction (forward or backward) of a place can be determined from the transitions
+/// it connects using [`is_backward_place`]. Forward places connect transitions of the
+/// same type (Data to Data or Spacer to Spacer), while backward places connect transitions
+/// of different types (Data to Spacer or Spacer to Data).
 ///
-/// - **`backward`**: Whether this place is in the backward (acknowledgment) direction.
-///   - `false`: Forward place (data flow direction)
-///   - `true`: Backward place (acknowledgment/return direction)
+/// # Fields
 ///
 /// - **`token`**: Whether this place initially contains a token. Tokens represent the
 ///   initial state of the place in the handshaking protocol and affect the initial marking
@@ -318,18 +358,21 @@ impl fmt::Display for Transition {
 /// # Example
 ///
 /// ```
-/// use hbcn::hbcn::Place;
+/// use hbcn::hbcn::{Place, Transition, CircuitNode, is_backward_place};
+/// use string_cache::DefaultAtom;
 ///
-/// let forward_place = Place {
-///     backward: false,
+/// let place = Place {
 ///     token: true,
 ///     is_internal: false,
 /// };
+///
+/// // Determine if place is backward from transitions
+/// let src = Transition::Data(CircuitNode::Port(DefaultAtom::from("a")));
+/// let dst = Transition::Spacer(CircuitNode::Port(DefaultAtom::from("b")));
+/// let is_backward = is_backward_place(&src, &dst);
 /// ```
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct Place {
-    /// Whether this place is in the backward direction.
-    pub backward: bool,
     /// Whether this place initially contains a token.
     pub token: bool,
     /// Whether this place represents an internal connection.
@@ -374,7 +417,6 @@ pub trait HasDelay {
     /// Returns a reference to the delay constraints for this place.
     fn delay(&self) -> &DelayPair;
 }
-
 
 impl AsRef<Place> for Place {
     fn as_ref(&self) -> &Place {
@@ -468,7 +510,6 @@ impl TimedEvent for TransitionEvent {
 /// use hbcn::hbcn::{DelayedPlace, Place, DelayPair};
 ///
 /// let place = Place {
-///     backward: false,
 ///     token: true,
 ///     is_internal: false,
 /// };
@@ -495,7 +536,6 @@ impl TimedEvent for TransitionEvent {
 /// use hbcn::hbcn::{WeightedPlace, Place};
 ///
 /// let place = Place {
-///     backward: false,
 ///     token: true,
 ///     is_internal: false,
 /// };
@@ -571,9 +611,9 @@ impl AsMut<Place> for DelayedPlace {
     }
 }
 
-impl Into<Place> for DelayedPlace {
-    fn into(self) -> Place {
-        self.place
+impl From<DelayedPlace> for Place {
+    fn from(val: DelayedPlace) -> Self {
+        val.place
     }
 }
 
@@ -581,119 +621,6 @@ impl SlackablePlace for DelayedPlace {
     fn slack(&self) -> f64 {
         self.slack.unwrap_or(0.0)
     }
-}
-
-/// Validate a channel pair (node_a, node_b) according to the pairing and marking rules.
-///
-/// Validates that all 4 required places exist and at least one is marked:
-/// - Data(a) -> Data(b)
-/// - Data(b) -> Spacer(a)
-/// - Spacer(a) -> Spacer(b)
-/// - Spacer(b) -> Data(a)
-fn validate_channel_pair<T: AsRef<Transition>, P: MarkablePlace>(
-    hbcn: &HBCN<T, P>,
-    edge_map: &HashMap<(NodeIndex, NodeIndex), EdgeIndex>,
-    node_to_data: &HashMap<&CircuitNode, NodeIndex>,
-    node_to_spacer: &HashMap<&CircuitNode, NodeIndex>,
-    node_a: &CircuitNode,
-    node_b: &CircuitNode,
-) -> Result<()> {
-    // Get transition node indices
-    let (Some(&data_a), Some(&data_b)) = (node_to_data.get(node_a), node_to_data.get(node_b)) else {
-        bail!(
-            "Missing Data transitions for nodes {} or {}",
-            node_a, node_b
-        );
-    };
-
-    let (Some(&spacer_a), Some(&spacer_b)) = (node_to_spacer.get(node_a), node_to_spacer.get(node_b)) else {
-        bail!(
-            "Missing Spacer transitions for nodes {} or {}",
-            node_a, node_b
-        );
-    };
-
-    // Check all four required places and their markings
-    let place_1_idx = edge_map.get(&(data_a, data_b));
-    let place_1_marked = place_1_idx
-        .map(|idx| hbcn[*idx].is_marked())
-        .unwrap_or(false);
-
-    let place_2_idx = edge_map.get(&(data_b, spacer_a));
-    let place_2_marked = place_2_idx
-        .map(|idx| hbcn[*idx].is_marked())
-        .unwrap_or(false);
-
-    let place_3_idx = edge_map.get(&(spacer_a, spacer_b));
-    let place_3_marked = place_3_idx
-        .map(|idx| hbcn[*idx].is_marked())
-        .unwrap_or(false);
-
-    let place_4_idx = edge_map.get(&(spacer_b, data_a));
-    let place_4_marked = place_4_idx
-        .map(|idx| hbcn[*idx].is_marked())
-        .unwrap_or(false);
-
-    // Determine if this is an orphaned spacer (has Spacer->Spacer but no Data->Data)
-    // for context-specific error messages
-    let is_orphaned_spacer = place_1_idx.is_none() && place_3_idx.is_some();
-
-    // Validation checks with context-specific error messages
-    if place_1_idx.is_none() {
-        if is_orphaned_spacer {
-            bail!(
-                "Found Spacer({}) -> Spacer({}), but missing corresponding Data({}) -> Data({})",
-                node_a, node_b, node_a, node_b
-            );
-        } else {
-            bail!(
-                "Missing place: Data({}) -> Data({})",
-                node_a, node_b
-            );
-        }
-    }
-
-    if place_2_idx.is_none() {
-        if is_orphaned_spacer {
-            bail!(
-                "Found Spacer({}) -> Spacer({}), but missing paired place: Data({}) -> Spacer({}) (required pairing for Data({}) -> Data({}))",
-                node_a, node_b, node_b, node_a, node_a, node_b
-            );
-        } else {
-            bail!(
-                "Missing paired place: Data({}) -> Spacer({}) (required pairing for Data({}) -> Data({}))",
-                node_b, node_a, node_a, node_b
-            );
-        }
-    }
-
-    if place_3_idx.is_none() {
-        bail!(
-            "Missing place: Spacer({}) -> Spacer({}) (required for Data({}) -> Data({}))",
-            node_a, node_b, node_a, node_b
-        );
-    }
-
-    if place_4_idx.is_none() {
-        bail!(
-            "Missing paired place: Spacer({}) -> Data({}) (required pairing for Spacer({}) -> Spacer({}))",
-            node_b, node_a, node_a, node_b
-        );
-    }
-
-    // Check that exactly one (and only one) of the 4 places is marked
-    let marked_count = [place_1_marked, place_2_marked, place_3_marked, place_4_marked]
-        .iter()
-        .filter(|&&m| m)
-        .count();
-    if marked_count != 1 {
-        bail!(
-            "Exactly one of the 4 places for channel ({}, {}) must be marked (found {})",
-            node_a, node_b, marked_count
-        );
-    }
-
-    Ok(())
 }
 
 /// Validate an HBCN according to the pairing and marking rules.
@@ -723,41 +650,45 @@ fn validate_channel_pair<T: AsRef<Transition>, P: MarkablePlace>(
 ///     eprintln!("Validation failed: {}", e);
 /// }
 /// ```
-pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(
-    hbcn: &HBCN<T, P>,
-) -> Result<()> {
-    // Build a map of (source, destination) -> edge_index for quick lookup
-    let mut edge_map: HashMap<(NodeIndex, NodeIndex), EdgeIndex> = HashMap::new();
-
-    // Check for self-loops (edges connecting a node to itself)
-    for edge_idx in hbcn.edge_indices() {
-        if let Some((src, dst)) = hbcn.edge_endpoints(edge_idx) {
-            if src == dst {
-                let transition = hbcn[src].as_ref();
-                bail!(
-                    "Found self-loop: edge connecting {} to itself",
-                    transition
-                );
-            }
-            edge_map.insert((src, dst), edge_idx);
-        }
-    }
+pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(hbcn: &HBCN<T, P>) -> Result<()> {
+    // Check for self-loops (edges connecting a node to itself) and build edge_map
+    let edge_map: HashMap<(NodeIndex, NodeIndex), EdgeIndex> = hbcn
+        .edge_indices()
+        .filter_map(|edge_idx| {
+            hbcn.edge_endpoints(edge_idx).map(|(src, dst)| {
+                if src == dst {
+                    let transition = hbcn[src].as_ref();
+                    Err(format!(
+                        "Invalid HBCN: found self-loop - transition {} has an edge connecting to itself",
+                        transition
+                    ))
+                } else {
+                    Ok(((src, dst), edge_idx))
+                }
+            })
+        })
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     // Get a map of circuit nodes to their Data and Spacer transition nodes
-    let mut node_to_data: HashMap<&CircuitNode, NodeIndex> = HashMap::new();
-    let mut node_to_spacer: HashMap<&CircuitNode, NodeIndex> = HashMap::new();
-
-    for node_idx in hbcn.node_indices() {
-        let transition = &hbcn[node_idx];
-        match transition.as_ref() {
-            Transition::Data(circuit_node) => {
-                node_to_data.insert(circuit_node, node_idx);
+    let (node_to_data, node_to_spacer) = hbcn.node_indices().fold(
+        (
+            HashMap::<&CircuitNode, NodeIndex>::new(),
+            HashMap::<&CircuitNode, NodeIndex>::new(),
+        ),
+        |(mut data_map, mut spacer_map), node_idx| {
+            let transition = &hbcn[node_idx];
+            match transition.as_ref() {
+                Transition::Data(circuit_node) => {
+                    data_map.insert(circuit_node, node_idx);
+                }
+                Transition::Spacer(circuit_node) => {
+                    spacer_map.insert(circuit_node, node_idx);
+                }
             }
-            Transition::Spacer(circuit_node) => {
-                node_to_spacer.insert(circuit_node, node_idx);
-            }
-        }
-    }
+            (data_map, spacer_map)
+        },
+    );
 
     // Collect all channel pairs by examining all edges
     // Each edge type reveals a channel pair:
@@ -765,54 +696,141 @@ pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(
     // - Spacer(a) -> Spacer(b) reveals channel (a, b)
     // - Data(b) -> Spacer(a) reveals channel (a, b) (backward pairing)
     // - Spacer(b) -> Data(a) reveals channel (a, b) (backward pairing)
-    let mut channel_pairs: HashSet<(CircuitNode, CircuitNode)> = HashSet::new();
-
-    for edge_idx in hbcn.edge_indices() {
-        if let Some((src_idx, dst_idx)) = hbcn.edge_endpoints(edge_idx) {
+    let channel_pairs: HashSet<(CircuitNode, CircuitNode)> = hbcn
+        .edge_indices()
+        .filter_map(|edge_idx| hbcn.edge_endpoints(edge_idx))
+        .map(|(src_idx, dst_idx)| {
             let src_transition = hbcn[src_idx].as_ref();
             let dst_transition = hbcn[dst_idx].as_ref();
 
-            // Data(a) -> Data(b) reveals channel (a, b)
-            if let (Transition::Data(node_a), Transition::Data(node_b)) =
-                (src_transition, dst_transition)
-            {
-                channel_pairs.insert((node_a.clone(), node_b.clone()));
+            match (src_transition, dst_transition) {
+                // Data(a) -> Data(b) reveals channel (a, b)
+                (Transition::Data(node_a), Transition::Data(node_b)) => {
+                    (node_a.clone(), node_b.clone())
+                }
+                // Spacer(a) -> Spacer(b) reveals channel (a, b)
+                (Transition::Spacer(node_a), Transition::Spacer(node_b)) => {
+                    (node_a.clone(), node_b.clone())
+                }
+                // Data(b) -> Spacer(a) reveals channel (a, b) (backward pairing)
+                (Transition::Data(node_b), Transition::Spacer(node_a)) => {
+                    (node_a.clone(), node_b.clone())
+                }
+                // Spacer(b) -> Data(a) reveals channel (a, b) (backward pairing)
+                (Transition::Spacer(node_b), Transition::Data(node_a)) => {
+                    (node_a.clone(), node_b.clone())
+                }
             }
-
-            // Spacer(a) -> Spacer(b) reveals channel (a, b)
-            if let (Transition::Spacer(node_a), Transition::Spacer(node_b)) =
-                (src_transition, dst_transition)
-            {
-                channel_pairs.insert((node_a.clone(), node_b.clone()));
-            }
-
-            // Data(b) -> Spacer(a) reveals channel (a, b) (backward pairing)
-            if let (Transition::Data(node_b), Transition::Spacer(node_a)) =
-                (src_transition, dst_transition)
-            {
-                channel_pairs.insert((node_a.clone(), node_b.clone()));
-            }
-
-            // Spacer(b) -> Data(a) reveals channel (a, b) (backward pairing)
-            if let (Transition::Spacer(node_b), Transition::Data(node_a)) =
-                (src_transition, dst_transition)
-            {
-                channel_pairs.insert((node_a.clone(), node_b.clone()));
-            }
-        }
-    }
+        })
+        .collect();
 
     // Validate each channel pair once
-    for (node_a, node_b) in channel_pairs {
-        validate_channel_pair(
-            hbcn,
-            &edge_map,
-            &node_to_data,
-            &node_to_spacer,
-            &node_a,
-            &node_b,
-        )?;
-    }
+    // For a channel between node_a and node_b, we need exactly 4 places:
+    // 1. Data(node_a) -> Data(node_b): forward data flow
+    // 2. Data(node_b) -> Spacer(node_a): backward acknowledgment for data
+    // 3. Spacer(node_a) -> Spacer(node_b): forward spacer flow
+    // 4. Spacer(node_b) -> Data(node_a): backward acknowledgment for spacer
+    // Exactly one of these 4 places must be marked (have a token)
+    channel_pairs.into_iter().try_fold((), |_, (node_a, node_b)| {
+        // Get transition node indices for both circuit nodes
+        let data_a = node_to_data.get(&node_a)
+            .ok_or_else(|| anyhow::anyhow!("Channel validation failed: missing Data transition for node {}", node_a))?;
+        let data_b = node_to_data.get(&node_b)
+            .ok_or_else(|| anyhow::anyhow!("Channel validation failed: missing Data transition for node {}", node_b))?;
+        let spacer_a = node_to_spacer.get(&node_a)
+            .ok_or_else(|| anyhow::anyhow!("Channel validation failed: missing Spacer transition for node {}", node_a))?;
+        let spacer_b = node_to_spacer.get(&node_b)
+            .ok_or_else(|| anyhow::anyhow!("Channel validation failed: missing Spacer transition for node {}", node_b))?;
 
-    Ok(())
+        // Find all four required places and check their markings
+        let forward_data_place = edge_map.get(&(*data_a, *data_b));
+        let backward_data_ack_place = edge_map.get(&(*data_b, *spacer_a));
+        let forward_spacer_place = edge_map.get(&(*spacer_a, *spacer_b));
+        let backward_spacer_ack_place = edge_map.get(&(*spacer_b, *data_a));
+
+        // Check which places are marked (have tokens)
+        let forward_data_marked = forward_data_place
+            .map(|idx| hbcn[*idx].is_marked())
+            .unwrap_or(false);
+        let backward_data_ack_marked = backward_data_ack_place
+            .map(|idx| hbcn[*idx].is_marked())
+            .unwrap_or(false);
+        let forward_spacer_marked = forward_spacer_place
+            .map(|idx| hbcn[*idx].is_marked())
+            .unwrap_or(false);
+        let backward_spacer_ack_marked = backward_spacer_ack_place
+            .map(|idx| hbcn[*idx].is_marked())
+            .unwrap_or(false);
+
+        // Validate that all required places exist
+        if forward_data_place.is_none() {
+            bail!(
+                "Channel from {} to {} is missing the forward data place: Data({}) -> Data({})",
+                node_a,
+                node_b,
+                node_a,
+                node_b
+            );
+        }
+
+        if backward_data_ack_place.is_none() {
+            bail!(
+                "Channel from {} to {} is missing the backward acknowledgment place: Data({}) -> Spacer({})",
+                node_a,
+                node_b,
+                node_b,
+                node_a
+            );
+        }
+
+        if forward_spacer_place.is_none() {
+            bail!(
+                "Channel from {} to {} is missing the forward spacer place: Spacer({}) -> Spacer({})",
+                node_a,
+                node_b,
+                node_a,
+                node_b
+            );
+        }
+
+        if backward_spacer_ack_place.is_none() {
+            bail!(
+                "Channel from {} to {} is missing the backward spacer acknowledgment place: Spacer({}) -> Data({})",
+                node_a,
+                node_b,
+                node_b,
+                node_a
+            );
+        }
+
+        // Count how many places are marked
+        let marked_count = [
+            forward_data_marked,
+            backward_data_ack_marked,
+            forward_spacer_marked,
+            backward_spacer_ack_marked,
+        ]
+        .iter()
+        .filter(|&&marked| marked)
+        .count();
+
+        if marked_count == 0 {
+            bail!(
+                "Channel from {} to {} has no marked places. Exactly one of the four places must be marked (have a token).",
+                node_a,
+                node_b
+            );
+        }
+
+        if marked_count > 1 {
+            bail!(
+                "Channel from {} to {} has {} marked places. Exactly one of the four places must be marked (have a token).",
+                node_a,
+                node_b,
+                marked_count
+            );
+        }
+
+        Ok(())
+    })
 }

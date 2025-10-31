@@ -64,11 +64,10 @@ pub mod lp_solver;
 pub mod structural_graph;
 
 // Re-export the main functions for easy access
-pub use analyse::{AnalyseArgs, DepthArgs, analyse_main, depth_main};
+pub use analyse::{AnalyseArgs, analyse_main};
 pub use constrain::{ConstrainArgs, constrain_main};
-pub use structural_graph::Symbol;
 pub use hbcn::*;
-
+pub use structural_graph::Symbol;
 
 /// Application-level errors that can occur during HBCN processing.
 #[derive(Debug, PartialEq, Eq)]
@@ -131,9 +130,8 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
     about = "Pulsar Half-buffer Channel Network timing analysis tools"
 )]
 pub enum CLIArguments {
-    /// Find longest path depth in the HBCN
-    Depth(DepthArgs),
     /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
+    /// Use --depth to analyze cycle depth instead of weighted cycle time.
     Analyse(AnalyseArgs),
     /// Constrain the cycle-time using continous proportional constraints.
     Constrain(ConstrainArgs),

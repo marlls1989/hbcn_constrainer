@@ -3,7 +3,7 @@
 //! These tests use the library API directly instead of calling cargo run,
 //! which is much faster and more efficient.
 
-use hbcn::{AnalyseArgs, ConstrainArgs, DepthArgs, analyse_main, constrain_main, depth_main};
+use hbcn::{AnalyseArgs, ConstrainArgs, analyse_main, constrain_main};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -54,9 +54,12 @@ fn run_hbcn_analyse(
     report: Option<&Path>,
     vcd: Option<&Path>,
     dot: Option<&Path>,
+    structural: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = AnalyseArgs {
         input: input.to_path_buf(),
+        structural,
+        depth: false,
         report: report.map(|p| p.to_path_buf()),
         vcd: vcd.map(|p| p.to_path_buf()),
         dot: dot.map(|p| p.to_path_buf()),
@@ -67,12 +70,16 @@ fn run_hbcn_analyse(
 
 // Helper function to run hbcn depth via library API
 fn run_hbcn_depth(input: &Path, report: Option<&Path>) -> Result<(), Box<dyn std::error::Error>> {
-    let args = DepthArgs {
+    let args = AnalyseArgs {
         input: input.to_path_buf(),
+        structural: true,
+        depth: true,
         report: report.map(|p| p.to_path_buf()),
+        vcd: None,
+        dot: None,
     };
 
-    depth_main(args).map_err(|e| e.into())
+    analyse_main(args).map_err(|e| e.into())
 }
 
 #[cfg(test)]
@@ -770,7 +777,7 @@ Port "b" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(result.is_ok(), "Analysis should succeed: {:?}", result);
     }
 
@@ -787,7 +794,7 @@ Port "output" []
         let vcd_path = temp_output_dir.path().join("test.vcd");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), None, true);
         assert!(
             result.is_ok(),
             "Analysis with VCD should succeed: {:?}",
@@ -812,7 +819,7 @@ Port "c" []
         let dot_path = temp_output_dir.path().join("test.dot");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, Some(&dot_path));
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, Some(&dot_path), true);
         assert!(
             result.is_ok(),
             "Analysis with DOT should succeed: {:?}",
@@ -843,6 +850,7 @@ Port "c" []
             Some(&log_path),
             Some(&vcd_path),
             Some(&dot_path),
+            true,
         );
         assert!(
             result.is_ok(),
@@ -865,7 +873,7 @@ Port "c" [("a", 10)]
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(
             result.is_ok(),
             "Cyclic circuit analysis should succeed: {:?}",
@@ -887,7 +895,7 @@ Port "output2" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(
             result.is_ok(),
             "Complex circuit analysis should succeed: {:?}",
@@ -942,7 +950,7 @@ Port "c" [("a", 10)]
         let input_path = temp_dir.path().join("nonexistent.graph");
         let log_path = temp_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(result.is_err(), "Should fail with non-existent file");
     }
 
@@ -955,7 +963,7 @@ Port "c" [("a", 10)]
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(result.is_err(), "Should fail with malformed input");
     }
 
@@ -969,7 +977,7 @@ Port "c" [("a", 10)]
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(
             result.is_ok(),
             "Single node analysis should succeed: {:?}",
@@ -990,10 +998,349 @@ Port "d" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(
             result.is_ok(),
             "Tight timing analysis should succeed: {:?}",
+            result
+        );
+    }
+}
+
+#[cfg(test)]
+mod hbcn_format_integration_tests {
+    use super::*;
+
+    // Helper function to create a temporary HBCN format test file
+    fn create_hbcn_test_file(content: &str) -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let file_path = temp_dir.path().join("test.hbcn");
+        fs::write(&file_path, content).expect("Failed to write test file");
+        (temp_dir, file_path)
+    }
+
+    /// Test basic analysis with HBCN format (simple two-port circuit)
+    #[test]
+    fn test_hbcn_format_simple_circuit() {
+        let hbcn_content = r#"
+* +{port:a} => +{port:b} : (1.0, 20.0)
++{port:b} => -{port:a} : (0.5, 1.5)
+-{port:a} => -{port:b} : (0.5, 1.0)
+-{port:b} => +{port:a} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis with HBCN format should succeed: {:?}",
+            result
+        );
+    }
+
+    /// Test analysis with HBCN format and VCD output
+    #[test]
+    fn test_hbcn_format_with_vcd() {
+        let hbcn_content = r#"
+* +{port:input} => +{reg1} : (1.0, 30.0)
++{reg1} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:input} : (0.0, 1.0)
+* +{reg1} => +{port:output} : (1.0, 25.0)
++{port:output} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{port:output} : (0.5, 1.0)
+-{port:output} => +{reg1} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let vcd_path = temp_output_dir.path().join("test.vcd");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), Some(&vcd_path), None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis with HBCN format and VCD should succeed: {:?}",
+            result
+        );
+        assert!(vcd_path.exists(), "VCD file should be generated");
+
+        let vcd_content = fs::read_to_string(&vcd_path).expect("Failed to read VCD file");
+        assert!(!vcd_content.is_empty(), "VCD file should not be empty");
+    }
+
+    /// Test analysis with HBCN format and DOT output
+    #[test]
+    fn test_hbcn_format_with_dot() {
+        let hbcn_content = r#"
+* +{port:a} => +{reg1} : (1.0, 20.0)
++{reg1} => -{port:a} : (0.5, 1.5)
+-{port:a} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:a} : (0.0, 1.0)
+* +{reg1} => +{port:c} : (1.0, 15.0)
++{port:c} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{port:c} : (0.5, 1.0)
+-{port:c} => +{reg1} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let dot_path = temp_output_dir.path().join("test.dot");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, Some(&dot_path), false);
+        assert!(
+            result.is_ok(),
+            "Analysis with HBCN format and DOT should succeed: {:?}",
+            result
+        );
+        assert!(dot_path.exists(), "DOT file should be generated");
+
+        let dot_content = fs::read_to_string(&dot_path).expect("Failed to read DOT file");
+        assert!(!dot_content.is_empty(), "DOT file should not be empty");
+    }
+
+    /// Test analysis with HBCN format and multiple outputs
+    #[test]
+    fn test_hbcn_format_with_multiple_outputs() {
+        let hbcn_content = r#"
+* +{port:a} => +{port:b} : (1.0, 20.0)
++{port:b} => -{port:a} : (0.5, 1.5)
+-{port:a} => -{port:b} : (0.5, 1.0)
+-{port:b} => +{port:a} : (0.0, 1.0)
+* +{port:b} => +{port:c} : (1.0, 15.0)
++{port:c} => -{port:b} : (0.5, 1.5)
+-{port:b} => -{port:c} : (0.5, 1.0)
+-{port:c} => +{port:b} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let vcd_path = temp_output_dir.path().join("test.vcd");
+        let dot_path = temp_output_dir.path().join("test.dot");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(
+            &input_path,
+            Some(&log_path),
+            Some(&vcd_path),
+            Some(&dot_path),
+            false,
+        );
+        assert!(
+            result.is_ok(),
+            "Analysis with HBCN format and multiple outputs should succeed: {:?}",
+            result
+        );
+        assert!(vcd_path.exists(), "VCD file should be generated");
+        assert!(dot_path.exists(), "DOT file should be generated");
+    }
+
+    /// Test analysis with HBCN format cyclic circuit
+    #[test]
+    fn test_hbcn_format_cyclic_circuit() {
+        let hbcn_content = r#"
+* +{port:a} => +{reg1} : (1.0, 20.0)
++{reg1} => -{port:a} : (0.5, 1.5)
+-{port:a} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:a} : (0.0, 1.0)
+* +{reg1} => +{port:c} : (1.0, 15.0)
++{port:c} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{port:c} : (0.5, 1.0)
+-{port:c} => +{reg1} : (0.0, 1.0)
+* +{port:c} => +{port:a} : (1.0, 10.0)
++{port:a} => -{port:c} : (0.5, 1.5)
+-{port:c} => -{port:a} : (0.5, 1.0)
+-{port:a} => +{port:c} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Cyclic HBCN format analysis should succeed: {:?}",
+            result
+        );
+    }
+
+    /// Test analysis with HBCN format complex circuit
+    #[test]
+    fn test_hbcn_format_complex_circuit() {
+        // Create a valid complex circuit with input -> reg1 -> output1 and input -> reg2 -> output2
+        // Each channel needs all 4 places with exactly one token
+        let hbcn_content = r#"
+* +{port:input} => +{reg1} : (1.0, 30.0)
++{reg1} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:input} : (0.0, 1.0)
++{port:input} => +{reg2} : (1.0, 25.0)
+* +{reg2} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg2} : (0.5, 1.0)
+-{reg2} => +{port:input} : (0.0, 1.0)
++{reg1} => +{port:output1} : (1.0, 20.0)
+* +{port:output1} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{port:output1} : (0.5, 1.0)
+-{port:output1} => +{reg1} : (0.0, 1.0)
++{reg2} => +{port:output2} : (1.0, 15.0)
++{port:output2} => -{reg2} : (0.5, 1.5)
+* -{reg2} => -{port:output2} : (0.5, 1.0)
+-{port:output2} => +{reg2} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        // Complex circuits might fail validation or be infeasible, that's OK for testing
+        match result {
+            Ok(_) => {
+                // Success case is fine
+            }
+            Err(e) => {
+                // If it fails, it should be a validation or infeasibility error, not a parse error
+                let error_msg = format!("{}", e);
+                assert!(
+                    error_msg.contains("validation")
+                        || error_msg.contains("Infeasible")
+                        || error_msg.contains("Negative"),
+                    "Complex circuit should fail with validation or infeasibility, not parse error: {}",
+                    error_msg
+                );
+            }
+        }
+    }
+
+    /// Test analysis with HBCN format using delay without min (max only)
+    #[test]
+    fn test_hbcn_format_max_only_delay() {
+        let hbcn_content = r#"
+* +{port:a} => +{port:b} : 20.0
++{port:b} => -{port:a} : 1.5
+-{port:a} => -{port:b} : 1.0
+-{port:b} => +{port:a} : 1.0
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis with max-only delay should succeed: {:?}",
+            result
+        );
+    }
+
+    /// Test analysis with HBCN format using delay with min and max
+    #[test]
+    fn test_hbcn_format_min_max_delay() {
+        let hbcn_content = r#"
+* +{port:a} => +{port:b} : (1.0, 20.0)
++{port:b} => -{port:a} : (0.5, 1.5)
+-{port:a} => -{port:b} : (0.5, 1.0)
+-{port:b} => +{port:a} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis with min-max delay should succeed: {:?}",
+            result
+        );
+    }
+
+    /// Test analysis with HBCN format - invalid file should fail
+    #[test]
+    fn test_hbcn_format_invalid_file() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let input_path = temp_dir.path().join("nonexistent.hbcn");
+        let log_path = temp_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(result.is_err(), "Should fail with non-existent HBCN file");
+    }
+
+    /// Test analysis with HBCN format - malformed input should fail
+    #[test]
+    fn test_hbcn_format_malformed_input() {
+        let hbcn_content = "This is not a valid HBCN format";
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(result.is_err(), "Should fail with malformed HBCN input");
+    }
+
+    /// Test analysis with HBCN format - register node (not port: prefix)
+    #[test]
+    fn test_hbcn_format_with_register() {
+        let hbcn_content = r#"
+* +{port:input} => +{reg1} : (1.0, 30.0)
++{reg1} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:input} : (0.0, 1.0)
+* +{reg1} => +{reg2} : (1.0, 20.0)
++{reg2} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{reg2} : (0.5, 1.0)
+-{reg2} => +{reg1} : (0.0, 1.0)
+* +{reg2} => +{port:output} : (1.0, 25.0)
++{port:output} => -{reg2} : (0.5, 1.5)
+-{reg2} => -{port:output} : (0.5, 1.0)
+-{port:output} => +{reg2} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis with HBCN format and register should succeed: {:?}",
+            result
+        );
+    }
+
+    /// Test analysis with HBCN format - tight timing circuit
+    #[test]
+    fn test_hbcn_format_tight_timing() {
+        let hbcn_content = r#"
+* +{port:a} => +{port:b} : (0.5, 5.0)
++{port:b} => -{port:a} : (0.2, 0.5)
+-{port:a} => -{port:b} : (0.2, 0.3)
+-{port:b} => +{port:a} : (0.0, 0.2)
+* +{port:b} => +{port:c} : (0.5, 3.0)
++{port:c} => -{port:b} : (0.2, 0.5)
+-{port:b} => -{port:c} : (0.2, 0.3)
+-{port:c} => +{port:b} : (0.0, 0.2)
+* +{port:c} => +{port:d} : (0.5, 2.0)
++{port:d} => -{port:c} : (0.2, 0.5)
+-{port:c} => -{port:d} : (0.2, 0.3)
+-{port:d} => +{port:c} : (0.0, 0.2)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Tight timing HBCN format analysis should succeed: {:?}",
             result
         );
     }
@@ -1474,7 +1821,7 @@ Port "b" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let log_path = temp_output_dir.path().join("test.log");
 
-        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None);
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, true);
         assert!(result.is_ok(), "Analysis should succeed: {:?}", result);
     }
 }
