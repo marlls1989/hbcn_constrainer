@@ -28,7 +28,8 @@
 //! use hbcn::constrain::{ConstrainArgs, constrain_main};
 //!
 //! let args = ConstrainArgs {
-//!     input: "circuit.graph".into(),
+//!     input: "circuit.hbcn".into(),
+//!     structural: false,  // Read as HBCN (default)
 //!     sdc: "constraints.sdc".into(),
 //!     cycle_time: 10.0,
 //!     minimal_delay: 1.0,
@@ -85,8 +86,12 @@ mod tests;
 /// Command-line arguments for the constraint generation command.
 #[derive(Parser, Debug)]
 pub struct ConstrainArgs {
-    /// Structural graph input file
+    /// HBCN input file (default) or structural graph input file if --structural is passed
     pub input: PathBuf,
+
+    /// Read input as a structural graph instead of an HBCN
+    #[clap(long)]
+    pub structural: bool,
 
     /// Output SDC constraints file
     #[clap(long)]
@@ -133,9 +138,9 @@ pub struct ConstrainArgs {
 ///
 /// This is the main entry point for constraint generation. It:
 ///
-/// 1. Reads and parses the structural graph
-/// 2. Converts to HBCN representation
-///// 3. Generates timing constraints using the specified algorithm
+/// 1. Reads and parses the input (HBCN by default, or structural graph if --structural is passed)
+/// 2. If structural graph, converts it to an HBCN representation
+/// 3. Generates timing constraints using the specified algorithm
 /// 4. Writes constraints in the requested output formats (SDC, CSV, VCD, Report)
 ///
 /// # Arguments
@@ -156,7 +161,8 @@ pub struct ConstrainArgs {
 /// use hbcn::constrain::{ConstrainArgs, constrain_main};
 ///
 /// let args = ConstrainArgs {
-///     input: "circuit.graph".into(),
+///     input: "circuit.hbcn".into(),
+///     structural: false,  // Read as HBCN (default)
 ///     sdc: "output.sdc".into(),
 ///     cycle_time: 10.0,
 ///     minimal_delay: 1.0,
@@ -176,6 +182,7 @@ pub struct ConstrainArgs {
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let ConstrainArgs {
         input,
+        structural,
         cycle_time,
         minimal_delay,
         ref sdc,
@@ -192,22 +199,39 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let backward_margin = backward_margin.map(|x| 1.0 - (x as f64 / 100.0));
 
     let constraints = {
-        let hbcn = {
+        if structural {
+            // Parse as structural graph
             let g = read_file(&input)?;
-            from_structural_graph(&g, forward_completion)
-                .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?
-        };
+            let hbcn = from_structural_graph(&g, forward_completion)
+                .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
 
-        if no_proportinal {
-            hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+            if no_proportinal {
+                hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+            } else {
+                hbcn::constrain_cycle_time_proportional(
+                    &hbcn,
+                    cycle_time,
+                    minimal_delay,
+                    backward_margin,
+                    forward_margin,
+                )?
+            }
         } else {
-            hbcn::constrain_cycle_time_proportional(
-                &hbcn,
-                cycle_time,
-                minimal_delay,
-                backward_margin,
-                forward_margin,
-            )?
+            // Parse as HBCN
+            let file_contents = fs::read_to_string(&input)?;
+            let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
+
+            if no_proportinal {
+                hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
+            } else {
+                hbcn::constrain_cycle_time_proportional(
+                    &hbcn,
+                    cycle_time,
+                    minimal_delay,
+                    backward_margin,
+                    forward_margin,
+                )?
+            }
         }
     };
 
