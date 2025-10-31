@@ -306,7 +306,9 @@ hbcn constrain [OPTIONS] --sdc <SDC> --cycle-time <CYCLE_TIME> --minimal-delay <
 ```
 - **Description**: Constrain the cycle-time using continuous proportional constraints
 - **Arguments**:
-  - `<INPUT>`: Structural graph input file
+  - `<INPUT>`: HBCN input file (default) or structural graph input file if --structural is passed
+- **Input Options**:
+  - `--structural`: Read input as a structural graph instead of an HBCN
 - **Required Options**:
   - `--sdc <SDC>`: Output SDC constraints file
   - `-t, --cycle-time <CYCLE_TIME>`: Cycle-time constraint
@@ -329,13 +331,16 @@ The HBCN Constrainer supports runtime solver selection through environment varia
 #### Runtime Solver Selection
 ```bash
 # Use Gurobi solver (if available)
-HBCN_LP_SOLVER=gurobi hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
+HBCN_LP_SOLVER=gurobi hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use Coin CBC solver
-HBCN_LP_SOLVER=coin_cbc hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
+HBCN_LP_SOLVER=coin_cbc hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use default solver (Gurobi if available, otherwise Coin CBC)
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
+
+# Use HBCN format (default, no --structural flag needed)
+hbcn constrain input.hbcn --sdc output.sdc -t 10.0 -m 1.0
 ```
 
 #### Supported Solver Names
@@ -346,27 +351,30 @@ hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
 
 #### Basic Constraint Generation
 ```bash
-# Generate basic constraints
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
+# Generate basic constraints from structural graph
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
+
+# Generate basic constraints from HBCN format (default)
+hbcn constrain input.hbcn --sdc output.sdc -t 10.0 -m 1.0
 
 # With additional output formats
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 \
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural \
     --csv constraints.csv --rpt analysis.rpt --vcd timing.vcd
 ```
 
 #### Algorithm Selection
 ```bash
 # Use proportional constraints (default)
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use pseudoclock constraints
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --no-proportinal
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural --no-proportinal
 ```
 
 #### Margin Control
 ```bash
 # Set forward and backward margins
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 \
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural \
     --forward-margin 15 --backward-margin 20
 ```
 

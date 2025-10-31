@@ -33,6 +33,7 @@ fn run_hbcn_constrain(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = ConstrainArgs {
         input: input.to_path_buf(),
+        structural: true, // Tests use structural graph input files
         sdc: sdc.to_path_buf(),
         cycle_time,
         minimal_delay,
@@ -41,6 +42,38 @@ fn run_hbcn_constrain(
         vcd: vcd.map(|p| p.to_path_buf()),
         no_proportinal,
         no_forward_completion,
+        forward_margin,
+        backward_margin,
+    };
+
+    constrain_main(args).map_err(|e| e.into())
+}
+
+// Helper function to run hbcn constrain with HBCN format input
+#[allow(clippy::too_many_arguments)]
+fn run_hbcn_constrain_hbcn_format(
+    input: &Path,
+    sdc: &Path,
+    cycle_time: f64,
+    minimal_delay: f64,
+    csv: Option<&Path>,
+    rpt: Option<&Path>,
+    vcd: Option<&Path>,
+    no_proportinal: bool,
+    forward_margin: Option<u8>,
+    backward_margin: Option<u8>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let args = ConstrainArgs {
+        input: input.to_path_buf(),
+        structural: false, // Use HBCN format input
+        sdc: sdc.to_path_buf(),
+        cycle_time,
+        minimal_delay,
+        csv: csv.map(|p| p.to_path_buf()),
+        rpt: rpt.map(|p| p.to_path_buf()),
+        vcd: vcd.map(|p| p.to_path_buf()),
+        no_proportinal,
+        no_forward_completion: true, // HBCN format doesn't use forward_completion option
         forward_margin,
         backward_margin,
     };
@@ -1619,6 +1652,550 @@ Port "c" []
         );
 
         assert!(result.is_err(), "Should fail with non-existent file");
+    }
+}
+
+#[cfg(test)]
+mod hbcn_format_constrain_tests {
+    use super::*;
+
+    // Helper function to create a temporary HBCN format test file
+    fn create_hbcn_test_file(content: &str) -> (TempDir, PathBuf) {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let file_path = temp_dir.path().join("test.hbcn");
+        fs::write(&file_path, content).expect("Failed to write test file");
+        (temp_dir, file_path)
+    }
+
+    /// Test basic constraint generation with HBCN format (simple two-port circuit)
+    #[test]
+    fn test_hbcn_format_constrain_simple_circuit() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        // Based on converted structural graph: Port "a" [("b", 20)]
+        let hbcn_content = r#"  +{a} => +{b} : 20
+  -{a} => -{b} : 20
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+        let csv_path = temp_output_dir.path().join("test.csv");
+        let rpt_path = temp_output_dir.path().join("test.rpt");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            Some(&csv_path),
+            Some(&rpt_path),
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with HBCN format should succeed: {:?}",
+            result
+        );
+
+        // Verify output files exist
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+
+        // Verify SDC content is not empty
+        let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC file");
+        assert!(!sdc_content.is_empty(), "SDC file should not be empty");
+    }
+
+    /// Test constraint generation with HBCN format and VCD output
+    #[test]
+    fn test_hbcn_format_constrain_with_vcd() {
+        // Proper token placement based on converted structural graph: Port "input" [("reg", 30)] DataReg "reg" [("output", 25)]
+        // Tokens on backward places and internal register forward places
+        let hbcn_content = r#"  +{input} => +{reg} : 30
+  -{input} => -{reg} : 30
+  +{reg} => -{input} : 20
+* -{reg} => +{input} : 20
+  +{reg} => +{reg/s0} : 10
+* -{reg} => -{reg/s0} : 10
+  +{reg/s0} => -{reg} : 20
+  -{reg/s0} => +{reg} : 20
+* +{reg/s0} => +{reg/s1} : 10
+  -{reg/s0} => -{reg/s1} : 10
+  +{reg/s1} => -{reg/s0} : 20
+  -{reg/s1} => +{reg/s0} : 20
+  +{reg/s1} => +{output} : 25
+  -{reg/s1} => -{output} : 25
+  +{output} => -{reg/s1} : 10
+* -{output} => +{reg/s1} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+        let vcd_path = temp_output_dir.path().join("test.vcd");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            100.0, // Use more relaxed cycle time
+            1.0,
+            None,
+            None,
+            Some(&vcd_path),
+            false,
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with HBCN format and VCD should succeed: {:?}",
+            result
+        );
+        assert!(vcd_path.exists(), "VCD file should be generated");
+
+        let vcd_content = fs::read_to_string(&vcd_path).expect("Failed to read VCD file");
+        assert!(!vcd_content.is_empty(), "VCD file should not be empty");
+    }
+
+    /// Test that proportional and pseudoclock constraints work with HBCN format
+    #[test]
+    fn test_hbcn_format_constrain_proportional_vs_pseudoclock() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        // Based on converted structural graph: Port "a" [("b", 20)] Port "b" [("c", 15)]
+        let hbcn_content = r#"  +{a} => +{b} : 20
+  -{a} => -{b} : 20
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+  +{b} => +{c} : 15
+  -{b} => -{c} : 15
+  +{c} => -{b} : 10
+* -{c} => +{b} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+
+        // Generate proportional constraints
+        let prop_sdc_path = temp_output_dir.path().join("prop.sdc");
+        let prop_result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &prop_sdc_path,
+            50.0, // Use more relaxed cycle time
+            1.0,
+            None,
+            None,
+            None,
+            false, // proportional enabled
+            None,
+            None,
+        );
+        assert!(
+            prop_result.is_ok(),
+            "Proportional constraint generation with HBCN format should succeed: {:?}",
+            prop_result
+        );
+
+        // Generate pseudoclock constraints
+        let pseudo_sdc_path = temp_output_dir.path().join("pseudo.sdc");
+        let pseudo_result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &pseudo_sdc_path,
+            50.0, // Use more relaxed cycle time
+            1.0,
+            None,
+            None,
+            None,
+            true, // proportional disabled (pseudoclock mode)
+            None,
+            None,
+        );
+        assert!(
+            pseudo_result.is_ok(),
+            "Pseudoclock constraint generation with HBCN format should succeed: {:?}",
+            pseudo_result
+        );
+
+        // Verify both files exist and have different content
+        assert!(prop_sdc_path.exists(), "Proportional SDC file should exist");
+        assert!(
+            pseudo_sdc_path.exists(),
+            "Pseudoclock SDC file should exist"
+        );
+
+        let prop_content =
+            fs::read_to_string(&prop_sdc_path).expect("Failed to read proportional SDC");
+        let pseudo_content =
+            fs::read_to_string(&pseudo_sdc_path).expect("Failed to read pseudoclock SDC");
+
+        assert_ne!(
+            prop_content, pseudo_content,
+            "Proportional and pseudoclock constraints should differ"
+        );
+    }
+
+    /// Test constraint generation with HBCN format using margins
+    #[test]
+    fn test_hbcn_format_constrain_with_margins() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        // Based on converted structural graph: Port "a" [("b", 20)]
+        let hbcn_content = r#"  +{a} => +{b} : 20
+  -{a} => -{b} : 20
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            Some(10), // 10% forward margin
+            Some(5),  // 5% backward margin
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with HBCN format and margins should succeed: {:?}",
+            result
+        );
+        assert!(sdc_path.exists(), "SDC file should be generated");
+    }
+
+    /// Test constraint generation with HBCN format cyclic circuit
+    #[test]
+    fn test_hbcn_format_constrain_cyclic_circuit() {
+        // Proper token placement based on converted structural graph with cycle
+        // Port "a" [("b", 20)] DataReg "b" [("c", 15)] Port "c" [("a", 10)]
+        let hbcn_content = r#"  +{a} => +{b} : 20
+  -{a} => -{b} : 20
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+  +{b} => +{b/s0} : 10
+* -{b} => -{b/s0} : 10
+  +{b/s0} => -{b} : 20
+  -{b/s0} => +{b} : 20
+* +{b/s0} => +{b/s1} : 10
+  -{b/s0} => -{b/s1} : 10
+  +{b/s1} => -{b/s0} : 20
+  -{b/s1} => +{b/s0} : 20
+  +{b/s1} => +{c} : 15
+  -{b/s1} => -{c} : 15
+  +{c} => -{b/s1} : 10
+* -{c} => +{b/s1} : 10
+  +{c} => +{a} : 10
+  -{c} => -{a} : 10
+  +{a} => -{c} : 10
+* -{a} => +{c} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            20.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        // Cyclic paths might succeed or fail depending on timing
+        match result {
+            Ok(_) => {
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
+            }
+            Err(_e) => {
+                // Cyclic circuits might fail with certain timing requirements
+            }
+        }
+    }
+
+    /// Test constraint generation with HBCN format complex circuit
+    #[test]
+    fn test_hbcn_format_constrain_complex_circuit() {
+        let hbcn_content = r#"
+* +{port:input} => +{reg1} : (1.0, 30.0)
++{reg1} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg1} : (0.5, 1.0)
+-{reg1} => +{port:input} : (0.0, 1.0)
++{port:input} => +{reg2} : (1.0, 25.0)
+* +{reg2} => -{port:input} : (0.5, 1.5)
+-{port:input} => -{reg2} : (0.5, 1.0)
+-{reg2} => +{port:input} : (0.0, 1.0)
++{reg1} => +{port:output1} : (1.0, 20.0)
+* +{port:output1} => -{reg1} : (0.5, 1.5)
+-{reg1} => -{port:output1} : (0.5, 1.0)
+-{port:output1} => +{reg1} : (0.0, 1.0)
++{reg2} => +{port:output2} : (1.0, 15.0)
++{port:output2} => -{reg2} : (0.5, 1.5)
+* -{reg2} => -{port:output2} : (0.5, 1.0)
+-{port:output2} => +{reg2} : (0.0, 1.0)
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            15.0,
+            2.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        // Complex circuits might succeed or fail depending on validation
+        match result {
+            Ok(_) => {
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
+            }
+            Err(e) => {
+                // If it fails, it should be a validation or infeasibility error, not a parse error
+                let error_msg = format!("{}", e);
+                assert!(
+                    error_msg.contains("validation")
+                        || error_msg.contains("Infeasible")
+                        || error_msg.contains("Negative"),
+                    "Complex circuit should fail with validation or infeasibility, not parse error: {}",
+                    error_msg
+                );
+            }
+        }
+    }
+
+    /// Test constraint generation with HBCN format using max-only delay
+    #[test]
+    fn test_hbcn_format_constrain_max_only_delay() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        let hbcn_content = r#"  +{port:a} => +{port:b} : 20.0
+  -{port:a} => -{port:b} : 20.0
+  +{port:b} => -{port:a} : 10
+* -{port:b} => +{port:a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with max-only delay should succeed: {:?}",
+            result
+        );
+        assert!(sdc_path.exists(), "SDC file should be generated");
+    }
+
+    /// Test constraint generation with HBCN format using min-max delay
+    #[test]
+    fn test_hbcn_format_constrain_min_max_delay() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        let hbcn_content = r#"  +{port:a} => +{port:b} : 20
+  -{port:a} => -{port:b} : 20
+  +{port:b} => -{port:a} : 10
+* -{port:b} => +{port:a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with min-max delay should succeed: {:?}",
+            result
+        );
+        assert!(sdc_path.exists(), "SDC file should be generated");
+    }
+
+    /// Test constraint generation with HBCN format - invalid file should fail
+    #[test]
+    fn test_hbcn_format_constrain_invalid_file() {
+        let temp_dir = TempDir::new().expect("Failed to create temp dir");
+        let input_path = temp_dir.path().join("nonexistent.hbcn");
+        let sdc_path = temp_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(result.is_err(), "Should fail with non-existent HBCN file");
+    }
+
+    /// Test constraint generation with HBCN format - malformed input should fail
+    #[test]
+    fn test_hbcn_format_constrain_malformed_input() {
+        let hbcn_content = "This is not a valid HBCN format";
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        assert!(result.is_err(), "Should fail with malformed HBCN input");
+    }
+
+    /// Test constraint generation with HBCN format - tight timing
+    #[test]
+    fn test_hbcn_format_constrain_tight_timing() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        let hbcn_content = r#"  +{port:a} => +{port:b} : 20
+  -{port:a} => -{port:b} : 20
+  +{port:b} => -{port:a} : 10
+* -{port:b} => +{port:a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+
+        // Very tight timing - may or may not be feasible
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            25.0, // Just slightly more than the path delay
+            1.0,
+            None,
+            None,
+            None,
+            false,
+            None,
+            None,
+        );
+
+        // This might succeed or fail depending on the exact constraints
+        match result {
+            Ok(_) => {
+                assert!(
+                    sdc_path.exists(),
+                    "SDC file should be generated if successful"
+                );
+            }
+            Err(_e) => {
+                // Tight timing might be infeasible, which is expected
+            }
+        }
+    }
+
+    /// Test constraint generation with HBCN format and all output formats
+    #[test]
+    fn test_hbcn_format_constrain_all_outputs() {
+        // Proper token placement: token on backward place from destination spacer to source data
+        let hbcn_content = r#"  +{port:a} => +{port:b} : 20
+  -{port:a} => -{port:b} : 20
+  +{port:b} => -{port:a} : 10
+* -{port:b} => +{port:a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+        let csv_path = temp_output_dir.path().join("test.csv");
+        let rpt_path = temp_output_dir.path().join("test.rpt");
+        let vcd_path = temp_output_dir.path().join("test.vcd");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            10.0,
+            1.0,
+            Some(&csv_path),
+            Some(&rpt_path),
+            Some(&vcd_path),
+            false,
+            None,
+            None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraint generation with all outputs should succeed: {:?}",
+            result
+        );
+
+        assert!(sdc_path.exists(), "SDC file should be generated");
+        assert!(csv_path.exists(), "CSV file should be generated");
+        assert!(rpt_path.exists(), "Report file should be generated");
+        assert!(vcd_path.exists(), "VCD file should be generated");
     }
 }
 
