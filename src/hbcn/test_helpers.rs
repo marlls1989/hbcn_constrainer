@@ -129,6 +129,7 @@ pub fn create_valid_channel(
 /// Create a valid two-channel HBCN: a -> b -> c
 ///
 /// Creates two valid channels: (a, b) and (b, c), each with all 4 required places.
+#[allow(clippy::too_many_arguments)]
 pub fn create_valid_two_channel_hbcn(
     node_a_name: &str,
     node_b_name: &str,
@@ -299,10 +300,9 @@ mod tests {
         // Test all 4 token placement options
         for token_place in 0..4 {
             let hbcn = create_valid_channel("x", "y", 10.0, 5.0, token_place);
-            validate_hbcn(&hbcn).expect(&format!(
-                "HBCN with token_place={} should be valid",
-                token_place
-            ));
+            validate_hbcn(&hbcn).unwrap_or_else(|_| {
+                panic!("HBCN with token_place={} should be valid", token_place)
+            });
         }
     }
 
