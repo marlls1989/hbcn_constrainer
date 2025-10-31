@@ -1,7 +1,7 @@
 //! Half-Buffer Channel Network (HBCN) representation for asynchronous circuit timing analysis.
 //!
-//! This module provides the core data structures and algorithms for representing and analyzing
-//! Half-Buffer Channel Networks, which model the timing behavior of asynchronous digital circuits.
+//! This module provides the core data structures and algorithms for representing and analysing
+//! Half-Buffer Channel Networks, which model the timing behaviour of asynchronous digital circuits.
 //!
 //! # Overview
 //!
@@ -10,7 +10,7 @@
 //! - **Edges** represent places that model timing dependencies between transitions
 //!
 //! The HBCN model is central to timing analysis in asynchronous circuits because it captures the
-//! handshaking protocol behavior inherent in half-buffer channel networks, where data flows
+//! handshaking protocol behaviour inherent in half-buffer channel networks, where data flows
 //! through channels with explicit acknowledgment signaling.
 //!
 //! # Core Concepts
@@ -241,7 +241,7 @@ impl Named for TransitionEvent {
 ///
 /// Transitions are the fundamental events in half-buffer channel networks. They represent
 /// either data propagation or spacer/null propagation through a circuit node. The alternation
-/// between data and spacer transitions ensures proper handshaking protocol behavior.
+/// between data and spacer transitions ensures proper handshaking protocol behaviour.
 ///
 /// # Variants
 ///
@@ -339,7 +339,7 @@ pub fn is_backward_place(src: &Transition, dst: &Transition) -> bool {
 ///
 /// Places model timing dependencies between transitions in the HBCN. They represent
 /// the channels and synchronization points in the asynchronous circuit, capturing the
-/// timing relationships needed for correct handshaking behavior.
+/// timing relationships needed for correct handshaking behaviour.
 ///
 /// The direction (forward or backward) of a place can be determined from the transitions
 /// it connects using [`is_backward_place`]. Forward places connect transitions of the
@@ -430,7 +430,7 @@ impl AsMut<Place> for Place {
     }
 }
 
-/// Generic HBCN graph type parameterized by node and edge types.
+/// Generic HBCN graph type parameterised by node and edge types.
 ///
 /// The HBCN is implemented as a stable graph from the `petgraph` crate, which provides
 /// efficient graph operations while maintaining stable node indices even after graph modifications.

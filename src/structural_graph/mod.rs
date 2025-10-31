@@ -336,7 +336,7 @@ impl From<LarlPopError<'_>> for ParseError {
 ///
 /// # Channel Initialization
 ///
-/// Channels are initialized with phases based on their type:
+/// Channels are initialised with phases based on their type:
 /// - **External channels** (non-UnsafeReg): `AckNull` phase
 /// - **Internal channels** (UnsafeReg or DataReg internal): `ReqData` or `ReqNull` phase
 ///

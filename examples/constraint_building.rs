@@ -2,7 +2,7 @@
 
 use hbcn::constraint;
 use hbcn::lp_model_builder;
-use hbcn::lp_solver::{OptimizationSense, VariableType};
+use hbcn::lp_solver::{OptimisationSense, VariableType};
 
 fn main() -> anyhow::Result<()> {
     let mut builder = lp_model_builder!();
@@ -25,8 +25,8 @@ fn main() -> anyhow::Result<()> {
     // builder.add_constraint(Constraint::le(2.0 * x + 3.0 * y, 100.0));  // unnamed
     // builder.add_constraint(Constraint::le_named("c1", 2.0 * x + 3.0 * y, 100.0));  // named
 
-    // Set objective: maximize x + 2y
-    builder.set_objective(x + 2.0 * y, OptimizationSense::Maximize);
+    // Set objective: maximise x + 2y
+    builder.set_objective(x + 2.0 * y, OptimisationSense::Maximise);
 
     // Solve
     let solution = builder.solve()?;

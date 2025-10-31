@@ -7,7 +7,7 @@ use hbcn::constraint;
 /// For full documentation on branded types, see the `lp_solver` module documentation:
 /// Run `cargo doc --open` and navigate to the `lp_solver` module.
 use hbcn::lp_model_builder;
-use hbcn::lp_solver::{LPModelBuilder, OptimizationSense, VariableType};
+use hbcn::lp_solver::{LPModelBuilder, OptimisationSense, VariableType};
 
 fn main() {
     println!("=== Branded Types Type Safety Demo ===\n");
@@ -34,7 +34,7 @@ fn example_default_brand() {
     builder.add_constraint(constraint!((y) >= 0.0));
 
     // Set objective and solve
-    builder.set_objective(2.0 * x + 3.0 * y, OptimizationSense::Maximize);
+    builder.set_objective(2.0 * x + 3.0 * y, OptimisationSense::Maximise);
 
     match builder.solve() {
         Ok(solution) => {
@@ -93,6 +93,6 @@ fn example_custom_brands() {
 
     println!("\n  This compile-time safety prevents common bugs like:");
     println!("  - Accidentally using variables from the wrong model");
-    println!("  - Mixing constraints meant for different optimization problems");
+    println!("  - Mixing constraints meant for different optimisation problems");
     println!("  - Reusing variable IDs incorrectly across models");
 }

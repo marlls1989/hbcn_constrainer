@@ -1,6 +1,6 @@
 # HBCN Constrainer - Comprehensive Testing Suite
 
-This project includes a comprehensive test suite covering all aspects of the HBCN constrainer functionality. The tests are organized into unit tests, integration tests, and regression tests to ensure robust operation across various scenarios and use cases.
+This project includes a comprehensive test suite covering all aspects of the HBCN constrainer functionality. The tests are organised into unit tests, integration tests, and regression tests to ensure robust operation across various scenarios and use cases.
 
 ## Test Suite Overview
 
@@ -245,7 +245,7 @@ The test suite supports multiple LP solver backends:
 - **SDC Files**: Synopsys Design Constraints format generation
 - **CSV Files**: Constraint data in comma-separated values format
 - **VCD Files**: Value Change Dump timing visualisation files
-- **DOT Files**: Graph visualization format
+- **DOT Files**: Graph visualisation format
 - **Report Files**: Human-readable constraint analysis reports
 
 ### **Constraint Verification**
@@ -273,7 +273,7 @@ The test suite supports comprehensive testing with multiple LP solver backends:
 - **Installation**: Automatic via Cargo (no external dependencies)
 
 #### **Gurobi (Optional)**
-- **Type**: Commercial optimization solver
+- **Type**: Commercial optimisation solver
 - **Performance**: Excellent for large-scale problems
 - **Installation**: Requires separate Gurobi installation and license
 - **Use Case**: High-performance constraint generation
@@ -443,7 +443,7 @@ cargo test solver_comparison
 - Circuit conversion from structural graphs to HBCN
 - Transition and place property validation
 - Weight calculations and channel phases
-- Forward completion optimization
+- Forward completion optimisation
 
 #### **Constraint Generation Tests**
 - Algorithm testing (proportional vs pseudoclock)
@@ -556,7 +556,7 @@ The test suite provides comprehensive coverage across:
 - **Performance validation**: Constraint verification ensures timing requirements are met
 
 ### **Test Organization Status**
-**✅ Clean State Achieved:** All tests are now properly organized in their respective modules:
+**✅ Clean State Achieved:** All tests are now properly organised in their respective modules:
 - Core HBCN functionality tests remain in `src/hbcn/mod.rs`
 - Constraint-related tests are in `src/constrain/hbcn.rs` and `src/constrain/tests.rs`
 - Analysis-related tests are in `src/analyse/hbcn.rs` and `src/analyse/mod.rs`
@@ -658,7 +658,7 @@ When adding new tests:
 3. **Test both success and failure cases**: Include positive and negative test cases
 4. **Use helper functions**: Leverage existing test utilities (`create_test_file`, `run_hbcn_constrain`)
 5. **Include clear documentation**: Document what each test validates
-6. **Maintain test organization**: Keep tests grouped by functionality
+6. **Maintain test organisation**: Keep tests grouped by functionality
 7. **Consider solver comparison**: For integration tests, consider adding solver comparison tests if applicable
 
 ### Solver Comparison Tests
@@ -672,7 +672,7 @@ When adding new integration tests that use LP solvers:
 ### Updating Tests
 When modifying the constrainer:
 1. **Run full test suite**: `cargo test` to check for regressions
-2. **Update test expectations**: Modify assertions if behavior intentionally changes
+2. **Update test expectations**: Modify assertions if behaviour intentionally changes
 3. **Add new tests**: Create tests for new features and functionality
 4. **Verify error messages**: Ensure error message assertions match actual output
 5. **Update documentation**: Keep TESTING.md current with new tests
@@ -680,7 +680,7 @@ When modifying the constrainer:
 ### Test Organization Guidelines
 - **Unit tests**: Place in the same module as the code being tested
 - **Integration tests**: Place in `tests/integration_tests.rs`
-- **Test modules**: Use `#[cfg(test)] mod tests` for unit test organization
+- **Test modules**: Use `#[cfg(test)] mod tests` for unit test organisation
 - **Helper functions**: Create reusable test utilities for common operations
 
 ### Running the Tests

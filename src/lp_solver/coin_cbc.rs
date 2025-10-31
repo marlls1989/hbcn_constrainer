@@ -97,8 +97,8 @@ pub fn solve_coin_cbc<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSoluti
         }
 
         let sense = match obj_info.sense {
-            OptimizationSense::Minimize => Sense::Minimize,
-            OptimizationSense::Maximize => Sense::Maximize,
+            OptimisationSense::Minimise => Sense::Minimize,
+            OptimisationSense::Maximise => Sense::Maximize,
         };
 
         model.set_obj_sense(sense);
@@ -127,13 +127,13 @@ pub fn solve_coin_cbc<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSoluti
         0.0
     };
 
-    // Determine optimization status
+        // Determine optimisation status
     let status = if solution.raw().is_proven_optimal() {
-        OptimizationStatus::Optimal
+        OptimisationStatus::Optimal
     } else if solution.raw().is_proven_infeasible() {
-        OptimizationStatus::Infeasible
+        OptimisationStatus::Infeasible
     } else {
-        OptimizationStatus::Other("Unknown status")
+        OptimisationStatus::Other("Unknown status")
     };
 
     Ok(LPSolution {

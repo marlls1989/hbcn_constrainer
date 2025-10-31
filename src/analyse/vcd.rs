@@ -1,7 +1,7 @@
-//! VCD (Value Change Dump) waveform generation for HBCN timing visualization.
+//! VCD (Value Change Dump) waveform generation for HBCN timing visualisation.
 //!
 //! This module provides functionality to generate VCD files that can be viewed in waveform
-//! viewers (like GTKWave) to visualize the timing behavior of HBCN circuits.
+//! viewers (like GTKWave) to visualise the timing behaviour of HBCN circuits.
 //!
 //! # Format
 //!
@@ -38,7 +38,7 @@ use crate::hbcn::{HBCN, Named, TimedEvent, Transition};
 
 /// Write VCD (Value Change Dump) format output for an HBCN.
 ///
-/// This function generates a VCD file that represents the timing behavior of the
+/// This function generates a VCD file that represents the timing behaviour of the
 /// circuit. Each circuit node is represented as a wire, with transitions occurring
 /// at their computed times:
 ///

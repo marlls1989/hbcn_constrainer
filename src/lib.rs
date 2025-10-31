@@ -1,6 +1,6 @@
 //! HBCN (Half-buffer Channel Network) timing analysis and constraint generation library
 //!
-//! This library provides a comprehensive toolkit for analyzing and constraining timing in
+//! This library provides a comprehensive toolkit for analysing and constraining timing in
 //! Half-Buffer Channel Networks, which are used to model asynchronous digital circuits.
 //!
 //! # Overview
@@ -41,9 +41,9 @@
 //! - **[`structural_graph`]**: Parsing and representation of structural circuit graphs
 //! - **[`hbcn`]**: Core HBCN data structures, types (like [`CircuitNode`] and [`DelayPair`]),
 //!   and conversion from structural graphs. Most HBCN-related types are re-exported from this module.
-//! - **[`expand`]**: Conversion of structural graphs to HBCN representation and serialization
+//! - **[`expand`]**: Conversion of structural graphs to HBCN representation and serialisation
 //! - **[`analyse`]**: Cycle time analysis and critical path identification
-//! - **[`constrain`]**: Timing constraint generation using LP optimization
+//! - **[`constrain`]**: Timing constraint generation using LP optimisation
 //! - **[`lp_solver`]**: Linear programming solver abstraction layer
 //!
 //! # Re-exports
@@ -125,7 +125,7 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
 ///
 /// This enum defines the main commands available:
 /// - `Expand`: Convert structural graphs to HBCN representation
-/// - `Analyse`: Estimate cycle time and analyze critical paths
+/// - `Analyse`: Estimate cycle time and analyse critical paths
 /// - `Constrain`: Generate timing constraints for synthesis
 #[derive(Debug, Parser)]
 #[clap(
@@ -136,7 +136,7 @@ pub enum CLIArguments {
     /// Convert a structural graph to HBCN representation.
     Expand(ExpandArgs),
     /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.
-    /// Use --depth to analyze cycle depth instead of weighted cycle time.
+    /// Use --depth to analyse cycle depth instead of weighted cycle time.
     Analyse(AnalyseArgs),
     /// Constrain the cycle-time using continous proportional constraints.
     Constrain(ConstrainArgs),

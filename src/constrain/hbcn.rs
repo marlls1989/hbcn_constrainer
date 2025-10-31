@@ -93,12 +93,12 @@ where
         }
     }
 
-    builder.set_objective(pseudo_clock.into(), OptimizationSense::Maximize);
+    builder.set_objective(pseudo_clock.into(), OptimisationSense::Maximise);
 
     let solution = builder.solve()?;
 
     match solution.status {
-        OptimizationStatus::Optimal | OptimizationStatus::Feasible => {
+        OptimisationStatus::Optimal | OptimisationStatus::Feasible => {
             let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(min_delay);
             Ok(ConstrainerResult {
                 pseudoclock_period: pseudo_clock_value,
@@ -256,12 +256,12 @@ where
         }
     }
 
-    builder.set_objective(factor.into(), OptimizationSense::Maximize);
+    builder.set_objective(factor.into(), OptimisationSense::Maximise);
 
     let solution = builder.solve()?;
 
     match solution.status {
-        OptimizationStatus::Optimal | OptimizationStatus::Feasible => Ok(ConstrainerResult {
+        OptimisationStatus::Optimal | OptimisationStatus::Feasible => Ok(ConstrainerResult {
             pseudoclock_period: min_delay,
             path_constraints: delay_vars
                 .iter()

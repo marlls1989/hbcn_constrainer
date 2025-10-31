@@ -114,7 +114,7 @@ pub fn parse_hbcn(input: &str) -> Result<HBCN<Transition, DelayedPlace>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hbcn::serialisation::serialize_hbcn_transition;
+    use crate::hbcn::serialisation::serialise_hbcn_transition;
     use crate::hbcn::test_helpers::create_valid_two_channel_hbcn;
     use crate::hbcn::{DelayPair, MarkablePlace, Named, Transition, validate_hbcn};
 
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_and_parse_round_trip_basic() {
+    fn serialise_and_parse_round_trip_basic() {
         // Create a valid two-channel HBCN: a -> b -> c
         let g = create_valid_two_channel_hbcn(
             "a", "b", "c", 2.5, 1.0, // forward and backward weights for (a, b)
@@ -357,13 +357,13 @@ mod tests {
             1,   // token on Data(c) -> Spacer(b) for channel (b, c)
         );
 
-        // Validate the HBCN is valid before serialization
+        // Validate the HBCN is valid before serialisation
         validate_hbcn(&g).expect("Created HBCN should be valid");
 
-        let text = serialize_hbcn_transition(&g);
+        let text = serialise_hbcn_transition(&g);
         let parsed = super::parser::AdjacencyListParser::new()
             .parse(&text)
-            .expect("parser should accept serialized output");
+            .expect("parser should accept serialised output");
 
         assert_eq!(g.edge_count(), parsed.len());
         for (i, e_ast) in parsed.iter().enumerate() {
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_and_parse_delay_variants() {
+    fn serialise_and_parse_delay_variants() {
         // Create a valid two-channel HBCN: n1 -> n2 -> n3
         let g = create_valid_two_channel_hbcn(
             "n1", "n2", "n3", 0.0, 0.0, // forward and backward weights for (n1, n2)
@@ -398,13 +398,13 @@ mod tests {
             0,   // token on Data(n2) -> Data(n3) for channel (n2, n3)
         );
 
-        // Validate the HBCN is valid before serialization
+        // Validate the HBCN is valid before serialisation
         validate_hbcn(&g).expect("Created HBCN should be valid");
 
-        let text = serialize_hbcn_transition(&g);
+        let text = serialise_hbcn_transition(&g);
         let parsed = super::parser::AdjacencyListParser::new()
             .parse(&text)
-            .expect("parser should accept serialized output");
+            .expect("parser should accept serialised output");
 
         assert_eq!(g.edge_count(), parsed.len());
         for (i, e_ast) in parsed.iter().enumerate() {
@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn serialize_and_parse_round_trip_with_braces_in_name() {
+    fn serialise_and_parse_round_trip_with_braces_in_name() {
         // Test that nodes with braces in their names are properly escaped/unescaped
         use crate::hbcn::{CircuitNode, DelayPair, DelayedPlace, Place, Transition};
         use petgraph::stable_graph::StableGraph;
@@ -462,11 +462,11 @@ mod tests {
             },
         );
 
-        // Serialize and parse back
-        let text = serialize_hbcn_transition(&hbcn);
+        // Serialise and parse back
+        let text = serialise_hbcn_transition(&hbcn);
         let parsed = super::parser::AdjacencyListParser::new()
             .parse(&text)
-            .expect("parser should accept serialized output");
+            .expect("parser should accept serialised output");
 
         assert_eq!(parsed.len(), 1);
         let e = &parsed[0];
