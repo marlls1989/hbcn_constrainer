@@ -3,7 +3,7 @@
 //! This example shows how to use the output redirection utilities to redirect
 //! verbose output from LP solvers to a log file across multiple threads safely.
 
-use hbcn::lp_solver::output_suppression::{GagHandle, redirect_output};
+use hbcn::output_suppression::{GagHandle, redirect_output};
 use std::thread;
 use std::time::Duration;
 

@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use ::gurobi::{ConstrSense, Env, LinExpr, Model, ModelSense, Status, VarType, attr};
 
-use crate::lp_solver::output_suppression::GagHandle;
 use crate::lp_solver::*;
+use crate::output_suppression::GagHandle;
 
 /// Solve an LP model using Gurobi
 pub fn solve_gurobi<Brand>(builder: &LPModelBuilder<Brand>) -> Result<LPSolution<Brand>> {
-    // Redirect Gurobi's verbose output to lp_solver.log
-    let _gag_handle = GagHandle::stdout()?;
+    // Redirect Gurobi's verbose output to lp_solver.log (unless in verbose mode)
+    let _gag_handle = GagHandle::stdout();
     let env = Env::new("")?;
     let mut model = Model::new("lp_model", &env)?;
 

@@ -9,7 +9,21 @@
 
 use gag::Redirect;
 use std::fs::OpenOptions;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
+
+/// Global verbose flag - set to true to disable output suppression
+static VERBOSE: AtomicBool = AtomicBool::new(false);
+
+/// Set the global verbose flag
+pub fn set_verbose(verbose: bool) {
+    VERBOSE.store(verbose, Ordering::Release);
+}
+
+/// Get the current verbose flag value
+pub fn is_verbose() -> bool {
+    VERBOSE.load(Ordering::Acquire)
+}
 
 /// A thread-safe wrapper around a Redirect instance
 pub struct GagHandle {
@@ -22,8 +36,17 @@ impl GagHandle {
     ///
     /// **Note**: Due to gag limitations, once created, the stdout redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
+    /// 
+    /// Returns an error if verbose mode is enabled (output suppression is disabled).
     pub fn stdout() -> Result<Self, std::io::Error> {
-        STDOUT_GAG_MANAGER.get_gag()
+        if is_verbose() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Output suppression disabled in verbose mode"
+            ))
+        } else {
+            STDOUT_GAG_MANAGER.get_gag()
+        }
     }
 
     /// Get a handle to redirect stderr to lp_solver.log. Multiple threads can share the same underlying
@@ -31,8 +54,17 @@ impl GagHandle {
     ///
     /// **Note**: Due to gag limitations, once created, the stderr redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
+    /// 
+    /// Returns an error if verbose mode is enabled (output suppression is disabled).
     pub fn stderr() -> Result<Self, std::io::Error> {
-        STDERR_GAG_MANAGER.get_gag()
+        if is_verbose() {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "Output suppression disabled in verbose mode"
+            ))
+        } else {
+            STDERR_GAG_MANAGER.get_gag()
+        }
     }
 }
 
@@ -114,6 +146,8 @@ static STDOUT_GAG_MANAGER: GagManager = GagManager::new(redirect_stdout);
 static STDERR_GAG_MANAGER: GagManager = GagManager::new(redirect_stderr);
 
 /// Convenience function to redirect both stdout and stderr to log file
+/// 
+/// Returns an error if verbose mode is enabled (output suppression is disabled).
 pub fn redirect_output() -> Result<(GagHandle, GagHandle), std::io::Error> {
     Ok((GagHandle::stdout()?, GagHandle::stderr()?))
 }

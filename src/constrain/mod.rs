@@ -180,6 +180,8 @@ pub struct ConstrainArgs {
 /// # }
 /// ```
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
+    use crate::output_suppression::is_verbose;
+    
     let ConstrainArgs {
         input,
         structural,
@@ -198,13 +200,26 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     let forward_margin = forward_margin.map(|x| 1.0 - (x as f64 / 100.0));
     let backward_margin = backward_margin.map(|x| 1.0 - (x as f64 / 100.0));
 
+    if is_verbose() {
+        eprintln!("Reading input file: {:?}", input);
+        eprintln!("Cycle time constraint: {}", cycle_time);
+        eprintln!("Minimal delay: {}", minimal_delay);
+        eprintln!("Constraint algorithm: {}", if no_proportinal { "pseudoclock" } else { "proportional" });
+    }
+
     let constraints = {
         if structural {
             // Parse as structural graph
+            if is_verbose() {
+                eprintln!("Parsing structural graph...");
+            }
             let g = read_file(&input)?;
             let hbcn = from_structural_graph(&g, forward_completion)
                 .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
 
+            if is_verbose() {
+                eprintln!("Generating constraints...");
+            }
             if no_proportinal {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
@@ -218,9 +233,15 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             }
         } else {
             // Parse as HBCN
+            if is_verbose() {
+                eprintln!("Parsing HBCN file...");
+            }
             let file_contents = fs::read_to_string(&input)?;
             let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
 
+            if is_verbose() {
+                eprintln!("Generating constraints...");
+            }
             if no_proportinal {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
@@ -235,11 +256,18 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         }
     };
 
+    if is_verbose() {
+        eprintln!("Constraints generated successfully");
+    }
+
     let hbcn = &constraints.hbcn;
 
     // Note: Self-reflexive path constraints have been removed
 
     if let Some(output) = csv {
+        if is_verbose() {
+            eprintln!("Writing CSV constraints to: {:?}", output);
+        }
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
         let cost_map: HashMap<(CircuitNode, CircuitNode), f64> = hbcn
             .edge_indices()
@@ -270,6 +298,9 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         }
     }
 
+    if is_verbose() {
+        eprintln!("Writing SDC constraints to: {:?}", sdc);
+    }
     let mut out_file = BufWriter::new(fs::File::create(sdc)?);
 
     writeln!(
@@ -285,12 +316,18 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     )?;
 
     if let Some(output) = vcd {
+        if is_verbose() {
+            eprintln!("Writing VCD waveform to: {:?}", output);
+        }
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
         crate::analyse::vcd::write_vcd(&constraints.hbcn, &mut out_file)?;
     }
 
     if let Some(output) = rpt {
+        if is_verbose() {
+            eprintln!("Writing report to: {:?}", output);
+        }
         let mut out_file = BufWriter::new(fs::File::create(output)?);
 
         let mut cycles = crate::analyse::hbcn::find_critical_cycles(&constraints.hbcn)
@@ -374,6 +411,10 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             )?;
             table.print(&mut out_file)?;
         }
+    }
+
+    if is_verbose() {
+        eprintln!("Constraint generation complete");
     }
 
     Ok(())

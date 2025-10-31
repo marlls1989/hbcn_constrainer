@@ -117,6 +117,8 @@ pub struct AnalyseArgs {
 /// # }
 /// ```
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
+    use crate::output_suppression::is_verbose;
+    
     let AnalyseArgs {
         input,
         structural,
@@ -126,6 +128,10 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
         dot,
     } = args;
 
+    if is_verbose() {
+        eprintln!("Reading input file: {:?}", input);
+    }
+
     // Create writer for output (file or stdout)
     let mut writer: Box<dyn Write> = match report {
         Some(path) => Box::new(fs::File::create(path)?),
@@ -134,21 +140,41 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
 
     let weighted = !depth;
 
+    if is_verbose() {
+        if structural {
+            eprintln!("Parsing structural graph...");
+        } else {
+            eprintln!("Parsing HBCN file...");
+        }
+    }
+
     let (ct, solved_hbcn) = {
         if structural {
             // Parse as structural graph
             let g = read_file(&input)?;
             let hbcn = crate::hbcn::from_structural_graph(&g, false)
                 .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
+            
+            if is_verbose() {
+                eprintln!("Computing cycle time (weighted={})...", weighted);
+            }
             hbcn::compute_cycle_time(&hbcn, weighted)
         } else {
             // Parse as HBCN
             let file_contents = fs::read_to_string(&input)?;
             let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
             // DelayedPlace implements HasWeight, so we can use it directly
+            
+            if is_verbose() {
+                eprintln!("Computing cycle time (weighted={})...", weighted);
+            }
             hbcn::compute_cycle_time(&hbcn, weighted)
         }
     }?;
+
+    if is_verbose() {
+        eprintln!("Cycle time computed: {}", ct);
+    }
 
     if depth {
         writeln!(writer, "Critical Cycle (Depth/Tokens): {}", ct)?;
@@ -159,12 +185,22 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     }
 
     if let Some(filename) = dot {
+        if is_verbose() {
+            eprintln!("Writing DOT graph to: {:?}", filename);
+        }
         fs::write(filename, format!("{:?}", dot::Dot::new(&solved_hbcn)))?;
     }
 
     if let Some(filename) = vcd {
+        if is_verbose() {
+            eprintln!("Writing VCD waveform to: {:?}", filename);
+        }
         let mut file = std::io::BufWriter::new(fs::File::create(filename)?);
         vcd::write_vcd(&solved_hbcn, &mut file)?;
+    }
+
+    if is_verbose() {
+        eprintln!("Finding critical cycles...");
     }
 
     let cycles = if depth {
@@ -317,6 +353,10 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
             )?;
         }
         table.print(&mut writer)?;
+    }
+
+    if is_verbose() {
+        eprintln!("Analysis complete");
     }
 
     Ok(())

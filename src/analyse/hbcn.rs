@@ -215,7 +215,7 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
         })
         .collect();
 
-    builder.set_objective(cycle_time.into(), OptimisationSense::Minimise);
+    builder.set_objective(cycle_time, OptimisationSense::Minimise);
 
     let solution = builder.solve()?;
     if solution.status == OptimisationStatus::InfeasibleOrUnbounded {
