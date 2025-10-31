@@ -31,7 +31,10 @@ mod constrain_unit_tests {
 
         // All max delays should be valid
         for constraint in result.path_constraints.values() {
-            assert!(constraint.max >= 1.0, "Max delay should be at least min_delay");
+            assert!(
+                constraint.max >= 1.0,
+                "Max delay should be at least min_delay"
+            );
             // Pseudoclock algorithm only generates max constraints
             assert!(constraint.min.is_none());
         }
@@ -68,7 +71,10 @@ mod constrain_unit_tests {
                 1.0
             );
             if let Some(min) = constraint.min {
-                assert!(min <= constraint.max, "Min delay should not exceed max delay");
+                assert!(
+                    min <= constraint.max,
+                    "Min delay should not exceed max delay"
+                );
             }
         }
     }
@@ -257,12 +263,21 @@ mod constrain_unit_tests {
                 assert!(min_delay <= 50.0, "Min delay should be reasonable");
             }
 
-            assert!(constraint.max >= 5.0, "Max delay should be at least min_delay");
-            assert!(constraint.max <= 50.0, "Max delay should not exceed cycle time");
+            assert!(
+                constraint.max >= 5.0,
+                "Max delay should be at least min_delay"
+            );
+            assert!(
+                constraint.max <= 50.0,
+                "Max delay should not exceed cycle time"
+            );
 
             // If min exists, min should be <= max
             if let Some(min) = constraint.min {
-                assert!(min <= constraint.max, "Min delay should not exceed max delay");
+                assert!(
+                    min <= constraint.max,
+                    "Min delay should not exceed max delay"
+                );
             }
         }
     }
@@ -544,12 +559,21 @@ mod constrain_unit_tests {
             }
 
             // Max is now mandatory
-            assert!(constraint.max >= 5.0, "Max delay should be at least min_delay");
-            assert!(constraint.max <= 100.0, "Max delay should not exceed cycle time");
+            assert!(
+                constraint.max >= 5.0,
+                "Max delay should be at least min_delay"
+            );
+            assert!(
+                constraint.max <= 100.0,
+                "Max delay should not exceed cycle time"
+            );
 
             // If min exists, min should be <= max
             if let Some(min) = constraint.min {
-                assert!(min <= constraint.max, "Min delay should not exceed max delay");
+                assert!(
+                    min <= constraint.max,
+                    "Min delay should not exceed max delay"
+                );
             }
         }
     }

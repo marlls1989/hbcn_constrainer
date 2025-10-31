@@ -10,10 +10,7 @@ use std::fmt::{self};
 /// Serialize an HBCN to the format defined by the parser grammar into the provided writer.
 ///
 /// See `serialize_hbcn` for format details.
-pub fn serialize_hbcn_to<N, P, W>(
-    hbcn: &StableGraph<N, P>,
-    writer: &mut W,
-) -> fmt::Result
+pub fn serialize_hbcn_to<N, P, W>(hbcn: &StableGraph<N, P>, writer: &mut W) -> fmt::Result
 where
     N: AsRef<Transition>,
     P: MarkablePlace + HasDelay,
@@ -59,16 +56,14 @@ where
 ///     transition: Transition::Spacer(CircuitNode::Port(DefaultAtom::from("node2"))),
 /// });
 /// graph.add_edge(n1, n2, DelayedPlace {
-///     place: Place { backward: false, token: true, is_internal: false },
+///     place: Place { token: true, is_internal: false },
 ///     delay: DelayPair { min: Some(1.0), max: 2.0 },
 ///     slack: None,
 /// });
 ///
 /// let output = serialize_hbcn(&graph);
 /// ```
-pub fn serialize_hbcn<N, P>(
-    hbcn: &StableGraph<N, P>,
-) -> String
+pub fn serialize_hbcn<N, P>(hbcn: &StableGraph<N, P>) -> String
 where
     N: AsRef<Transition>,
     P: MarkablePlace + HasDelay,
@@ -129,9 +124,7 @@ where
 /// Serialize an HBCN where nodes are directly Transitions.
 ///
 /// This is a convenience function for HBCNs with `Transition` nodes.
-pub fn serialize_hbcn_transition<P>(
-    hbcn: &StableGraph<Transition, P>,
-) -> String
+pub fn serialize_hbcn_transition<P>(hbcn: &StableGraph<Transition, P>) -> String
 where
     P: MarkablePlace + HasDelay,
 {
@@ -140,7 +133,10 @@ where
     out
 }
 
-fn write_transition<T: AsRef<Transition>, W: fmt::Write>(transition: T, writer: &mut W) -> fmt::Result {
+fn write_transition<T: AsRef<Transition>, W: fmt::Write>(
+    transition: T,
+    writer: &mut W,
+) -> fmt::Result {
     let t = transition.as_ref();
     match t {
         Transition::Data(circuit_node) => {
@@ -164,4 +160,3 @@ fn write_delay_pair<W: fmt::Write>(delay: &DelayPair, writer: &mut W) -> fmt::Re
         None => write!(writer, "{}", delay.max),
     }
 }
-

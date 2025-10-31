@@ -44,16 +44,16 @@ pub fn create_valid_channel(
     token_place: usize,
 ) -> TestHBCN {
     let mut g: TestHBCN = StableGraph::new();
-    
+
     let node_a = CircuitNode::Port(DefaultAtom::from(node_a_name));
     let node_b = CircuitNode::Port(DefaultAtom::from(node_b_name));
-    
+
     // Create all 4 required transitions
     let data_a = g.add_node(Transition::Data(node_a.clone()));
     let spacer_a = g.add_node(Transition::Spacer(node_a.clone()));
     let data_b = g.add_node(Transition::Data(node_b.clone()));
     let spacer_b = g.add_node(Transition::Spacer(node_b.clone()));
-    
+
     // Create all 4 required places
     // 1. Data(a) -> Data(b) (forward data)
     g.add_edge(
@@ -61,7 +61,6 @@ pub fn create_valid_channel(
         data_b,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place == 0,
                 is_internal: false,
             },
@@ -72,14 +71,13 @@ pub fn create_valid_channel(
             slack: None,
         },
     );
-    
+
     // 2. Data(b) -> Spacer(a) (backward acknowledgment)
     g.add_edge(
         data_b,
         spacer_a,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place == 1,
                 is_internal: false,
             },
@@ -90,14 +88,13 @@ pub fn create_valid_channel(
             slack: None,
         },
     );
-    
+
     // 3. Spacer(a) -> Spacer(b) (forward spacer)
     g.add_edge(
         spacer_a,
         spacer_b,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place == 2,
                 is_internal: false,
             },
@@ -108,14 +105,13 @@ pub fn create_valid_channel(
             slack: None,
         },
     );
-    
+
     // 4. Spacer(b) -> Data(a) (backward acknowledgment)
     g.add_edge(
         spacer_b,
         data_a,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place == 3,
                 is_internal: false,
             },
@@ -126,7 +122,7 @@ pub fn create_valid_channel(
             slack: None,
         },
     );
-    
+
     g
 }
 
@@ -145,11 +141,11 @@ pub fn create_valid_two_channel_hbcn(
     token_place_bc: usize,
 ) -> TestHBCN {
     let mut g: TestHBCN = StableGraph::new();
-    
+
     let node_a = CircuitNode::Port(DefaultAtom::from(node_a_name));
     let node_b = CircuitNode::Port(DefaultAtom::from(node_b_name));
     let node_c = CircuitNode::Port(DefaultAtom::from(node_c_name));
-    
+
     // Create all 6 required transitions
     let data_a = g.add_node(Transition::Data(node_a.clone()));
     let spacer_a = g.add_node(Transition::Spacer(node_a.clone()));
@@ -157,14 +153,13 @@ pub fn create_valid_two_channel_hbcn(
     let spacer_b = g.add_node(Transition::Spacer(node_b.clone()));
     let data_c = g.add_node(Transition::Data(node_c.clone()));
     let spacer_c = g.add_node(Transition::Spacer(node_c.clone()));
-    
+
     // Channel (a, b): all 4 places
     g.add_edge(
         data_a,
         data_b,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place_ab == 0,
                 is_internal: false,
             },
@@ -180,7 +175,6 @@ pub fn create_valid_two_channel_hbcn(
         spacer_a,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place_ab == 1,
                 is_internal: false,
             },
@@ -196,7 +190,6 @@ pub fn create_valid_two_channel_hbcn(
         spacer_b,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place_ab == 2,
                 is_internal: false,
             },
@@ -212,7 +205,6 @@ pub fn create_valid_two_channel_hbcn(
         data_a,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place_ab == 3,
                 is_internal: false,
             },
@@ -223,14 +215,13 @@ pub fn create_valid_two_channel_hbcn(
             slack: None,
         },
     );
-    
+
     // Channel (b, c): all 4 places
     g.add_edge(
         data_b,
         data_c,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place_bc == 0,
                 is_internal: false,
             },
@@ -246,7 +237,6 @@ pub fn create_valid_two_channel_hbcn(
         spacer_b,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place_bc == 1,
                 is_internal: false,
             },
@@ -262,7 +252,6 @@ pub fn create_valid_two_channel_hbcn(
         spacer_c,
         DelayedPlace {
             place: Place {
-                backward: false,
                 token: token_place_bc == 2,
                 is_internal: false,
             },
@@ -278,7 +267,6 @@ pub fn create_valid_two_channel_hbcn(
         data_b,
         DelayedPlace {
             place: Place {
-                backward: true,
                 token: token_place_bc == 3,
                 is_internal: false,
             },
@@ -289,7 +277,7 @@ pub fn create_valid_two_channel_hbcn(
             slack: None,
         },
     );
-    
+
     g
 }
 
@@ -301,7 +289,7 @@ mod tests {
     fn test_create_valid_channel() {
         let hbcn = create_valid_channel("a", "b", 10.0, 5.0, 0);
         validate_hbcn(&hbcn).expect("Created HBCN should be valid");
-        
+
         assert_eq!(hbcn.node_count(), 4); // Data(a), Spacer(a), Data(b), Spacer(b)
         assert_eq!(hbcn.edge_count(), 4); // 4 places for one channel
     }
@@ -311,7 +299,10 @@ mod tests {
         // Test all 4 token placement options
         for token_place in 0..4 {
             let hbcn = create_valid_channel("x", "y", 10.0, 5.0, token_place);
-            validate_hbcn(&hbcn).expect(&format!("HBCN with token_place={} should be valid", token_place));
+            validate_hbcn(&hbcn).expect(&format!(
+                "HBCN with token_place={} should be valid",
+                token_place
+            ));
         }
     }
 
@@ -319,9 +310,8 @@ mod tests {
     fn test_create_valid_two_channel_hbcn() {
         let hbcn = create_valid_two_channel_hbcn("a", "b", "c", 10.0, 5.0, 8.0, 4.0, 0, 2);
         validate_hbcn(&hbcn).expect("Created two-channel HBCN should be valid");
-        
+
         assert_eq!(hbcn.node_count(), 6); // 3 nodes * 2 transitions each
         assert_eq!(hbcn.edge_count(), 8); // 2 channels * 4 places each
     }
 }
-

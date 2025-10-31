@@ -66,8 +66,12 @@
 //! assert_eq!(hbcn.edge_count(), 4);
 //! ```
 
-use super::{Place, StructuralHBCN, Transition, WeightedPlace};
-use crate::{structural_graph::{Channel, ChannelPhase, StructuralGraph}, validate_hbcn};
+#[allow(unused_imports)] // Used in tests
+use super::{Place, StructuralHBCN, Transition, WeightedPlace, is_backward_place};
+use crate::{
+    structural_graph::{Channel, ChannelPhase, StructuralGraph},
+    validate_hbcn,
+};
 
 use std::collections::HashMap;
 
@@ -148,11 +152,11 @@ const DEFAULT_REGISTER_DELAY: f64 = 10.0;
 ///
 /// # Weight Calculation
 ///
-/// **Forward places** (`backward = false`):
+/// **Forward places** (Data→Data or Spacer→Spacer):
 /// - If `forward_completion = false`: `weight = virtual_delay`
 /// - If `forward_completion = true`: `weight = max(virtual_delay, forward_cost + src_base_cost)`
 ///
-/// **Backward places** (`backward = true`):
+/// **Backward places** (Data→Spacer or Spacer→Data):
 /// - `weight = backward_cost + dst_base_cost`
 /// - Where `backward_cost = DEFAULT_REGISTER_DELAY * log₂(outgoing_edges)` and
 ///   `dst_base_cost` is the base cost of the destination circuit node.
@@ -248,7 +252,6 @@ pub fn from_structural_graph(
             *dst_token,
             WeightedPlace {
                 place: Place {
-                    backward: false,
                     token: initial_phase == ChannelPhase::ReqData,
                     is_internal,
                 },
@@ -260,7 +263,6 @@ pub fn from_structural_graph(
             *dst_spacer,
             WeightedPlace {
                 place: Place {
-                    backward: false,
                     token: initial_phase == ChannelPhase::ReqNull,
                     is_internal,
                 },
@@ -272,7 +274,6 @@ pub fn from_structural_graph(
             *src_spacer,
             WeightedPlace {
                 place: Place {
-                    backward: true,
                     token: initial_phase == ChannelPhase::AckData,
                     is_internal,
                 },
@@ -284,7 +285,6 @@ pub fn from_structural_graph(
             *src_token,
             WeightedPlace {
                 place: Place {
-                    backward: true,
                     token: initial_phase == ChannelPhase::AckNull,
                     is_internal,
                 },
@@ -406,7 +406,10 @@ mod tests {
             assert!(weighted_place.weight >= 0.0);
 
             // Count forward and backward places
-            if weighted_place.place.backward {
+            let (src, dst) = hbcn.edge_endpoints(edge_idx).unwrap();
+            let src_transition = hbcn[src].as_ref();
+            let dst_transition = hbcn[dst].as_ref();
+            if is_backward_place(src_transition, dst_transition) {
                 backward_places += 1;
             } else {
                 forward_places += 1;
@@ -430,9 +433,12 @@ mod tests {
         let hbcn = create_test_hbcn(input, false);
 
         // Check that weights are based on virtual_delay when forward_completion=false
-        let places: Vec<_> = hbcn.edge_indices().map(|i| &hbcn[i]).collect();
-        for weighted_place in places {
-            if !weighted_place.place.backward {
+        for edge_idx in hbcn.edge_indices() {
+            let weighted_place = &hbcn[edge_idx];
+            let (src, dst) = hbcn.edge_endpoints(edge_idx).unwrap();
+            let src_transition = hbcn[src].as_ref();
+            let dst_transition = hbcn[dst].as_ref();
+            if !is_backward_place(src_transition, dst_transition) {
                 // Forward places should use virtual_delay (100 in this case)
                 assert_eq!(weighted_place.weight, 100.0);
             }
@@ -498,13 +504,17 @@ mod tests {
 
         for edge_idx in hbcn.edge_indices() {
             let place = &hbcn[edge_idx];
+            let (src, dst) = hbcn.edge_endpoints(edge_idx).unwrap();
+            let src_transition = hbcn[src].as_ref();
+            let dst_transition = hbcn[dst].as_ref();
+            let is_backward = is_backward_place(src_transition, dst_transition);
             if place.place.token {
-                if place.place.backward {
+                if is_backward {
                     ack_data_count += 1;
                 } else {
                     req_data_count += 1;
                 }
-            } else if place.place.backward {
+            } else if is_backward {
                 ack_null_count += 1;
             } else {
                 req_null_count += 1;
@@ -529,9 +539,15 @@ mod tests {
         // Check weight calculations
         for edge_idx in hbcn.edge_indices() {
             let weighted_place = &hbcn[edge_idx];
-            assert!(weighted_place.weight >= 0.0, "Weight should be non-negative");
+            assert!(
+                weighted_place.weight >= 0.0,
+                "Weight should be non-negative"
+            );
 
-            if !weighted_place.place.backward {
+            let (src, dst) = hbcn.edge_endpoints(edge_idx).unwrap();
+            let src_transition = hbcn[src].as_ref();
+            let dst_transition = hbcn[dst].as_ref();
+            if !is_backward_place(src_transition, dst_transition) {
                 // Forward places should have weight based on virtual_delay
                 assert_eq!(weighted_place.weight, 150.0);
             } else {

@@ -1,4 +1,4 @@
-use crate::{constrain::hbcn::PathConstraints};
+use crate::constrain::hbcn::PathConstraints;
 use lazy_static::*;
 use regex::Regex;
 use std::io::{self, Write};
@@ -132,8 +132,8 @@ pub fn write_path_constraints(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::hbcn::DelayPair;
     use crate::hbcn::CircuitNode;
+    use crate::hbcn::DelayPair;
     use std::collections::HashMap;
     use std::io::Cursor;
     use string_cache::DefaultAtom;
@@ -147,7 +147,10 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("input")),
                 CircuitNode::Port(DefaultAtom::from("output")),
             ),
-            DelayPair { min: Some(2.5), max: 10.0 },
+            DelayPair {
+                min: Some(2.5),
+                max: 10.0,
+            },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -171,7 +174,10 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("clk")),
                 CircuitNode::Register(DefaultAtom::from("reg1")),
             ),
-            DelayPair { min: None, max: 5.25 },
+            DelayPair {
+                min: None,
+                max: 5.25,
+            },
         );
 
         let mut output = Cursor::new(Vec::new());
@@ -228,7 +234,10 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("in1")),
                 CircuitNode::Port(DefaultAtom::from("out1")),
             ),
-            DelayPair { min: Some(1.0), max: 5.0 },
+            DelayPair {
+                min: Some(1.0),
+                max: 5.0,
+            },
         );
 
         // Port to register
@@ -237,7 +246,10 @@ mod tests {
                 CircuitNode::Port(DefaultAtom::from("clk")),
                 CircuitNode::Register(DefaultAtom::from("counter")),
             ),
-            DelayPair { min: None, max: 8.75 },
+            DelayPair {
+                min: None,
+                max: 8.75,
+            },
         );
 
         let mut output = Cursor::new(Vec::new());

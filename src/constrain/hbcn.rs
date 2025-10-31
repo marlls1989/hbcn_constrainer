@@ -106,7 +106,8 @@ where
                     .iter()
                     .filter_map(|((src, dst), var)| {
                         var.map(|var_id| {
-                            let delay_value = solution.get_value(var_id).unwrap_or(pseudo_clock_value);
+                            let delay_value =
+                                solution.get_value(var_id).unwrap_or(pseudo_clock_value);
                             Some((
                                 (CircuitNode::clone(src), CircuitNode::clone(dst)),
                                 DelayPair {
@@ -229,7 +230,8 @@ where
         ));
 
         if !place_ref.is_internal {
-            if place_ref.backward {
+            let is_backward = is_backward_place(src_transition, dst_transition);
+            if is_backward {
                 if forward_margin.is_some() {
                     builder.add_constraint(constraint!(
                         (delay_var.min - matching_delay.max + matching_delay.min) == 0.0
@@ -422,7 +424,10 @@ mod tests {
         for constraint in result.path_constraints.values() {
             assert!(constraint.max >= 0.0, "Max delay should be non-negative");
             if let Some(min) = constraint.min {
-                assert!(min <= constraint.max, "Min delay should not exceed max delay");
+                assert!(
+                    min <= constraint.max,
+                    "Min delay should not exceed max delay"
+                );
                 assert!(min >= 0.0, "Min delay should be non-negative");
             }
         }
@@ -491,10 +496,7 @@ mod tests {
             .path_constraints
             .values()
             .any(|c| c.min.is_some());
-        let prop_has_max = prop_result
-            .path_constraints
-            .values()
-            .any(|c| c.max >= 0.0);
+        let prop_has_max = prop_result.path_constraints.values().any(|c| c.max >= 0.0);
 
         // At least one algorithm should produce some constraints
         assert!(

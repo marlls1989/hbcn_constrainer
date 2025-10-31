@@ -150,7 +150,7 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
 ///
 /// * `hbcn` - The structural HBCN graph to analyze
 /// * `weighted` - If `true`, uses weighted cycle time (considers delays).
-///                If `false`, uses unweighted cycle time (counts transitions only).
+///   If `false`, uses unweighted cycle time (counts transitions only).
 ///
 /// # Returns
 ///
@@ -250,9 +250,9 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Named;
     use crate::hbcn::{TimedEvent, from_structural_graph};
     use crate::structural_graph::parse;
-    use crate::Named;
 
     #[test]
     fn test_critical_cycle_detection() {
