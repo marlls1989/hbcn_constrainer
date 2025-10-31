@@ -63,6 +63,7 @@ pub mod constrain;
 pub mod expand;
 pub mod hbcn;
 pub mod lp_solver;
+pub mod output_suppression;
 pub mod structural_graph;
 
 // Re-export the main functions for easy access
@@ -132,7 +133,18 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
     name = "HBCN Tools",
     about = "Pulsar Half-buffer Channel Network timing analysis tools"
 )]
-pub enum CLIArguments {
+pub struct CLIArguments {
+    /// Enable verbose output (disable solver output suppression and show extra messages)
+    #[clap(short, long)]
+    pub verbose: bool,
+
+    #[clap(subcommand)]
+    pub command: CLICommand,
+}
+
+/// Subcommand enum for different HBCN operations
+#[derive(Debug, Parser)]
+pub enum CLICommand {
     /// Convert a structural graph to HBCN representation.
     Expand(ExpandArgs),
     /// Estimate the virtual-delay cycle-time, it can be used to tune the circuit performance.

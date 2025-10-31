@@ -584,8 +584,14 @@ impl<Brand> LPModelBuilder<Brand> {
     }
 
     /// Set the objective function
-    pub fn set_objective(&mut self, expression: LinearExpression<Brand>, sense: OptimisationSense) {
-        self.objective = Some(ObjectiveInfo { expression, sense });
+    pub fn set_objective<E>(&mut self, expression: E, sense: OptimisationSense)
+    where
+        E: Into<LinearExpression<Brand>>,
+    {
+        self.objective = Some(ObjectiveInfo {
+            expression: expression.into(),
+            sense,
+        });
     }
 
     /// Solve the model with automatic fallback from Gurobi to Coin CBC
@@ -660,8 +666,6 @@ pub mod gurobi;
 
 #[cfg(feature = "coin_cbc")]
 pub mod coin_cbc;
-
-pub mod output_suppression;
 
 #[cfg(test)]
 mod tests {

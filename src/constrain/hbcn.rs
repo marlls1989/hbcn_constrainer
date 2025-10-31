@@ -93,7 +93,7 @@ where
         }
     }
 
-    builder.set_objective(pseudo_clock.into(), OptimisationSense::Maximise);
+    builder.set_objective(pseudo_clock, OptimisationSense::Maximise);
 
     let solution = builder.solve()?;
 
@@ -256,7 +256,7 @@ where
         }
     }
 
-    builder.set_objective(factor.into(), OptimisationSense::Maximise);
+    builder.set_objective(factor, OptimisationSense::Maximise);
 
     let solution = builder.solve()?;
 
