@@ -68,10 +68,9 @@
 
 #[allow(unused_imports)] // Used in tests
 use super::{Place, StructuralHBCN, Transition, WeightedPlace, is_backward_place};
-use crate::{
-    structural_graph::{Channel, ChannelPhase, StructuralGraph},
-    validate_hbcn,
-};
+use crate::structural_graph::{Channel, ChannelPhase, StructuralGraph};
+#[cfg(debug_assertions)]
+use crate::validate_hbcn;
 
 use std::collections::HashMap;
 
