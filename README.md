@@ -201,13 +201,13 @@ rm test.graph test.sdc
   ```
 
 **"Gurobi solver requested but gurobi feature not enabled"**
-- **Cause**: `HBCN_LP_SOLVER=gurobi` but Gurobi feature not compiled in
+- **Cause**: `LP_SOLVER=gurobi` but Gurobi feature not compiled in
 - **Solution**: Rebuild with Gurobi feature:
   ```bash
   cargo build --features gurobi
   ```
 
-**"Invalid solver 'X' in HBCN_LP_SOLVER"**
+**"Invalid solver 'X' in LP_SOLVER"**
 - **Cause**: Unrecognized solver name in environment variable
 - **Solution**: Use valid solver names: `gurobi`, `coin_cbc`, `coin-cbc`, or `cbc`
 
@@ -331,10 +331,10 @@ The HBCN Constrainer supports runtime solver selection through environment varia
 #### Runtime Solver Selection
 ```bash
 # Use Gurobi solver (if available)
-HBCN_LP_SOLVER=gurobi hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
+LP_SOLVER=gurobi hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use Coin CBC solver
-HBCN_LP_SOLVER=coin_cbc hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
+LP_SOLVER=coin_cbc hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use default solver (Gurobi if available, otherwise Coin CBC)
 hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
@@ -548,8 +548,8 @@ cargo test --features gurobi
 cargo test --features "gurobi coin_cbc"
 
 # Test runtime solver selection
-HBCN_LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
-HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
+LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
+LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
 ```
 
 ## Troubleshooting
@@ -564,13 +564,13 @@ cargo build --features coin_cbc  # or --features gurobi
 ```
 
 #### "Gurobi solver requested but gurobi feature not enabled"
-**Cause**: `HBCN_LP_SOLVER=gurobi` but Gurobi feature not compiled in.  
+**Cause**: `LP_SOLVER=gurobi` but Gurobi feature not compiled in.  
 **Solution**: Rebuild with Gurobi feature:
 ```bash
 cargo build --features gurobi
 ```
 
-#### "Invalid solver 'X' in HBCN_LP_SOLVER"
+#### "Invalid solver 'X' in LP_SOLVER"
 **Cause**: Unrecognized solver name in environment variable.  
 **Solution**: Use valid solver names: `gurobi`, `coin_cbc`, `coin-cbc`, or `cbc`
 

@@ -31,13 +31,14 @@ use petgraph::{
 use rayon::prelude::*;
 
 use crate::{
-    AppError, Transition, constraint,
+    AppError, Transition,
     hbcn::{
         DelayPair, DelayedPlace, HasWeight, MarkablePlace, Place, SlackablePlace, SolvedHBCN,
         TransitionEvent,
     },
-    lp_model_builder,
-    lp_solver::{OptimisationSense, OptimisationStatus, VariableId, VariableType},
+};
+use lp_solver::{
+    OptimisationSense, SolveError, VariableId, VariableType, constraint, lp_model_builder,
 };
 
 /// Find critical cycles in an HBCN graph.
@@ -220,34 +221,34 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
 
     builder.set_objective(cycle_time, OptimisationSense::Minimise);
 
-    let solution = builder.solve()?;
-    if solution.status == OptimisationStatus::InfeasibleOrUnbounded {
-        Err(AppError::Infeasible.into())
-    } else {
-        Ok((
-            solution.objective_value,
-            hbcn.filter_map(
-                |ix, x| {
-                    Some(TransitionEvent {
-                        transition: x.clone(),
-                        time: solution.get_value(arr_var[&ix])?,
-                    })
-                },
-                |ie, e| {
-                    let (delay_var, slack_var) = &delay_slack_var[&ie];
-                    let place: Place = e.clone().into();
-                    Some(DelayedPlace {
-                        place: place.clone(),
-                        delay: DelayPair {
-                            min: None,
-                            max: solution.get_value(*delay_var).unwrap_or(e.weight()),
-                        },
-                        slack: solution.get_value(*slack_var),
-                    })
-                },
-            ),
-        ))
-    }
+    let solution = match builder.solve() {
+        Ok(s) => s,
+        Err(SolveError::NoSolution(_)) => return Err(AppError::Infeasible.into()),
+        Err(e) => return Err(e.into()),
+    };
+    Ok((
+        solution.objective_value,
+        hbcn.filter_map(
+            |ix, x| {
+                Some(TransitionEvent {
+                    transition: x.clone(),
+                    time: solution.get_value(arr_var[&ix])?,
+                })
+            },
+            |ie, e| {
+                let (delay_var, slack_var) = &delay_slack_var[&ie];
+                let place: Place = e.clone().into();
+                Some(DelayedPlace {
+                    place: place.clone(),
+                    delay: DelayPair {
+                        min: None,
+                        max: solution.get_value(*delay_var).unwrap_or(e.weight()),
+                    },
+                    slack: solution.get_value(*slack_var),
+                })
+            },
+        ),
+    ))
 }
 
 #[cfg(test)]

@@ -15,7 +15,7 @@ All **125 tests** are currently **PASSING**:
 The test suite supports multiple LP solver backends:
 - **Coin CBC** (default): Open-source solver with 6-significant-digit precision
 - **Gurobi** (optional): Commercial solver for high-performance testing
-- **Runtime Selection**: Environment variable `HBCN_LP_SOLVER` for solver choice
+- **Runtime Selection**: Environment variable `LP_SOLVER` for solver choice
 - **Solver Comparison**: Automatic comparison tests when both solvers are available
 
 ## Test Organization
@@ -292,8 +292,8 @@ cargo test --features gurobi
 cargo test --features "gurobi coin_cbc"
 
 # Runtime selection with environment variable
-HBCN_LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
-HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
+LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
+LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
 ```
 
 ### **Precision and Consistency**
@@ -716,14 +716,14 @@ cargo test --features coin_cbc
 ```
 
 #### "Gurobi solver requested but gurobi feature not enabled"
-**Cause**: `HBCN_LP_SOLVER=gurobi` but Gurobi feature not compiled in.  
+**Cause**: `LP_SOLVER=gurobi` but Gurobi feature not compiled in.  
 **Solution**: Rebuild with Gurobi feature:
 ```bash
 cargo build --features gurobi
 cargo test --features gurobi
 ```
 
-#### "Invalid solver 'X' in HBCN_LP_SOLVER"
+#### "Invalid solver 'X' in LP_SOLVER"
 **Cause**: Unrecognized solver name in environment variable.  
 **Solution**: Use valid solver names: `gurobi`, `coin_cbc`, `coin-cbc`, or `cbc`
 
@@ -739,8 +739,8 @@ cargo test --features gurobi
 **Solution**: Coin CBC now uses 6-significant-digit rounding for consistent results. If issues persist:
 ```bash
 # Test with specific solver
-HBCN_LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
-HBCN_LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
+LP_SOLVER=coin_cbc cargo test --features "gurobi coin_cbc"
+LP_SOLVER=gurobi cargo test --features "gurobi coin_cbc"
 ```
 
 ### **General Test Issues**

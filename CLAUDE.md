@@ -25,9 +25,9 @@ cargo clippy --all-targets --all-features -- -D warnings  # CI gates on this
 cargo bench                         # Criterion benchmarks (see run_benchmarks.sh)
 ```
 
-**LP solver requirement:** the default `coin_cbc` backend needs the CBC system library (`brew install coin-or-tools/coinor/cbc` on macOS; `apt install coinor-cbc` on Debian). At least one solver feature must be enabled or the build has no backend. CI builds inside `Dockerfile.ci` which pre-installs CBC.
+**LP solver requirement:** the LP backends live in the external [`lp_solver`](https://github.com/marlls1989/lp_solver) crate; `hbcn`'s `coin_cbc`/`gurobi` features simply forward to `lp_solver/coin_cbc` and `lp_solver/gurobi`. The default `coin_cbc` backend needs the CBC system library (`brew install coin-or-tools/coinor/cbc` on macOS; `apt install coinor-cbc` on Debian). At least one solver feature must be enabled or the build has no backend. CI builds inside `Dockerfile.ci` which pre-installs CBC.
 
-**Solver selection at runtime:** set `HBCN_LP_SOLVER=gurobi` or `HBCN_LP_SOLVER=coin_cbc`. If unset and both are compiled in, the system tries Gurobi first and automatically falls back to Coin CBC on failure (e.g. license issues).
+**Solver selection at runtime:** set `LP_SOLVER=gurobi` or `LP_SOLVER=coin_cbc`. If unset and both are compiled in, the system tries Gurobi first and automatically falls back to Coin CBC on failure (e.g. license issues).
 
 ## CLI
 
@@ -65,7 +65,7 @@ The pipeline is **structural graph → StructuralHBCN → LP model → SolvedHBC
   - `StructuralHBCN` — structure before timing (`Transition` nodes, `Place` edges).
   - `SolvedHBCN` — after LP solve (`TransitionEvent` nodes with times, `DelayedPlace` edges with delays + slack).
   - `from_structural_graph(&graph, forward_completion)` builds the former from a parsed graph. `hbcn/parser/` parses the `.hbcn` text format; `hbcn/serialisation.rs` writes it.
-- **`lp_solver/`** — solver-agnostic LP abstraction. `LPModelBuilder<Brand>`, `VariableId<Brand>`, `Constraint<Brand>`, `LinearExpression<Brand>` are generic over a **phantom `Brand` type** that makes mixing variables from different models a compile error (zero runtime cost). Create branded builders with the `lp_model_builder!()` macro (each call mints a unique brand); build constraints with the `constraint!` macro. Backends: `coin_cbc.rs`, `gurobi.rs`, dispatched via `mod.rs` + `HBCN_LP_SOLVER`. Operator overloading and the constraint DSL live in `ops.rs` / `macros.rs`.
+- **`lp_solver`** (external crate, [github.com/marlls1989/lp_solver](https://github.com/marlls1989/lp_solver)) — solver-agnostic LP abstraction, formerly an in-repo module. `LPModelBuilder<Brand>`, `VariableId<Brand>`, `Constraint<Brand>`, `LinearExpression<Brand>` are generic over a **phantom `Brand` type** that makes mixing variables from different models a compile error (zero runtime cost). Create branded builders with the `lp_model_builder!()` macro (each call mints a unique brand); build constraints with the `constraint!` macro (only `==`/`<=`/`>=` — no strict inequalities). `solve()` returns `Result<LPSolution, SolveError>`: an `Ok` always carries a usable solution (`SolutionStatus::Optimal`/`Feasible`), while infeasible/unbounded/stopped come back as `Err(SolveError::NoSolution(_))`. Backends (CBC/Gurobi) are dispatched via the `LP_SOLVER` env var.
 - **`analyse/`** — `analyse_main`: builds the LP, solves for cycle time (or depth), identifies minimal-slack critical cycles, emits reports / VCD / DOT.
 - **`constrain/`** — `constrain_main`: generates timing constraints. Two algorithms — **proportional** (default, distributes cycle time across paths by virtual delay) and **pseudoclock** (`--no-proportional`). `constrain/sdc.rs` writes Genus-compatible SDC (`set_min_delay`/`set_max_delay -through`, `create_clock`). Also emits CSV/VCD/report.
 - **`output_suppression.rs`** — thread-safe `gag` singleton that redirects noisy solver stdout to `hbcn.log`; bypassed by `--verbose`.
