@@ -31,7 +31,7 @@ cargo bench                         # Criterion benchmarks (see run_benchmarks.s
 
 ## CLI
 
-Single binary `hbcn` with three subcommands (see `src/lib.rs` for arg definitions). The top-level `--verbose/-v` flag disables solver-output suppression.
+Single binary `hbcn` with three subcommands (see `src/lib.rs` for arg definitions). The top-level `--verbose/-v` flag makes `analyse`/`constrain` print extra progress messages to stderr.
 
 - `hbcn expand <graph> -o <out.hbcn>` — convert a structural graph to HBCN representation.
 - `hbcn analyse <input> [--structural] [--depth] [-r rpt] [--vcd f] [--dot f]` — estimate virtual-delay cycle time (or unweighted cycle depth with `--depth`) and find critical cycles.
@@ -68,7 +68,7 @@ The pipeline is **structural graph → StructuralHBCN → LP model → SolvedHBC
 - **`lp_solver`** (external crate, [github.com/marlls1989/lp_solver](https://github.com/marlls1989/lp_solver)) — solver-agnostic LP abstraction, formerly an in-repo module. `LPModelBuilder<Brand>`, `VariableId<Brand>`, `Constraint<Brand>`, `LinearExpression<Brand>` are generic over a **phantom `Brand` type** that makes mixing variables from different models a compile error (zero runtime cost). Create branded builders with the `lp_model_builder!()` macro (each call mints a unique brand); build constraints with the `constraint!` macro (only `==`/`<=`/`>=` — no strict inequalities). `solve()` returns `Result<LPSolution, SolveError>`: an `Ok` always carries a usable solution (`SolutionStatus::Optimal`/`Feasible`), while infeasible/unbounded/stopped come back as `Err(SolveError::NoSolution(_))`. Backends (CBC/Gurobi) are dispatched via the `LP_SOLVER` env var.
 - **`analyse/`** — `analyse_main`: builds the LP, solves for cycle time (or depth), identifies minimal-slack critical cycles, emits reports / VCD / DOT.
 - **`constrain/`** — `constrain_main`: generates timing constraints. Two algorithms — **proportional** (default, distributes cycle time across paths by virtual delay) and **pseudoclock** (`--no-proportional`). `constrain/sdc.rs` writes Genus-compatible SDC (`set_min_delay`/`set_max_delay -through`, `create_clock`). Also emits CSV/VCD/report.
-- **`output_suppression.rs`** — thread-safe `gag` singleton that redirects noisy solver stdout to `hbcn.log`; bypassed by `--verbose`.
+- **`verbose.rs`** — a global `--verbose` flag (`is_verbose`/`set_verbose`) gating extra progress messages. Solver stdout (CBC/Gurobi banners) is no longer suppressed: the suppression used to live inside the in-repo solver `solve()`, which moved to the external `lp_solver` crate. The crate writes solver output to stdout; the deliverable artifacts (SDC, reports, VCD, DOT, CSV) are written to files and are unaffected.
 
 Parallelism uses `rayon`; the graph backbone is `petgraph`.
 

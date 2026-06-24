@@ -180,7 +180,7 @@ pub struct ConstrainArgs {
 /// # }
 /// ```
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
-    use crate::output_suppression::is_verbose;
+    use crate::verbose::is_verbose;
 
     let ConstrainArgs {
         input,
