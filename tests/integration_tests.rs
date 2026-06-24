@@ -2291,12 +2291,13 @@ Port "b" []
         let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
         let sdc_path = temp_output_dir.path().join("test.sdc");
 
-        // Try to constrain with impossible timing
+        // Cycle time (0.1) far below the minimum delay (10.0): the per-place lower bounds
+        // cannot fit inside the requested cycle, so the LP is genuinely infeasible.
         let result = run_hbcn_constrain(
             &input_path,
             &sdc_path,
-            50.0, // Less than the minimum path delay
-            1.0,
+            0.1,
+            10.0,
             None,
             None,
             None,
@@ -2306,11 +2307,14 @@ Port "b" []
             None,
         );
 
-        // Should fail with infeasible problem
-        match result {
-            Ok(_) => {}   // println!("Unexpectedly succeeded with tight timing"),
-            Err(_e) => {} // println!("Failed as expected with infeasible timing: {}", e),
-        }
+        assert!(
+            result.is_err(),
+            "constraint generation should fail as infeasible, got: {result:?}"
+        );
+        assert!(
+            !sdc_path.exists(),
+            "no SDC file should be written for an infeasible problem"
+        );
     }
 
     /// Test solver consistency with cyclic circuit

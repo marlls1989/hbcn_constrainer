@@ -233,7 +233,9 @@ impl<Brand> std::ops::Sub<VariableId<Brand>> for f64 {
     type Output = LinearExpression<Brand>;
 
     fn sub(self, other: VariableId<Brand>) -> Self::Output {
-        LinearExpression::from_variable(other) - self
+        // `self - other` (scalar minus variable). Subtraction is not commutative, so build
+        // `(constant self) - other`, NOT `other - self` which inverts both signs.
+        LinearExpression::new(self) - other
     }
 }
 
@@ -280,6 +282,23 @@ mod tests {
         assert_eq!(expr3.terms.len(), 2);
         assert_eq!(expr4.terms.len(), 1);
         assert_eq!(expr5.terms.len(), 1);
+    }
+
+    #[test]
+    fn test_scalar_minus_variable_sign() {
+        // Regression: `scalar - variable` must yield `-1*var + scalar`, not the
+        // sign-inverted `var - scalar`. Subtraction is not commutative.
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+
+        let expr = 5.0 - x;
+        assert_eq!(expr.terms.len(), 1);
+        assert_eq!(expr.terms[0].variable, x);
+        assert_eq!(
+            expr.terms[0].coefficient, -1.0,
+            "variable coefficient must be -1"
+        );
+        assert_eq!(expr.constant, 5.0, "constant must be +5");
     }
 
     #[test]

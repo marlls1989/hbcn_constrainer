@@ -93,24 +93,27 @@ pub fn find_critical_cycles<N: Sync + Send, P: MarkablePlace + SlackablePlace>(
         },
     );
 
-    // creates a map with a distance from all start_points to all other nodes
+    // creates a map with a distance from all start_points to all other nodes.
+    // Slack is non-negative under the LP bounds, so bellman_ford normally succeeds; if a
+    // negative-weight cycle ever appears (e.g. slightly-negative slack from solver rounding)
+    // skip that start point rather than panicking the whole analysis.
     let bellman_distances: HashMap<NodeIndex, Vec<(f64, Option<NodeIndex>)>> = start_points
         .into_par_iter()
-        .map(|ix| {
-            let (costs, predecessors) = petgraph::algo::bellman_ford(&filtered_hbcn, ix).unwrap();
+        .filter_map(|ix| {
+            let (costs, predecessors) = petgraph::algo::bellman_ford(&filtered_hbcn, ix).ok()?;
 
-            (
+            Some((
                 ix,
                 // Zips together the distance and predecessor list
                 costs.into_iter().zip_eq(predecessors).collect(),
-            )
+            ))
         })
         .collect();
 
     let paths: Vec<Vec<(NodeIndex, NodeIndex)>> = loop_breakers
         .into_par_iter()
         .filter_map(|(it, is)| {
-            let nodes = &bellman_distances[&is];
+            let nodes = bellman_distances.get(&is)?;
             // Recreates the path by traveling the predecessors list
             let path: Vec<_> = {
                 let mut current_node = it;

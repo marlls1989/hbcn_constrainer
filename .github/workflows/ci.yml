@@ -63,6 +63,7 @@ jobs:
       options: --user root  # Needed for some GitHub Actions
     
     strategy:
+      fail-fast: false
       matrix:
         rust:
           - stable
@@ -108,9 +109,9 @@ jobs:
       run: cargo test --verbose
     
     - name: Check formatting
+      if: matrix.rust == 'stable'
       run: cargo fmt --all -- --check
-      continue-on-error: true  # Show formatting issues as warnings, not failures
-    
+
     - name: Run clippy
+      if: matrix.rust == 'stable'
       run: cargo clippy --all-targets --all-features -- -D warnings
-      continue-on-error: true  # Show clippy issues as warnings, not failures

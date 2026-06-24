@@ -11,10 +11,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== Output Redirection Demo ===\n");
 
     // Example 1: Basic usage
-    println!("1. Basic stdout redirection to lp_solver.log:");
+    println!("1. Basic stdout redirection to hbcn.log:");
     {
         let _gag = GagHandle::stdout()?;
-        println!("This line will be redirected to lp_solver.log!");
+        println!("This line will be redirected to hbcn.log!");
         eprintln!("But this will still appear on stderr");
     }
     println!("Output restored after gag is dropped\n");
@@ -25,7 +25,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let gag1 = GagHandle::stdout()?;
         let gag2 = GagHandle::stdout()?; // Reuses the same underlying Gag
 
-        println!("This will be redirected to lp_solver.log");
+        println!("This will be redirected to hbcn.log");
 
         drop(gag1);
         println!("Still redirected because gag2 is active");
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Output restored when all handles are dropped\n");
 
     // Example 3: Redirect both stdout and stderr
-    println!("3. Redirecting both stdout and stderr to lp_solver.log:");
+    println!("3. Redirecting both stdout and stderr to hbcn.log:");
     {
         let (_stdout_gag, _stderr_gag) = redirect_output()?;
         println!("This stdout message is redirected to log file");
@@ -57,7 +57,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     thread::sleep(Duration::from_millis(10));
 
                     // This would normally print, but output is redirected to log file
-                    println!("Thread {} output (redirected to lp_solver.log)", i);
+                    println!("Thread {} output (redirected to hbcn.log)", i);
 
                     format!("Thread {} completed", i)
                 })

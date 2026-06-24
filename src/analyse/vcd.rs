@@ -91,7 +91,9 @@ pub fn write_vcd<T: AsRef<Transition> + TimedEvent + Send + Sync, P>(
                 e
             })
             .collect();
-        events.par_sort_unstable_by(|a, b| a.time().partial_cmp(&b.time()).unwrap());
+        // total_cmp gives a total order even if a degenerate solve yields a NaN time,
+        // where partial_cmp would return None and panic the unwrap.
+        events.par_sort_unstable_by(|a, b| a.time().total_cmp(&b.time()));
         events
     };
 

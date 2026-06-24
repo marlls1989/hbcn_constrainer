@@ -144,8 +144,6 @@ mod tests {
 
     #[test]
     fn test_branded_constraints_work() {
-        use crate::constraint;
-
         let mut model = lp_model_builder!(ConstraintTestModel);
         let x = model.add_variable(VariableType::Continuous, 0.0, 10.0);
         let y = model.add_variable(VariableType::Continuous, 0.0, 10.0);

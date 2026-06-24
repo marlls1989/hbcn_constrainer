@@ -661,24 +661,32 @@ impl SlackablePlace for DelayedPlace {
 /// }
 /// ```
 pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(hbcn: &HBCN<T, P>) -> Result<()> {
-    // Check for self-loops (edges connecting a node to itself) and build edge_map
-    let edge_map: HashMap<(NodeIndex, NodeIndex), EdgeIndex> = hbcn
-        .edge_indices()
-        .filter_map(|edge_idx| {
-            hbcn.edge_endpoints(edge_idx).map(|(src, dst)| {
-                if src == dst {
-                    let transition = hbcn[src].as_ref();
-                    Err(format!(
-                        "Invalid HBCN: found self-loop - transition {} has an edge connecting to itself",
-                        transition
-                    ))
-                } else {
-                    Ok(((src, dst), edge_idx))
-                }
-            })
-        })
-        .collect::<Result<HashMap<_, _>, _>>()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    // Check for self-loops (edges connecting a node to itself) and build edge_map.
+    // Reject duplicate parallel places too: the graph allows multiple edges between the
+    // same (src, dst), but a node-pair-keyed map only keeps one of them, so a repeated
+    // place would pass validation yet still perturb the LP marking/cycle-time computation.
+    let mut edge_map: HashMap<(NodeIndex, NodeIndex), EdgeIndex> = HashMap::new();
+    for edge_idx in hbcn.edge_indices() {
+        let Some((src, dst)) = hbcn.edge_endpoints(edge_idx) else {
+            continue;
+        };
+        if src == dst {
+            let transition = hbcn[src].as_ref();
+            return Err(anyhow::anyhow!(
+                "Invalid HBCN: found self-loop - transition {} has an edge connecting to itself",
+                transition
+            ));
+        }
+        if edge_map.insert((src, dst), edge_idx).is_some() {
+            let src_transition = hbcn[src].as_ref();
+            let dst_transition = hbcn[dst].as_ref();
+            return Err(anyhow::anyhow!(
+                "Invalid HBCN: found duplicate place between transitions {} and {}",
+                src_transition,
+                dst_transition
+            ));
+        }
+    }
 
     // Get a map of circuit nodes to their Data and Spacer transition nodes
     let (node_to_data, node_to_spacer) = hbcn.node_indices().fold(

@@ -762,4 +762,24 @@ mod tests {
         assert_eq!(result.terms[1].coefficient, 1.0);
         assert_eq!(result.terms[1].variable, y);
     }
+
+    #[test]
+    fn test_duplicate_variable_coefficients_are_summed() {
+        // Regression: a variable appearing more than once in a single expression must
+        // SUM its coefficients, not collapse to the last one. `maximise x s.t. x + x <= 10`
+        // has optimum x = 5; the pre-fix CBC backend overwrote the per-(row,col) weight and
+        // effectively solved `x <= 10`, returning x = 10.
+        let mut builder = lp_model_builder!();
+        let x = builder.add_variable(VariableType::Continuous, 0.0, 10.0);
+        builder.add_constraint(constraint!((x + x) <= 10.0));
+        builder.set_objective(x, OptimisationSense::Maximise);
+
+        let solution = builder.solve().expect("solve should succeed");
+        assert_eq!(solution.status, OptimisationStatus::Optimal);
+        let x_val = solution.get_value(x).expect("x should have a value");
+        assert!(
+            (x_val - 5.0).abs() < 1e-6,
+            "expected x = 5 (2x <= 10), got {x_val}"
+        );
+    }
 }

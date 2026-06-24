@@ -118,7 +118,7 @@ pub struct AnalyseArgs {
 /// ```
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
     use crate::output_suppression::is_verbose;
-    
+
     let AnalyseArgs {
         input,
         structural,
@@ -154,7 +154,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
             let g = read_file(&input)?;
             let hbcn = crate::hbcn::from_structural_graph(&g, false)
                 .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
-            
+
             if is_verbose() {
                 eprintln!("Computing cycle time (weighted={})...", weighted);
             }
@@ -164,7 +164,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
             let file_contents = fs::read_to_string(&input)?;
             let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
             // DelayedPlace implements HasWeight, so we can use it directly
-            
+
             if is_verbose() {
                 eprintln!("Computing cycle time (weighted={})...", weighted);
             }
@@ -337,7 +337,7 @@ pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
                     },
                     s.transition.name(),
                     ttype,
-                    format!("{}", e.slack() as usize),
+                    format!("{}", e.slack()),
                     format!("{}", s.time),
                 ]);
             }

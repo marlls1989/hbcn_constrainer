@@ -268,4 +268,114 @@ mod tests {
         assert!(sdc_content.contains("clk_*"));
         assert!(sdc_content.contains("counter/*"));
     }
+
+    /// src_rails / dst_rails produce the expected Genus directives per node type.
+    #[test]
+    fn test_src_dst_rails_generation() {
+        let port = CircuitNode::Port(DefaultAtom::from("input_port"));
+        let src = src_rails(&port);
+        assert!(src.contains("get_ports"));
+        assert!(src.contains("input_port_*"));
+        assert!(src.contains("direction == in"));
+
+        let dst = dst_rails(&port);
+        assert!(dst.contains("get_ports"));
+        assert!(dst.contains("input_port_*"));
+        assert!(dst.contains("direction == out"));
+        assert!(dst.contains("get_pins"));
+
+        let reg = CircuitNode::Register(DefaultAtom::from("test_reg"));
+        let src = src_rails(&reg);
+        assert!(src.contains("get_pins"));
+        assert!(src.contains("test_reg/*"));
+        assert!(src.contains("is_sequential == true"));
+        assert!(src.contains("direction == out"));
+
+        let dst = dst_rails(&reg);
+        assert!(dst.contains("test_reg/*"));
+        assert!(dst.contains("is_sequential == true"));
+        assert!(dst.contains("direction == in"));
+    }
+
+    /// Delays are formatted to three decimal places (rounded).
+    #[test]
+    fn test_sdc_decimal_precision() {
+        let mut constraints = HashMap::new();
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("precise")),
+                CircuitNode::Port(DefaultAtom::from("timing")),
+            ),
+            DelayPair {
+                // 4th decimals (4 / 6) round unambiguously down / up regardless of
+                // half-to-even behaviour.
+                min: Some(1.2344),
+                max: 9.8766,
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write SDC");
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        assert!(sdc_content.contains("set_min_delay 1.234"));
+        assert!(sdc_content.contains("set_max_delay 9.877"));
+    }
+
+    /// A min-only constraint (max == pseudoclock period) emits only `set_min_delay`,
+    /// and an empty constraint set produces no output.
+    #[test]
+    fn test_sdc_min_only_and_empty() {
+        let mut constraints = HashMap::new();
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("input")),
+                CircuitNode::Port(DefaultAtom::from("output")),
+            ),
+            DelayPair {
+                min: Some(1.5),
+                max: 0.0,
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        // pseudoclock_period == 0.0 suppresses the max delay (which equals it).
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write SDC");
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+        assert!(sdc_content.contains("set_min_delay 1.500"));
+        assert!(!sdc_content.contains("set_max_delay"));
+
+        let empty = PathConstraints::new();
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &empty, 0.0).expect("Should write empty SDC");
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+        assert!(sdc_content.is_empty());
+    }
+
+    /// Emitted constraints use TCL line continuations and `-through` clauses.
+    #[test]
+    fn test_sdc_tcl_structure() {
+        let mut constraints = HashMap::new();
+        constraints.insert(
+            (
+                CircuitNode::Port(DefaultAtom::from("src")),
+                CircuitNode::Port(DefaultAtom::from("dst")),
+            ),
+            DelayPair {
+                min: Some(2.0),
+                max: 8.0,
+            },
+        );
+
+        let mut output = Cursor::new(Vec::new());
+        write_path_constraints(&mut output, &constraints, 0.0).expect("Should write SDC");
+        let sdc_content = String::from_utf8(output.into_inner()).expect("Should be valid UTF-8");
+
+        assert!(sdc_content.contains('\\'));
+        assert!(sdc_content.contains("-through"));
+        let lines: Vec<&str> = sdc_content.lines().collect();
+        assert!(lines.iter().any(|l| l.starts_with("set_min_delay")));
+        assert!(lines.iter().any(|l| l.starts_with("set_max_delay")));
+        assert!(lines.iter().any(|l| l.starts_with("\t-through")));
+    }
 }
