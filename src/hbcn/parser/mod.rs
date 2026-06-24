@@ -140,6 +140,38 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_hbcn_rejects_duplicate_edge() {
+        // A repeated edge line creates a parallel place that a node-pair-keyed validator
+        // would silently ignore while it still perturbs the LP; validation must reject it.
+        let input = r#"
+            * +{port:a} => +{reg1} : (1.0, 2.0)
+            +{reg1} => -{port:a} : (0.5, 1.5)
+            -{port:a} => -{reg1} : (0.5, 1.0)
+            -{port:a} => -{reg1} : (0.5, 1.0)
+            -{reg1} => +{port:a} : (0.0, 1.0)
+        "#;
+        let result = parse_hbcn(input);
+        assert!(
+            result.is_err(),
+            "duplicate parallel edge should fail validation"
+        );
+    }
+
+    #[test]
+    fn test_parse_hbcn_rejects_overlong_literal() {
+        // A digit run too long for f64 parses to infinity; the grammar must reject it
+        // (failure at the parse stage, before validation).
+        let huge = "9".repeat(350);
+        let input = format!("+{{a}} => +{{b}} : {huge}");
+        let result = parse_hbcn(&input);
+        let err = result.expect_err("overlong literal should fail to parse");
+        assert!(
+            err.to_string().contains("parse"),
+            "expected a parse-stage error, got: {err}"
+        );
+    }
+
+    #[test]
     fn test_parse_hbcn_with_tokens() {
         // Test parsing HBCN with token markers
         // Channel from a to b with token on Data(a) -> Data(b)

@@ -36,13 +36,13 @@ impl GagHandle {
     ///
     /// **Note**: Due to gag limitations, once created, the stdout redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
-    /// 
+    ///
     /// Returns an error if verbose mode is enabled (output suppression is disabled).
     pub fn stdout() -> Result<Self, std::io::Error> {
         if is_verbose() {
             Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "Output suppression disabled in verbose mode"
+                "Output suppression disabled in verbose mode",
             ))
         } else {
             STDOUT_GAG_MANAGER.get_gag()
@@ -54,13 +54,13 @@ impl GagHandle {
     ///
     /// **Note**: Due to gag limitations, once created, the stderr redirect cannot be recreated
     /// in the same process, even after all handles are dropped.
-    /// 
+    ///
     /// Returns an error if verbose mode is enabled (output suppression is disabled).
     pub fn stderr() -> Result<Self, std::io::Error> {
         if is_verbose() {
             Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "Output suppression disabled in verbose mode"
+                "Output suppression disabled in verbose mode",
             ))
         } else {
             STDERR_GAG_MANAGER.get_gag()
@@ -146,7 +146,7 @@ static STDOUT_GAG_MANAGER: GagManager = GagManager::new(redirect_stdout);
 static STDERR_GAG_MANAGER: GagManager = GagManager::new(redirect_stderr);
 
 /// Convenience function to redirect both stdout and stderr to log file
-/// 
+///
 /// Returns an error if verbose mode is enabled (output suppression is disabled).
 pub fn redirect_output() -> Result<(GagHandle, GagHandle), std::io::Error> {
     Ok((GagHandle::stdout()?, GagHandle::stderr()?))

@@ -37,7 +37,20 @@ Str: Symbol = {
 }
 
 Num: f64 = {
-    <i:r"[0-9]+(?:\.[0-9]+)?"> => i.parse().unwrap(),
+    <i:r"[0-9]+(?:\.[0-9]+)?"> =>? {
+        let value: f64 = i.parse().map_err(|_| lalrpop_util::ParseError::User {
+            error: "invalid numeric literal",
+        })?;
+        // An overlong digit run parses to f64 infinity without error; reject it rather
+        // than silently propagating Inf into the LP / cycle-time computation.
+        if value.is_finite() {
+            Ok(value)
+        } else {
+            Err(lalrpop_util::ParseError::User {
+                error: "numeric literal too large (overflows to infinity)",
+            })
+        }
+    },
 }
 
 Comma<T>: Vec<T> = {

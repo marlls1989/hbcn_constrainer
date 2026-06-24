@@ -285,6 +285,9 @@ pub enum ParseError {
     MultipleDefinitions(CircuitNode),
     /// A component referenced in an adjacency list was never defined.
     UndefinedElement(Symbol),
+    /// A non-port component used the reserved `port:` name prefix, which the HBCN
+    /// format reserves to identify ports (see [`crate::hbcn::parser`]).
+    ReservedNamePrefix(Symbol),
 }
 
 impl fmt::Display for ParseError {
@@ -295,6 +298,11 @@ impl fmt::Display for ParseError {
                 write!(f, "Multiple Definitions of {}", node.name())
             }
             ParseError::UndefinedElement(name) => write!(f, "Undefined Element: {}", name),
+            ParseError::ReservedNamePrefix(name) => write!(
+                f,
+                "Reserved name prefix: non-port component '{}' may not start with 'port:'",
+                name
+            ),
         }
     }
 }
@@ -380,6 +388,12 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
         adjacency_list,
     } in nodes.into_iter()
     {
+        // `port:` is reserved to mark ports in the HBCN text format; a register carrying it
+        // would round-trip (serialise then re-parse) as a port. Reject it up front.
+        if entry_type != EntryType::Port && name.as_ref().starts_with("port:") {
+            return Err(ParseError::ReservedNamePrefix(name));
+        }
+
         let c = match entry_type {
             EntryType::DataReg => {
                 let s0: Symbol = format!("{}/s0", name.as_ref()).into();
@@ -389,15 +403,19 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                     name: name.clone(),
                     cost: REGISTER_COST,
                 };
-                let cni = ret.add_node(cn);
-                lut.insert(name, cni);
+                let cni = ret.add_node(cn.clone());
+                if lut.insert(name.clone(), cni).is_some() {
+                    return Err(ParseError::MultipleDefinitions(cn));
+                }
 
                 let s0n = CircuitNode::Register {
                     name: s0.clone(),
                     cost: REGISTER_COST,
                 };
-                let s0i = ret.add_node(s0n);
-                lut.insert(s0.clone(), s0i);
+                let s0i = ret.add_node(s0n.clone());
+                if lut.insert(s0.clone(), s0i).is_some() {
+                    return Err(ParseError::MultipleDefinitions(s0n));
+                }
                 adjacency.push((
                     cni,
                     vec![(
@@ -433,8 +451,10 @@ pub fn parse(input: &str) -> Result<StructuralGraph, ParseError> {
                     name: name.clone(),
                     cost: REGISTER_COST,
                 };
-                let cni = ret.add_node(cn);
-                lut.insert(name, cni);
+                let cni = ret.add_node(cn.clone());
+                if lut.insert(name.clone(), cni).is_some() {
+                    return Err(ParseError::MultipleDefinitions(cn));
+                }
 
                 adjacency.push((
                     cni,
@@ -644,5 +664,41 @@ Port "b" []"#;
         let g = result.unwrap();
         assert_eq!(g.node_count(), 2); // Two ports
         assert_eq!(g.edge_count(), 1); // One connection from a to b
+    }
+
+    #[test]
+    fn parse_err_reserved_port_prefix() {
+        // A non-port component must not use the reserved `port:` prefix (it would
+        // round-trip through the HBCN format as a port).
+        let input = r#"
+            Port "a" [("port:b", 10)]
+            NullReg "port:b" [("out", 20)]
+            Port "out" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Err(ParseError::ReservedNamePrefix(_))));
+    }
+
+    #[test]
+    fn parse_err_intermediate_node_collision() {
+        // A register occupying a name that a later DataReg expands into (`x/s0`) must be
+        // rejected, not silently overwritten via an unchecked intermediate `lut.insert`.
+        let input = r#"
+            NullReg "x/s0" [("out", 20)]
+            DataReg "x" [("out", 10)]
+            Port "out" []
+            "#;
+        let result = parse(input);
+        assert!(matches!(result, Err(ParseError::MultipleDefinitions(_))));
+    }
+
+    #[test]
+    fn parse_err_overlong_numeric_literal() {
+        // A digit run too long for f64 parses to infinity rather than erroring; the
+        // grammar must reject it instead of letting Inf flow into the LP.
+        let huge = "9".repeat(350);
+        let input = format!("Port \"a\" [(\"b\", {huge})]\nPort \"b\" []");
+        let result = parse(&input);
+        assert!(matches!(result, Err(ParseError::SyntaxError(_))));
     }
 }

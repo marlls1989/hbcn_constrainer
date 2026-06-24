@@ -196,12 +196,33 @@ mod constrain_unit_tests {
     /// Test that forward completion affects constraint generation
     #[test]
     fn test_forward_completion_effects() {
-        let input = r#"Port "a" [("b", 100)]
-                      Port "b" [("c", 50)]
-                      Port "c" []"#;
+        // A register with high fan-in (4 inputs) and small edge weights makes the
+        // completion cost exceed the virtual delay, so `forward_completion` provably
+        // raises forward-place weights. If the flag were ignored, the two HBCNs — and
+        // therefore their generated constraints — would be byte-for-byte identical.
+        let input = r#"Port "i1" [("m", 1)]
+                      Port "i2" [("m", 1)]
+                      Port "i3" [("m", 1)]
+                      Port "i4" [("m", 1)]
+                      DataReg "m" [("o", 1)]
+                      Port "o" []"#;
 
         let hbcn_no_fc = create_test_hbcn(input, false);
         let hbcn_with_fc = create_test_hbcn(input, true);
+
+        // The flag must actually change the model: total place weight must increase.
+        let sum_no: f64 = hbcn_no_fc
+            .edge_indices()
+            .map(|e| hbcn_no_fc[e].weight)
+            .sum();
+        let sum_fc: f64 = hbcn_with_fc
+            .edge_indices()
+            .map(|e| hbcn_with_fc[e].weight)
+            .sum();
+        assert!(
+            sum_fc > sum_no,
+            "forward_completion should raise forward-place weights (no_fc={sum_no}, fc={sum_fc})"
+        );
 
         let result_no_fc = crate::constrain::hbcn::constrain_cycle_time_proportional(
             &hbcn_no_fc,
@@ -221,20 +242,16 @@ mod constrain_unit_tests {
         )
         .expect("Should work with forward completion");
 
-        // Results should potentially be different
-        // (This tests that forward completion parameter is actually used)
+        // The heavier completion costs must surface as different generated constraints.
+        assert_ne!(
+            result_no_fc.path_constraints, result_with_fc.path_constraints,
+            "forward_completion should change the generated path constraints"
+        );
+
         assert!(result_no_fc.pseudoclock_period >= 10.0);
         assert!(result_with_fc.pseudoclock_period >= 10.0);
-
-        // Both should produce valid results (constraint count is always >= 0)
-        assert!(
-            !result_no_fc.path_constraints.is_empty(),
-            "Expected constraints without forward completion"
-        );
-        assert!(
-            !result_with_fc.path_constraints.is_empty(),
-            "Expected constraints with forward completion"
-        );
+        assert!(!result_no_fc.path_constraints.is_empty());
+        assert!(!result_with_fc.path_constraints.is_empty());
     }
 
     /// Test constraint validation (that generated constraints are reasonable)

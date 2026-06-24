@@ -181,7 +181,7 @@ pub struct ConstrainArgs {
 /// ```
 pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
     use crate::output_suppression::is_verbose;
-    
+
     let ConstrainArgs {
         input,
         structural,
@@ -204,7 +204,14 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         eprintln!("Reading input file: {:?}", input);
         eprintln!("Cycle time constraint: {}", cycle_time);
         eprintln!("Minimal delay: {}", minimal_delay);
-        eprintln!("Constraint algorithm: {}", if no_proportinal { "pseudoclock" } else { "proportional" });
+        eprintln!(
+            "Constraint algorithm: {}",
+            if no_proportinal {
+                "pseudoclock"
+            } else {
+                "proportional"
+            }
+        );
     }
 
     let constraints = {
@@ -336,10 +343,11 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                 let slack: f64 = cycle
                     .iter()
                     .map(|(is, it)| {
-                        let ie = constraints.hbcn.find_edge(*is, *it).unwrap();
-                        let e = &constraints.hbcn[ie];
-
-                        e.slack()
+                        constraints
+                            .hbcn
+                            .find_edge(*is, *it)
+                            .map(|ie| constraints.hbcn[ie].slack())
+                            .unwrap_or(0.0)
                     })
                     .sum();
                 (slack, cycle)
@@ -365,7 +373,9 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             ]);
             table.set_format(*format::consts::FORMAT_NO_LINESEP_WITH_TITLE);
             for (is, it) in cycle {
-                let ie = constraints.hbcn.find_edge(is, it).unwrap();
+                let Some(ie) = constraints.hbcn.find_edge(is, it) else {
+                    continue;
+                };
                 let e = &constraints.hbcn[ie];
                 let s = &constraints.hbcn[is];
                 let t = &constraints.hbcn[it];
