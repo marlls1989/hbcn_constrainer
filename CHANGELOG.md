@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- **LP solver abstraction extracted to a crate**: the in-repo `lp_solver` module was replaced by a dependency on the published [`lp_solver`](https://github.com/marlls1989/lp_solver) crate. The `coin_cbc`/`gurobi` features now forward to it.
+- **Solver-selection environment variable renamed** (breaking): `HBCN_LP_SOLVER` → `LP_SOLVER`.
+
+### Removed
+- **LP solver output suppression**: the `gag`-based redirection of CBC/Gurobi stdout (and the `output_suppression` module, now `verbose`) was removed along with the in-repo solver. Solver banners print to stdout; the generated artifacts (SDC, reports, VCD, DOT, CSV) are written to files and are unaffected. `--verbose` now only toggles hbcn's own progress messages.
+- Dropped the `gag` dependency and the LP-solver demo examples.
+
 ## [0.6.0] - 2025-10-28
 
 ### Added

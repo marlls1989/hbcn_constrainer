@@ -6,7 +6,7 @@ fn main() -> Result<()> {
     let args = CLIArguments::parse();
 
     // Initialize global verbose flag
-    hbcn::output_suppression::set_verbose(args.verbose);
+    hbcn::verbose::set_verbose(args.verbose);
 
     match args.command {
         hbcn::CLICommand::Expand(args) => expand_main(args),

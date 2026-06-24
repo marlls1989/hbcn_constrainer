@@ -61,8 +61,8 @@ pub mod analyse;
 pub mod constrain;
 pub mod expand;
 pub mod hbcn;
-pub mod output_suppression;
 pub mod structural_graph;
+pub mod verbose;
 
 // Re-export the main functions for easy access
 pub use analyse::{AnalyseArgs, analyse_main};
@@ -132,7 +132,7 @@ pub fn read_file(file_name: &Path) -> Result<structural_graph::StructuralGraph> 
     about = "Pulsar Half-buffer Channel Network timing analysis tools"
 )]
 pub struct CLIArguments {
-    /// Enable verbose output (disable solver output suppression and show extra messages)
+    /// Enable verbose output (show extra progress messages on stderr)
     #[clap(short, long)]
     pub verbose: bool,
 

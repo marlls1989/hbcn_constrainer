@@ -117,7 +117,7 @@ pub struct AnalyseArgs {
 /// # }
 /// ```
 pub fn analyse_main(args: AnalyseArgs) -> Result<()> {
-    use crate::output_suppression::is_verbose;
+    use crate::verbose::is_verbose;
 
     let AnalyseArgs {
         input,
