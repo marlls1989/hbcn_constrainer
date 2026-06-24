@@ -1077,15 +1077,26 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format and VCD output
     #[test]
     fn test_hbcn_format_with_vcd() {
+        // Valid HBCN for input -> reg1 -> output, expanded from the structural graph
+        // (correct token placement on backward/internal places; a naive marking of every
+        // +=>+ place creates a token-free cycle and an infeasible model).
         let hbcn_content = r#"
-* +{port:input} => +{reg1} : (1.0, 30.0)
-+{reg1} => -{port:input} : (0.5, 1.5)
--{port:input} => -{reg1} : (0.5, 1.0)
--{reg1} => +{port:input} : (0.0, 1.0)
-* +{reg1} => +{port:output} : (1.0, 25.0)
-+{port:output} => -{reg1} : (0.5, 1.5)
--{reg1} => -{port:output} : (0.5, 1.0)
--{port:output} => +{reg1} : (0.0, 1.0)
+  +{input} => +{reg1} : 30
+  -{input} => -{reg1} : 30
+  +{reg1} => -{input} : 20
+* -{reg1} => +{input} : 20
+  +{reg1} => +{reg1/s0} : 10
+* -{reg1} => -{reg1/s0} : 10
+  +{reg1/s0} => -{reg1} : 20
+  -{reg1/s0} => +{reg1} : 20
+* +{reg1/s0} => +{reg1/s1} : 10
+  -{reg1/s0} => -{reg1/s1} : 10
+  +{reg1/s1} => -{reg1/s0} : 20
+  -{reg1/s1} => +{reg1/s0} : 20
+  +{reg1/s1} => +{output} : 25
+  -{reg1/s1} => -{output} : 25
+  +{output} => -{reg1/s1} : 10
+* -{output} => +{reg1/s1} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
@@ -1108,15 +1119,25 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format and DOT output
     #[test]
     fn test_hbcn_format_with_dot() {
+        // Valid HBCN for a -> reg1 -> c, expanded from the structural graph (correct token
+        // placement; a naive marking of every +=>+ place yields an infeasible model).
         let hbcn_content = r#"
-* +{port:a} => +{reg1} : (1.0, 20.0)
-+{reg1} => -{port:a} : (0.5, 1.5)
--{port:a} => -{reg1} : (0.5, 1.0)
--{reg1} => +{port:a} : (0.0, 1.0)
-* +{reg1} => +{port:c} : (1.0, 15.0)
-+{port:c} => -{reg1} : (0.5, 1.5)
--{reg1} => -{port:c} : (0.5, 1.0)
--{port:c} => +{reg1} : (0.0, 1.0)
+  +{a} => +{reg1} : 20
+  -{a} => -{reg1} : 20
+  +{reg1} => -{a} : 20
+* -{reg1} => +{a} : 20
+  +{reg1} => +{reg1/s0} : 10
+* -{reg1} => -{reg1/s0} : 10
+  +{reg1/s0} => -{reg1} : 20
+  -{reg1/s0} => +{reg1} : 20
+* +{reg1/s0} => +{reg1/s1} : 10
+  -{reg1/s0} => -{reg1/s1} : 10
+  +{reg1/s1} => -{reg1/s0} : 20
+  -{reg1/s1} => +{reg1/s0} : 20
+  +{reg1/s1} => +{c} : 15
+  -{reg1/s1} => -{c} : 15
+  +{c} => -{reg1/s1} : 10
+* -{c} => +{reg1/s1} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
@@ -1139,15 +1160,17 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format and multiple outputs
     #[test]
     fn test_hbcn_format_with_multiple_outputs() {
+        // Valid HBCN for a -> b -> c, expanded from the structural graph (correct token
+        // placement; a naive marking of every +=>+ place yields an infeasible model).
         let hbcn_content = r#"
-* +{port:a} => +{port:b} : (1.0, 20.0)
-+{port:b} => -{port:a} : (0.5, 1.5)
--{port:a} => -{port:b} : (0.5, 1.0)
--{port:b} => +{port:a} : (0.0, 1.0)
-* +{port:b} => +{port:c} : (1.0, 15.0)
-+{port:c} => -{port:b} : (0.5, 1.5)
--{port:b} => -{port:c} : (0.5, 1.0)
--{port:c} => +{port:b} : (0.0, 1.0)
+  +{a} => +{b} : 20
+  -{a} => -{b} : 20
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+  +{b} => +{c} : 15
+  -{b} => -{c} : 15
+  +{c} => -{b} : 10
+* -{c} => +{b} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
@@ -1175,19 +1198,30 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format cyclic circuit
     #[test]
     fn test_hbcn_format_cyclic_circuit() {
+        // Valid cyclic HBCN for a -> reg1 -> c -> a, expanded from the structural graph
+        // (correct token placement; a naive marking of every +=>+ place yields an
+        // infeasible model with a token-free cycle).
         let hbcn_content = r#"
-* +{port:a} => +{reg1} : (1.0, 20.0)
-+{reg1} => -{port:a} : (0.5, 1.5)
--{port:a} => -{reg1} : (0.5, 1.0)
--{reg1} => +{port:a} : (0.0, 1.0)
-* +{reg1} => +{port:c} : (1.0, 15.0)
-+{port:c} => -{reg1} : (0.5, 1.5)
--{reg1} => -{port:c} : (0.5, 1.0)
--{port:c} => +{reg1} : (0.0, 1.0)
-* +{port:c} => +{port:a} : (1.0, 10.0)
-+{port:a} => -{port:c} : (0.5, 1.5)
--{port:c} => -{port:a} : (0.5, 1.0)
--{port:a} => +{port:c} : (0.0, 1.0)
+  +{a} => +{reg1} : 20
+  -{a} => -{reg1} : 20
+  +{reg1} => -{a} : 20
+* -{reg1} => +{a} : 20
+  +{reg1} => +{reg1/s0} : 10
+* -{reg1} => -{reg1/s0} : 10
+  +{reg1/s0} => -{reg1} : 20
+  -{reg1/s0} => +{reg1} : 20
+* +{reg1/s0} => +{reg1/s1} : 10
+  -{reg1/s0} => -{reg1/s1} : 10
+  +{reg1/s1} => -{reg1/s0} : 20
+  -{reg1/s1} => +{reg1/s0} : 20
+  +{reg1/s1} => +{c} : 15
+  -{reg1/s1} => -{c} : 15
+  +{c} => -{reg1/s1} : 10
+* -{c} => +{reg1/s1} : 10
+  +{c} => +{a} : 10
+  -{c} => -{a} : 10
+  +{a} => -{c} : 10
+* -{a} => +{c} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
@@ -1321,19 +1355,38 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format - register node (not port: prefix)
     #[test]
     fn test_hbcn_format_with_register() {
+        // Valid HBCN for input -> reg1 -> reg2 -> output, expanded from the structural graph
+        // (correct token placement; a naive marking of every +=>+ place yields an
+        // infeasible model).
         let hbcn_content = r#"
-* +{port:input} => +{reg1} : (1.0, 30.0)
-+{reg1} => -{port:input} : (0.5, 1.5)
--{port:input} => -{reg1} : (0.5, 1.0)
--{reg1} => +{port:input} : (0.0, 1.0)
-* +{reg1} => +{reg2} : (1.0, 20.0)
-+{reg2} => -{reg1} : (0.5, 1.5)
--{reg1} => -{reg2} : (0.5, 1.0)
--{reg2} => +{reg1} : (0.0, 1.0)
-* +{reg2} => +{port:output} : (1.0, 25.0)
-+{port:output} => -{reg2} : (0.5, 1.5)
--{reg2} => -{port:output} : (0.5, 1.0)
--{port:output} => +{reg2} : (0.0, 1.0)
+  +{input} => +{reg1} : 30
+  -{input} => -{reg1} : 30
+  +{reg1} => -{input} : 20
+* -{reg1} => +{input} : 20
+  +{reg1} => +{reg1/s0} : 10
+* -{reg1} => -{reg1/s0} : 10
+  +{reg1/s0} => -{reg1} : 20
+  -{reg1/s0} => +{reg1} : 20
+* +{reg1/s0} => +{reg1/s1} : 10
+  -{reg1/s0} => -{reg1/s1} : 10
+  +{reg1/s1} => -{reg1/s0} : 20
+  -{reg1/s1} => +{reg1/s0} : 20
+  +{reg1/s1} => +{reg2} : 20
+  -{reg1/s1} => -{reg2} : 20
+  +{reg2} => -{reg1/s1} : 20
+* -{reg2} => +{reg1/s1} : 20
+  +{reg2} => +{reg2/s0} : 10
+* -{reg2} => -{reg2/s0} : 10
+  +{reg2/s0} => -{reg2} : 20
+  -{reg2/s0} => +{reg2} : 20
+* +{reg2/s0} => +{reg2/s1} : 10
+  -{reg2/s0} => -{reg2/s1} : 10
+  +{reg2/s1} => -{reg2/s0} : 20
+  -{reg2/s1} => +{reg2/s0} : 20
+  +{reg2/s1} => +{output} : 25
+  -{reg2/s1} => -{output} : 25
+  +{output} => -{reg2/s1} : 10
+* -{output} => +{reg2/s1} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
@@ -1351,19 +1404,22 @@ mod hbcn_format_integration_tests {
     /// Test analysis with HBCN format - tight timing circuit
     #[test]
     fn test_hbcn_format_tight_timing() {
+        // Valid HBCN for the tight-timing chain a -> b -> c -> d, expanded from the
+        // structural graph (correct token placement; a naive marking of every +=>+ place
+        // yields an infeasible model).
         let hbcn_content = r#"
-* +{port:a} => +{port:b} : (0.5, 5.0)
-+{port:b} => -{port:a} : (0.2, 0.5)
--{port:a} => -{port:b} : (0.2, 0.3)
--{port:b} => +{port:a} : (0.0, 0.2)
-* +{port:b} => +{port:c} : (0.5, 3.0)
-+{port:c} => -{port:b} : (0.2, 0.5)
--{port:b} => -{port:c} : (0.2, 0.3)
--{port:c} => +{port:b} : (0.0, 0.2)
-* +{port:c} => +{port:d} : (0.5, 2.0)
-+{port:d} => -{port:c} : (0.2, 0.5)
--{port:c} => -{port:d} : (0.2, 0.3)
--{port:d} => +{port:c} : (0.0, 0.2)
+  +{a} => +{b} : 5
+  -{a} => -{b} : 5
+  +{b} => -{a} : 10
+* -{b} => +{a} : 10
+  +{b} => +{c} : 3
+  -{b} => -{c} : 3
+  +{c} => -{b} : 10
+* -{c} => +{b} : 10
+  +{c} => +{d} : 2
+  -{c} => -{d} : 2
+  +{d} => -{c} : 10
+* -{d} => +{c} : 10
 "#;
 
         let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
