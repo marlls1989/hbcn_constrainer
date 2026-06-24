@@ -478,14 +478,13 @@ version = "0.6.0"
 dependencies = [
  "anyhow",
  "clap",
- "coin_cbc",
  "criterion",
  "gag",
- "gurobi",
  "itertools 0.10.5",
  "lalrpop",
  "lalrpop-util",
  "lazy_static",
+ "lp_solver",
  "ordered-float",
  "petgraph 0.5.1",
  "prettytable-rs",
@@ -649,6 +648,16 @@ name = "log"
 version = "0.4.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "34080505efa8e45a4b816c349525ebe327ceaa8559756f0356cba97ef3bf7432"
+
+[[package]]
+name = "lp_solver"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f2dad64bebfceb3b1bf8fbd08df2c150d1ee5c4467a406d892788c3b009a9c4d"
+dependencies = [
+ "coin_cbc",
+ "gurobi",
+]
 
 [[package]]
 name = "memchr"

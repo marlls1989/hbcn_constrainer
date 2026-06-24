@@ -44,7 +44,6 @@
 //! - **[`expand`]**: Conversion of structural graphs to HBCN representation and serialisation
 //! - **[`analyse`]**: Cycle time analysis and critical path identification
 //! - **[`constrain`]**: Timing constraint generation using LP optimisation
-//! - **[`lp_solver`]**: Linear programming solver abstraction layer
 //!
 //! # Re-exports
 //!
@@ -62,7 +61,6 @@ pub mod analyse;
 pub mod constrain;
 pub mod expand;
 pub mod hbcn;
-pub mod lp_solver;
 pub mod output_suppression;
 pub mod structural_graph;
 

@@ -15,8 +15,8 @@ use petgraph::prelude::*;
 
 use crate::AppError;
 use crate::hbcn::*;
-use crate::lp_solver::*;
-use crate::{constraint, lp_model_builder};
+use lp_solver::*;
+use lp_solver::{constraint, lp_model_builder};
 
 /// Map of path constraints from (source, destination) circuit node pairs to delay constraints.
 ///
@@ -87,69 +87,66 @@ where
         builder.add_constraint(constraint!((delay + arr_var[&src] - arr_var[&dst]) == rhs));
 
         if place_ref.is_internal {
-            builder.add_constraint(constraint!((delay) > min_delay));
+            builder.add_constraint(constraint!((delay) >= min_delay));
         } else {
-            builder.add_constraint(constraint!((delay - pseudo_clock) > 0.0));
+            builder.add_constraint(constraint!((delay - pseudo_clock) >= 0.0));
         }
     }
 
     builder.set_objective(pseudo_clock, OptimisationSense::Maximise);
 
-    let solution = builder.solve()?;
+    let solution = match builder.solve() {
+        Ok(s) => s,
+        Err(SolveError::NoSolution(_)) => return Err(AppError::Infeasible.into()),
+        Err(e) => return Err(e.into()),
+    };
 
-    match solution.status {
-        OptimisationStatus::Optimal | OptimisationStatus::Feasible => {
-            let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(min_delay);
-            Ok(ConstrainerResult {
-                pseudoclock_period: pseudo_clock_value,
-                path_constraints: delay_vars
-                    .iter()
-                    .filter_map(|((src, dst), var)| {
-                        var.map(|var_id| {
-                            let delay_value =
-                                solution.get_value(var_id).unwrap_or(pseudo_clock_value);
-                            Some((
-                                (CircuitNode::clone(src), CircuitNode::clone(dst)),
-                                DelayPair {
-                                    min: None,
-                                    max: delay_value,
-                                },
-                            ))
-                        })
-                        .flatten()
-                    })
-                    .collect(),
-                hbcn: hbcn.map(
-                    |ix, x| {
-                        let transition: &Transition = x.as_ref();
-                        TransitionEvent {
-                            transition: transition.clone(),
-                            time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
-                        }
-                    },
-                    |ie, e| {
-                        let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                        let src_transition: &Transition = hbcn[src].as_ref();
-                        let dst_transition: &Transition = hbcn[dst].as_ref();
-                        let delay_value = delay_vars
-                            [&(src_transition.as_ref(), dst_transition.as_ref())]
-                            .and_then(|var_id| solution.get_value(var_id))
-                            .unwrap_or(e.weight());
-
-                        DelayedPlace {
-                            place: e.clone().into(),
-                            slack: None,
-                            delay: DelayPair {
-                                min: None,
-                                max: delay_value,
-                            },
-                        }
-                    },
-                ),
+    let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(min_delay);
+    Ok(ConstrainerResult {
+        pseudoclock_period: pseudo_clock_value,
+        path_constraints: delay_vars
+            .iter()
+            .filter_map(|((src, dst), var)| {
+                var.map(|var_id| {
+                    let delay_value = solution.get_value(var_id).unwrap_or(pseudo_clock_value);
+                    Some((
+                        (CircuitNode::clone(src), CircuitNode::clone(dst)),
+                        DelayPair {
+                            min: None,
+                            max: delay_value,
+                        },
+                    ))
+                })
+                .flatten()
             })
-        }
-        _ => Err(AppError::Infeasible.into()),
-    }
+            .collect(),
+        hbcn: hbcn.map(
+            |ix, x| {
+                let transition: &Transition = x.as_ref();
+                TransitionEvent {
+                    transition: transition.clone(),
+                    time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
+                }
+            },
+            |ie, e| {
+                let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+                let src_transition: &Transition = hbcn[src].as_ref();
+                let dst_transition: &Transition = hbcn[dst].as_ref();
+                let delay_value = delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())]
+                    .and_then(|var_id| solution.get_value(var_id))
+                    .unwrap_or(e.weight());
+
+                DelayedPlace {
+                    place: e.clone().into(),
+                    slack: None,
+                    delay: DelayPair {
+                        min: None,
+                        max: delay_value,
+                    },
+                }
+            },
+        ),
+    })
 }
 
 /// Constrain cycle time using the proportional algorithm
@@ -258,53 +255,53 @@ where
 
     builder.set_objective(factor, OptimisationSense::Maximise);
 
-    let solution = builder.solve()?;
+    let solution = match builder.solve() {
+        Ok(s) => s,
+        Err(SolveError::NoSolution(_)) => return Err(AppError::Infeasible.into()),
+        Err(e) => return Err(e.into()),
+    };
 
-    match solution.status {
-        OptimisationStatus::Optimal | OptimisationStatus::Feasible => Ok(ConstrainerResult {
-            pseudoclock_period: min_delay,
-            path_constraints: delay_vars
-                .iter()
-                .map(|((src, dst), var)| {
-                    let min = solution.get_value(var.min).filter(|x| *x > 0.001);
-                    let max = solution
-                        .get_value(var.max)
-                        .filter(|x| (*x - min_delay) / min_delay > 0.001)
-                        .unwrap_or(min_delay);
-                    (
-                        (CircuitNode::clone(src), CircuitNode::clone(dst)),
-                        DelayPair { min, max },
-                    )
-                })
-                .collect(),
-            hbcn: hbcn.map(
-                |ix, x| {
-                    let transition: &Transition = x.as_ref();
-                    TransitionEvent {
-                        transition: transition.clone(),
-                        time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
-                    }
-                },
-                |ie, e| {
-                    let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                    let src_transition: &Transition = hbcn[src].as_ref();
-                    let dst_transition: &Transition = hbcn[dst].as_ref();
-                    let delay_var =
-                        &delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())];
+    Ok(ConstrainerResult {
+        pseudoclock_period: min_delay,
+        path_constraints: delay_vars
+            .iter()
+            .map(|((src, dst), var)| {
+                let min = solution.get_value(var.min).filter(|x| *x > 0.001);
+                let max = solution
+                    .get_value(var.max)
+                    .filter(|x| (*x - min_delay) / min_delay > 0.001)
+                    .unwrap_or(min_delay);
+                (
+                    (CircuitNode::clone(src), CircuitNode::clone(dst)),
+                    DelayPair { min, max },
+                )
+            })
+            .collect(),
+        hbcn: hbcn.map(
+            |ix, x| {
+                let transition: &Transition = x.as_ref();
+                TransitionEvent {
+                    transition: transition.clone(),
+                    time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
+                }
+            },
+            |ie, e| {
+                let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
+                let src_transition: &Transition = hbcn[src].as_ref();
+                let dst_transition: &Transition = hbcn[dst].as_ref();
+                let delay_var = &delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())];
 
-                    DelayedPlace {
-                        place: e.clone().into(),
-                        slack: solution.get_value(delay_var.slack),
-                        delay: DelayPair {
-                            min: solution.get_value(delay_var.min),
-                            max: solution.get_value(delay_var.max).unwrap_or(e.weight()),
-                        },
-                    }
-                },
-            ),
-        }),
-        _ => Err(AppError::Infeasible.into()),
-    }
+                DelayedPlace {
+                    place: e.clone().into(),
+                    slack: solution.get_value(delay_var.slack),
+                    delay: DelayPair {
+                        min: solution.get_value(delay_var.min),
+                        max: solution.get_value(delay_var.max).unwrap_or(e.weight()),
+                    },
+                }
+            },
+        ),
+    })
 }
 #[cfg(test)]
 mod tests {
