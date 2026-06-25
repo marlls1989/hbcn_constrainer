@@ -1769,6 +1769,92 @@ mod hbcn_format_constrain_tests {
         assert!(!sdc_content.is_empty(), "SDC file should not be empty");
     }
 
+    /// Regression: the CSV and report `cost`/`Cost` columns must report the original unconstrained
+    /// weight, not the computed max delay. (`DelayedPlace::weight()` returns `delay.max`, so reading
+    /// cost off the solved HBCN previously echoed the max.)
+    #[test]
+    fn test_hbcn_format_cost_is_original_weight() {
+        // One channel a<->reg1 with four distinct input weights.
+        let hbcn_content = r#"* +{port:a} => +{reg1} : 100
+  -{port:a} => -{reg1} : 40
+  +{reg1} => -{port:a} : 30
+  -{reg1} => +{port:a} : 30
+"#;
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("test.sdc");
+        let csv_path = temp_output_dir.path().join("test.csv");
+        let rpt_path = temp_output_dir.path().join("test.rpt");
+
+        run_hbcn_constrain_hbcn_format(
+            &input_path,
+            &sdc_path,
+            1000.0,
+            10.0,
+            Some(&csv_path),
+            Some(&rpt_path),
+            None,
+            false,
+            None,
+            None,
+        )
+        .expect("Constraint generation should succeed");
+
+        // CSV: one row per place; the cost column carries the input weights {100,40,30,30}.
+        let csv = fs::read_to_string(&csv_path).expect("Failed to read CSV file");
+        let mut costs = Vec::new();
+        let mut csv_cost_differs_from_max = false;
+        for line in csv.lines().skip(1) {
+            let fields: Vec<&str> = line.split(',').collect();
+            assert_eq!(fields.len(), 7, "unexpected CSV row: {line}");
+            let cost: f64 = fields[4].parse().expect("cost should be numeric");
+            let max: f64 = fields[5].parse().expect("max_delay should be numeric");
+            costs.push(cost as i64);
+            if (cost - max).abs() > 1e-9 {
+                csv_cost_differs_from_max = true;
+            }
+        }
+        costs.sort_unstable();
+        assert_eq!(
+            costs,
+            vec![30, 30, 40, 100],
+            "CSV cost column should carry the original input weights, got {costs:?}"
+        );
+        assert!(
+            csv_cost_differs_from_max,
+            "CSV cost must be the original weight, not a copy of the computed max_delay"
+        );
+
+        // Report: the critical cycle's Cost column carries the same input weights. Rows are
+        // `| T | Node | Transition | Cost | Min Delay | Max Delay | Slack | Time |`.
+        let report = fs::read_to_string(&rpt_path).expect("Failed to read report file");
+        let mut report_costs = Vec::new();
+        let mut report_cost_differs_from_max = false;
+        for line in report.lines() {
+            let cols: Vec<&str> = line.split('|').map(|c| c.trim()).collect();
+            if cols.len() < 9 {
+                continue; // not a table data row
+            }
+            if let (Ok(cost), Ok(max)) = (cols[4].parse::<f64>(), cols[6].parse::<f64>()) {
+                report_costs.push(cost as i64);
+                if (cost - max).abs() > 1e-9 {
+                    report_cost_differs_from_max = true;
+                }
+            }
+        }
+        report_costs.sort_unstable();
+        report_costs.dedup();
+        assert_eq!(
+            report_costs,
+            vec![30, 40, 100],
+            "report Cost column should carry the original input weights, got {report_costs:?}"
+        );
+        assert!(
+            report_cost_differs_from_max,
+            "report Cost must be the original weight, not a copy of the computed Max Delay"
+        );
+    }
+
     /// Test constraint generation with HBCN format and VCD output
     #[test]
     fn test_hbcn_format_constrain_with_vcd() {
