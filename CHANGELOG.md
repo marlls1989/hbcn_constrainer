@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   floored at zero. The structural `.graph` format is unchanged (still non-negative),
   and `constrain` continues to read the value as a logical-depth weight (a small or
   negative weight makes the path non-critical, assigned the smallest legal constraint).
+- **Input-format reference** (`INPUT_FORMATS.md`): a dedicated specification of the two input formats — the structural graph (`.graph`), covering all five component types (`Port`, `NullReg`, `ControlReg`, `DataReg`, `UnsafeReg`) and the name/adjacency/virtual-delay rules, and the HBCN (`.hbcn`) place/transition/token/delay grammar — with verifiable examples drawn from `examples/`.
 
 ### Changed
 - **LP solver abstraction extracted to a crate**: the in-repo `lp_solver` module was replaced by a dependency on the published [`lp_solver`](https://github.com/marlls1989/lp_solver) crate. The `coin_cbc`/`gurobi` features now forward to it.
