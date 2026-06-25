@@ -36,7 +36,7 @@
 //!     csv: Some("constraints.csv".into()),
 //!     rpt: Some("report.rpt".into()),
 //!     vcd: None,
-//!     no_proportinal: false,
+//!     no_proportional: false,
 //!     no_forward_completion: false,
 //!     forward_margin: None,
 //!     backward_margin: None,
@@ -118,7 +118,7 @@ pub struct ConstrainArgs {
 
     /// Use pseudo-clock to constrain paths
     #[clap(long)]
-    pub no_proportinal: bool,
+    pub no_proportional: bool,
 
     /// Don't use forward completion delay if greater than path virtual delay
     #[clap(long)]
@@ -168,7 +168,7 @@ pub struct ConstrainArgs {
 ///     csv: None,
 ///     rpt: None,
 ///     vcd: None,
-///     no_proportinal: false,
+///     no_proportional: false,
 ///     no_forward_completion: false,
 ///     forward_margin: None,
 ///     backward_margin: None,
@@ -190,7 +190,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         ref csv,
         ref rpt,
         ref vcd,
-        no_proportinal,
+        no_proportional,
         no_forward_completion,
         forward_margin,
         backward_margin,
@@ -205,7 +205,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         eprintln!("Minimal delay: {}", minimal_delay);
         eprintln!(
             "Constraint algorithm: {}",
-            if no_proportinal {
+            if no_proportional {
                 "pseudoclock"
             } else {
                 "proportional"
@@ -226,7 +226,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             if is_verbose() {
                 eprintln!("Generating constraints...");
             }
-            if no_proportinal {
+            if no_proportional {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
                 hbcn::constrain_cycle_time_proportional(
@@ -248,7 +248,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             if is_verbose() {
                 eprintln!("Generating constraints...");
             }
-            if no_proportinal {
+            if no_proportional {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
                 hbcn::constrain_cycle_time_proportional(
