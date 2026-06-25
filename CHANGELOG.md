@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Negative delays in the HBCN format**: a `.hbcn` place delay may now be negative
+  (a physically real effect, e.g. slew/recovery). `analyse` honours it as a real
+  delay, so a negative place delay lowers the computed cycle time instead of being
+  floored at zero. The structural `.graph` format is unchanged (still non-negative),
+  and `constrain` continues to read the value as a logical-depth weight (a small or
+  negative weight makes the path non-critical, assigned the smallest legal constraint).
+
 ### Changed
 - **LP solver abstraction extracted to a crate**: the in-repo `lp_solver` module was replaced by a dependency on the published [`lp_solver`](https://github.com/marlls1989/lp_solver) crate. The `coin_cbc`/`gurobi` features now forward to it.
 - **Solver-selection environment variable renamed** (breaking): `HBCN_LP_SOLVER` → `LP_SOLVER`.
