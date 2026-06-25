@@ -337,6 +337,35 @@ mod tests {
         assert!(!list[1].token);
     }
 
+    #[test]
+    fn parse_negative_delays() {
+        // Negative delays are physically real (e.g. slew/recovery, where an output
+        // begins to switch before its input has fully transitioned). The HBCN format
+        // must accept them, and a signed delay must not collide with the Spacer `-`.
+        let input = r#"
+            +{a} => +{b} : -5
+            -{b} => -{a} : (-10,-2.5)
+        "#;
+        let list = super::parser::AdjacencyListParser::new()
+            .parse(input)
+            .expect("should parse negative delays");
+        assert_eq!(list.len(), 2);
+        assert_eq!(
+            list[0].delay,
+            DelayPair {
+                min: None,
+                max: -5.0
+            }
+        );
+        assert_eq!(
+            list[1].delay,
+            DelayPair {
+                min: Some(-10.0),
+                max: -2.5
+            }
+        );
+    }
+
     fn edge_tuple_from_ast(
         e: &super::ast::AdjacencyEntry,
     ) -> (char, String, char, String, Option<f64>, f64, bool) {
