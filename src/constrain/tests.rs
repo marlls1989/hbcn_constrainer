@@ -27,10 +27,11 @@ mod constrain_unit_tests {
         assert!(result.pseudoclock_period <= 10.0);
 
         // Should have path constraints
-        assert!(!result.path_constraints.is_empty());
+        assert!(result.hbcn.edge_count() > 0);
 
         // All max delays should be valid
-        for constraint in result.path_constraints.values() {
+        for ie in result.hbcn.edge_indices() {
+            let constraint = &result.hbcn[ie].delay;
             assert!(
                 constraint.max >= 1.0,
                 "Max delay should be at least min_delay"
@@ -57,13 +58,14 @@ mod constrain_unit_tests {
         assert!(result.pseudoclock_period >= 1.0);
 
         // Should have path constraints
-        assert!(!result.path_constraints.is_empty());
+        assert!(result.hbcn.edge_count() > 0);
 
         // DelayPair.min constraints are currently only generated when margins are
         // provided. There is no guarantee that any constraint will have a min when
         // no margins are provided. However, all constraints must have max >= min_delay.
         // Verify this for all constraints.
-        for constraint in result.path_constraints.values() {
+        for ie in result.hbcn.edge_indices() {
+            let constraint = &result.hbcn[ie].delay;
             assert!(
                 constraint.max >= 1.0,
                 "All constraints must have max delay >= min_delay ({} >= {})",
@@ -140,9 +142,9 @@ mod constrain_unit_tests {
         assert!(result_backward.pseudoclock_period >= 10.0);
 
         // At least one should produce some constraints
-        let total_constraints = result_with_margin.path_constraints.len()
-            + result_without_margin.path_constraints.len()
-            + result_backward.path_constraints.len();
+        let total_constraints = result_with_margin.hbcn.edge_count()
+            + result_without_margin.hbcn.edge_count()
+            + result_backward.hbcn.edge_count();
         assert!(
             total_constraints > 0,
             "Should produce some constraints across all tests"
@@ -165,7 +167,7 @@ mod constrain_unit_tests {
                 .expect("Should handle DataReg with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 2.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
 
         // Should work with proportional
         let prop_result =
@@ -173,7 +175,7 @@ mod constrain_unit_tests {
                 .expect("Should handle DataReg with proportional");
 
         assert!(prop_result.pseudoclock_period >= 2.0);
-        assert!(!prop_result.path_constraints.is_empty());
+        assert!(prop_result.hbcn.edge_count() > 0);
     }
 
     /// Test edge case: simple two-node circuit (minimal viable circuit)
@@ -243,15 +245,25 @@ mod constrain_unit_tests {
         .expect("Should work with forward completion");
 
         // The heavier completion costs must surface as different generated constraints.
+        let delays_no_fc: Vec<_> = result_no_fc
+            .hbcn
+            .edge_indices()
+            .map(|ie| result_no_fc.hbcn[ie].delay.clone())
+            .collect();
+        let delays_with_fc: Vec<_> = result_with_fc
+            .hbcn
+            .edge_indices()
+            .map(|ie| result_with_fc.hbcn[ie].delay.clone())
+            .collect();
         assert_ne!(
-            result_no_fc.path_constraints, result_with_fc.path_constraints,
+            delays_no_fc, delays_with_fc,
             "forward_completion should change the generated path constraints"
         );
 
         assert!(result_no_fc.pseudoclock_period >= 10.0);
         assert!(result_with_fc.pseudoclock_period >= 10.0);
-        assert!(!result_no_fc.path_constraints.is_empty());
-        assert!(!result_with_fc.path_constraints.is_empty());
+        assert!(result_no_fc.hbcn.edge_count() > 0);
+        assert!(result_with_fc.hbcn.edge_count() > 0);
     }
 
     /// Test constraint validation (that generated constraints are reasonable)
@@ -269,7 +281,11 @@ mod constrain_unit_tests {
                 .expect("Should generate valid constraints");
 
         // Validate all constraints
-        for ((src, dst), constraint) in &result.path_constraints {
+        for ie in result.hbcn.edge_indices() {
+            let (is, id) = result.hbcn.edge_endpoints(ie).unwrap();
+            let src: &CircuitNode = result.hbcn[is].as_ref();
+            let dst: &CircuitNode = result.hbcn[id].as_ref();
+            let constraint = &result.hbcn[ie].delay;
             // Source and destination should be valid circuit nodes
             assert!(!src.name().as_ref().is_empty());
             assert!(!dst.name().as_ref().is_empty());
@@ -372,12 +388,13 @@ mod constrain_unit_tests {
 
         // Should have constraints for multiple paths
         assert!(
-            result.path_constraints.len() > 2,
+            result.hbcn.edge_count() > 2,
             "Should have multiple path constraints"
         );
 
         // All constraints should be valid
-        for constraint in result.path_constraints.values() {
+        for ie in result.hbcn.edge_indices() {
+            let constraint = &result.hbcn[ie].delay;
             assert!(constraint.max >= 3.0);
             assert!(constraint.max <= 30.0);
             if let Some(min_delay) = constraint.min {
@@ -469,7 +486,7 @@ mod constrain_unit_tests {
                 .expect("Should handle cyclic circuit with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 2.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
 
         // Test proportional constraints on cyclic circuit
         let prop_result =
@@ -477,7 +494,7 @@ mod constrain_unit_tests {
                 .expect("Should handle cyclic circuit with proportional");
 
         assert!(prop_result.pseudoclock_period >= 2.0);
-        assert!(!prop_result.path_constraints.is_empty());
+        assert!(prop_result.hbcn.edge_count() > 0);
 
         // Both algorithms should produce valid results for cyclic circuits
         assert!(pseudo_result.pseudoclock_period <= 50.0);
@@ -501,7 +518,7 @@ mod constrain_unit_tests {
         .expect("Should handle feedback circuit");
 
         assert!(result.pseudoclock_period >= 10.0);
-        assert!(!result.path_constraints.is_empty());
+        assert!(result.hbcn.edge_count() > 0);
 
         // Test with margins on cyclic circuit
         let result_with_margins = crate::constrain::hbcn::constrain_cycle_time_proportional(
@@ -514,7 +531,7 @@ mod constrain_unit_tests {
         .expect("Should handle feedback circuit with margins");
 
         assert!(result_with_margins.pseudoclock_period >= 10.0);
-        assert!(!result_with_margins.path_constraints.is_empty());
+        assert!(result_with_margins.hbcn.edge_count() > 0);
     }
 
     /// Test complex cyclic circuit with multiple feedback paths
@@ -537,7 +554,7 @@ mod constrain_unit_tests {
         .expect("Should handle complex cyclic circuit");
 
         assert!(result.pseudoclock_period >= 15.0);
-        assert!(!result.path_constraints.is_empty());
+        assert!(result.hbcn.edge_count() > 0);
 
         // Test pseudoclock on complex cyclic circuit
         let pseudo_result =
@@ -545,7 +562,7 @@ mod constrain_unit_tests {
                 .expect("Should handle complex cyclic circuit with pseudoclock");
 
         assert!(pseudo_result.pseudoclock_period >= 15.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
     }
 
     /// Test cyclic circuit constraint validation
@@ -564,7 +581,11 @@ mod constrain_unit_tests {
         .expect("Should generate valid cyclic constraints");
 
         // Validate all constraints in cyclic circuit
-        for ((src, dst), constraint) in &result.path_constraints {
+        for ie in result.hbcn.edge_indices() {
+            let (is, id) = result.hbcn.edge_endpoints(ie).unwrap();
+            let src: &CircuitNode = result.hbcn[is].as_ref();
+            let dst: &CircuitNode = result.hbcn[id].as_ref();
+            let constraint = &result.hbcn[ie].delay;
             // Source and destination should be valid circuit nodes
             assert!(!src.name().as_ref().is_empty());
             assert!(!dst.name().as_ref().is_empty());
@@ -662,8 +683,8 @@ mod constrain_unit_tests {
         assert!(result_with_fc.pseudoclock_period >= 5.0);
 
         // Both should have constraints
-        assert!(!result_no_fc.path_constraints.is_empty());
-        assert!(!result_with_fc.path_constraints.is_empty());
+        assert!(result_no_fc.hbcn.edge_count() > 0);
+        assert!(result_with_fc.hbcn.edge_count() > 0);
     }
 
     /// Helper function to calculate critical cycle time per token
@@ -946,5 +967,93 @@ mod constrain_unit_tests {
         // Should have reasonable pseudoclock period
         assert!(result.pseudoclock_period > 0.0);
         assert!(result.pseudoclock_period <= requested_cycle_time);
+    }
+
+    /// A `.hbcn` channel whose forward-data and forward-spacer places carry different weights
+    /// must not collapse in the proportional LP: sharing one delay variable would force
+    /// `(w_data - w_spacer) * factor == 0`, driving `factor` to zero (all maxes at the floor).
+    /// Per-place variables keep the two forward maxes distinct and proportional to their weights.
+    #[test]
+    fn proportional_keeps_distinct_forward_delays() {
+        use crate::hbcn::Transition;
+        use crate::hbcn::parser::parse_hbcn;
+
+        let input = r#"
+            * +{port:a} => +{reg1} : 100
+              -{port:a} => -{reg1} : 40
+              +{reg1} => -{port:a} : 30
+              -{reg1} => +{port:a} : 30
+        "#;
+        let hbcn = parse_hbcn(input).expect("Should parse distinct-delay HBCN");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 1000.0, 10.0, None, None,
+        )
+        .expect("Should constrain distinct-delay channel");
+
+        // Single channel: exactly one forward-data and one forward-spacer place.
+        let mut data_max = 0.0_f64;
+        let mut spacer_max = 0.0_f64;
+        for ie in result.hbcn.edge_indices() {
+            let (s, d) = result.hbcn.edge_endpoints(ie).unwrap();
+            let max = result.hbcn[ie].delay.max;
+            match (&result.hbcn[s].transition, &result.hbcn[d].transition) {
+                (Transition::Data(_), Transition::Data(_)) => data_max = max,
+                (Transition::Spacer(_), Transition::Spacer(_)) => spacer_max = max,
+                _ => {}
+            }
+        }
+
+        assert!(
+            data_max > 10.0 && spacer_max > 10.0,
+            "both forward maxes should rise above the floor (data={data_max}, spacer={spacer_max}); \
+             a degenerate factor==0 would pin them to the floor"
+        );
+        assert!(
+            data_max > spacer_max,
+            "the heavier forward-data weight must yield a larger max than forward-spacer \
+             (data={data_max}, spacer={spacer_max}); equal would mean the LP collapsed them"
+        );
+    }
+
+    /// End-to-end: a distinct-delay `.hbcn` through proportional constrain emits SDC with both
+    /// rising (data) and falling (spacer) `-..._through` qualifiers.
+    #[test]
+    fn constrain_distinct_delays_emit_rise_and_fall_sdc() {
+        use crate::hbcn::parser::parse_hbcn;
+        use std::io::Cursor;
+
+        let input = r#"
+            * +{port:a} => +{reg1} : 100
+              -{port:a} => -{reg1} : 40
+              +{reg1} => -{port:a} : 30
+              -{reg1} => +{port:a} : 30
+        "#;
+        let hbcn = parse_hbcn(input).expect("Should parse");
+        let result = crate::constrain::hbcn::constrain_cycle_time_proportional(
+            &hbcn, 1000.0, 10.0, None, None,
+        )
+        .expect("Should constrain");
+
+        let mut out = Cursor::new(Vec::new());
+        crate::constrain::sdc::write_path_constraints(
+            &mut out,
+            &result.hbcn,
+            result.pseudoclock_period,
+        )
+        .expect("Should write SDC");
+        let sdc = String::from_utf8(out.into_inner()).expect("valid UTF-8");
+
+        assert!(
+            sdc.contains("-rise_through"),
+            "SDC should constrain rising (data) paths:\n{sdc}"
+        );
+        assert!(
+            sdc.contains("-fall_through"),
+            "SDC should constrain falling (spacer) paths:\n{sdc}"
+        );
+        assert!(
+            sdc.contains("set_max_delay"),
+            "SDC should emit max-delay constraints:\n{sdc}"
+        );
     }
 }

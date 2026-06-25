@@ -34,7 +34,7 @@ use crate::{
     AppError, Transition,
     hbcn::{
         DelayPair, DelayedPlace, HasWeight, MarkablePlace, Place, SlackablePlace, SolvedHBCN,
-        TransitionEvent,
+        TransitionEvent, round_to_sig_digits,
     },
 };
 use lp_solver::{
@@ -232,12 +232,12 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
         Err(e) => return Err(e.into()),
     };
     Ok((
-        solution.objective_value,
+        round_to_sig_digits(solution.objective_value, 8),
         hbcn.filter_map(
             |ix, x| {
                 Some(TransitionEvent {
                     transition: x.clone(),
-                    time: solution.get_value(arr_var[&ix])?,
+                    time: round_to_sig_digits(solution.get_value(arr_var[&ix])?, 8),
                 })
             },
             |ie, e| {
@@ -247,9 +247,14 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
                     place: place.clone(),
                     delay: DelayPair {
                         min: None,
-                        max: solution.get_value(*delay_var).unwrap_or(e.weight()),
+                        max: round_to_sig_digits(
+                            solution.get_value(*delay_var).unwrap_or(e.weight()),
+                            8,
+                        ),
                     },
-                    slack: solution.get_value(*slack_var),
+                    slack: solution
+                        .get_value(*slack_var)
+                        .map(|s| round_to_sig_digits(s, 8)),
                 })
             },
         ),
@@ -443,6 +448,36 @@ mod tests {
         assert!(
             min_reported < 0.0,
             "a negative place delay should be reported, got minimum {min_reported}"
+        );
+    }
+
+    /// Distinct per-place delays in a `.hbcn` survive analysis: the solved HBCN keeps four
+    /// independent delays for the channel's four places rather than collapsing them.
+    #[test]
+    fn analyse_keeps_distinct_per_place_delays() {
+        use crate::hbcn::parser::parse_hbcn;
+
+        // One channel a<->reg1, four places with four different delays.
+        let input = r#"
+            * +{port:a} => +{reg1} : 11
+              -{port:a} => -{reg1} : 12
+              +{reg1} => -{port:a} : 13
+              -{reg1} => +{port:a} : 14
+        "#;
+
+        let (_ct, solved) =
+            compute_cycle_time(&parse_hbcn(input).expect("parses"), true).expect("solves");
+
+        let mut maxes: Vec<f64> = solved
+            .edge_indices()
+            .map(|ie| solved[ie].delay.max)
+            .collect();
+        maxes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        maxes.dedup();
+        assert_eq!(
+            maxes,
+            vec![11.0, 12.0, 13.0, 14.0],
+            "all four place delays should survive analysis distinctly"
         );
     }
 }
