@@ -48,7 +48,6 @@
 //! ```
 
 use std::{
-    collections::HashMap,
     fs,
     io::{BufWriter, Write},
     path::PathBuf,
@@ -269,38 +268,41 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
     let hbcn = &constraints.hbcn;
 
-    // Note: Self-reflexive path constraints have been removed
-
     if let Some(output) = csv {
         if is_verbose() {
             eprintln!("Writing CSV constraints to: {:?}", output);
         }
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), f64> = hbcn
-            .edge_indices()
-            .filter_map(|ie| {
-                let (is, id) = hbcn.edge_endpoints(ie)?;
-
-                Some((
-                    (
-                        AsRef::<CircuitNode>::as_ref(&hbcn[is]).clone(),
-                        AsRef::<CircuitNode>::as_ref(&hbcn[id]).clone(),
-                    ),
-                    hbcn[ie].weight(),
-                ))
-            })
-            .collect();
-        writeln!(csv_file, "src,dst,cost,max_delay,min_delay")?;
-        for (key, constrain) in constraints.path_constraints.iter() {
-            if let Some(cost) = cost_map.get(key) {
-                let (src, dst) = key;
-                write!(csv_file, "{},{},{:.0},", src.name(), dst.name(), cost,)?;
-                write!(csv_file, "{:.3},", constrain.max)?;
-                if let Some(min_delay) = constrain.min {
-                    writeln!(csv_file, "{:.3}", min_delay)?;
-                } else {
-                    writeln!(csv_file)?;
-                }
+        // A `Data` transition is a rise at its node, a `Spacer` transition a fall.
+        let dir = |t: &Transition| {
+            if matches!(t, Transition::Data(_)) {
+                "rise"
+            } else {
+                "fall"
+            }
+        };
+        writeln!(csv_file, "src,src_dir,dst,dst_dir,cost,max_delay,min_delay")?;
+        for ie in hbcn.edge_indices() {
+            let Some((is, id)) = hbcn.edge_endpoints(ie) else {
+                continue;
+            };
+            let src = AsRef::<CircuitNode>::as_ref(&hbcn[is]);
+            let dst = AsRef::<CircuitNode>::as_ref(&hbcn[id]);
+            let place = &hbcn[ie];
+            write!(
+                csv_file,
+                "{},{},{},{},{:.0},",
+                src.name(),
+                dir(&hbcn[is].transition),
+                dst.name(),
+                dir(&hbcn[id].transition),
+                place.weight(),
+            )?;
+            write!(csv_file, "{:.3},", place.delay.max)?;
+            if let Some(min_delay) = place.delay.min {
+                writeln!(csv_file, "{:.3}", min_delay)?;
+            } else {
+                writeln!(csv_file)?;
             }
         }
     }
@@ -318,7 +320,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
     sdc::write_path_constraints(
         &mut out_file,
-        &constraints.path_constraints,
+        &constraints.hbcn,
         constraints.pseudoclock_period,
     )?;
 

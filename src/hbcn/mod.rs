@@ -418,6 +418,26 @@ pub trait HasDelay {
     fn delay(&self) -> &DelayPair;
 }
 
+/// Round `value` to `digits` significant digits, masking LP-solver floating-point noise.
+///
+/// The in-repo solver abstraction used to round every value it returned to 8 significant
+/// digits ("a workaround to mask floating point errors in CBC"); when the solver moved to
+/// the external `lp_solver` crate that adjustment was dropped. `analyse`/`constrain` apply it
+/// here to the arrival times, delays, slacks, and objective they read back from a solution,
+/// so a raw `2.9999999998` does not slip below a `3.0` bound nor a cycle time read as
+/// `150.00000000000003`.
+pub(crate) fn round_to_sig_digits(value: f64, digits: u32) -> f64 {
+    // Leave zero and non-finite values (NaN / infinity) untouched: log10 of these
+    // would produce garbage that propagates into delay/objective numbers.
+    if value == 0.0 || !value.is_finite() {
+        return value;
+    }
+
+    let magnitude = value.abs().log10().floor() as i32;
+    let scale = 10_f64.powi(digits as i32 - magnitude - 1);
+    (value * scale).round() / scale
+}
+
 impl AsRef<Place> for Place {
     fn as_ref(&self) -> &Place {
         self

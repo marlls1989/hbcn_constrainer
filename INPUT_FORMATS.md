@@ -160,6 +160,17 @@ Each line is a place between two transitions. Its direction classifies it:
 Each channel of the structural graph expands into four places: a forward-data
 place, a forward-spacer place, and two backward places.
 
+The four places may carry **independent** delays, and `constrain` honours them per
+place — emitting a separate `set_max_delay`/`set_min_delay` for each and qualifying
+each `-through` clause by its endpoint's transition direction. A `Data` (`+`)
+transition is a **rise** at that register/port and a `Spacer` (`−`) a **fall**, so
+the positive-unate propagation places are rise→rise (data) and fall→fall (spacer),
+while the negative-unate acknowledge places are rise→fall and fall→rise. The
+structural `.graph` expansion gives both propagation places one shared weight and
+both acknowledge places another, so genuinely distinct per-place delays come from a
+hand-written or characterised `.hbcn` — see
+[`examples/hbcn/distinct.hbcn`](examples/hbcn/distinct.hbcn).
+
 ### Token marking
 
 A leading **`*`** marks a place that initially holds a token — part of the marked
