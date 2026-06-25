@@ -21,11 +21,11 @@ Both grammars are token-based and **whitespace-insensitive**: newlines and
 indentation carry no meaning, so the one-entry-per-line layout used throughout
 this document is a readability convention, not a requirement. The grammars are
 defined with LALRPOP in
-[`src/structural_graph/parser.lalrpop`](src/structural_graph/parser.lalrpop) and
-[`src/hbcn/parser/parser.lalrpop`](src/hbcn/parser/parser.lalrpop); this document
+[`src/structural_graph/parser.lalrpop`](../src/structural_graph/parser.lalrpop) and
+[`src/hbcn/parser/parser.lalrpop`](../src/hbcn/parser/parser.lalrpop); this document
 describes them in prose. Worked inputs of each kind live under
-[`examples/structural_graphs/`](examples/structural_graphs/) and
-[`examples/hbcn/`](examples/hbcn/).
+[`examples/structural_graphs/`](../examples/structural_graphs/) and
+[`examples/hbcn/`](../examples/hbcn/).
 
 Numeric literals have no exponent and may be integer or decimal. In the structural
 graph they are non-negative; in the HBCN format a delay may carry a leading `-` (see
@@ -81,7 +81,7 @@ number    ::= /[0-9]+(\.[0-9]+)?/                 # non-negative integer or deci
 | `UnsafeReg` | Register without full completion detection | Two nodes — `name` and `name/s0`. |
 
 The "cost" above is part of the timing model the conversion applies (see
-[`src/hbcn/structural_graph.rs`](src/hbcn/structural_graph.rs)); it is not written
+[`src/hbcn/structural_graph.rs`](../src/hbcn/structural_graph.rs)); it is not written
 in the input.
 
 ### The `port:` name prefix
@@ -96,7 +96,7 @@ identifiable as ports once serialised to the HBCN text format.
 ### Example
 
 A small cyclic circuit, from
-[`examples/structural_graphs/cyclic.graph`](examples/structural_graphs/cyclic.graph):
+[`examples/structural_graphs/cyclic.graph`](../examples/structural_graphs/cyclic.graph):
 
 ```
 Port "a" [("b", 20)]
@@ -169,7 +169,7 @@ while the negative-unate acknowledge places are rise→fall and fall→rise. The
 structural `.graph` expansion gives both propagation places one shared weight and
 both acknowledge places another, so genuinely distinct per-place delays come from a
 hand-written or characterised `.hbcn` — see
-[`examples/hbcn/distinct.hbcn`](examples/hbcn/distinct.hbcn).
+[`examples/hbcn/distinct.hbcn`](../examples/hbcn/distinct.hbcn).
 
 ### Token marking
 
@@ -196,13 +196,13 @@ computed cycle time. `constrain` instead reads it as a logical-depth *weight* us
 distribute the cycle-time budget into fair per-path constraints; there a small or
 negative value simply makes the path non-critical and is assigned the smallest legal
 constraint (`min_delay`). The structural `.graph` virtual delays remain non-negative.
-See [`examples/hbcn/neg.hbcn`](examples/hbcn/neg.hbcn) for a minimal channel whose
+See [`examples/hbcn/neg.hbcn`](../examples/hbcn/neg.hbcn) for a minimal channel whose
 cycle time is lowered by a negative delay.
 
 ### Example
 
 The expansion of a single self-looping `DataReg`, from
-[`examples/hbcn/loop.hbcn`](examples/hbcn/loop.hbcn). The register `a` expands into
+[`examples/hbcn/loop.hbcn`](../examples/hbcn/loop.hbcn). The register `a` expands into
 three nodes (`a`, `a/s0`, `a/s1`); its three channels contribute four places each.
 Initially-marked places carry a leading `*`, and every delay is max-only (as always
 for `expand` output):

@@ -318,7 +318,7 @@ hbcn constrain [OPTIONS] --sdc <SDC> --cycle-time <CYCLE_TIME> --minimal-delay <
   - `--rpt <RPT>`: Output report file
   - `--vcd <VCD>`: Output VCD file with arrival times
 - **Algorithm Options**:
-  - `--no-proportinal`: Use pseudo-clock to constrain paths
+  - `--no-proportional`: Use pseudo-clock to constrain paths
   - `--no-forward-completion`: Don't use forward completion delay if greater than path virtual delay
 - **Margin Options**:
   - `-f, --forward-margin <FORWARD_MARGIN>`: Percentual margin between maximum and minimum delay in the forward path
@@ -368,7 +368,7 @@ hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural \
 hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural
 
 # Use pseudoclock constraints
-hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural --no-proportinal
+hbcn constrain input.graph --sdc output.sdc -t 10.0 -m 1.0 --structural --no-proportional
 ```
 
 #### Margin Control

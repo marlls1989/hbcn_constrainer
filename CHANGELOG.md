@@ -14,7 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   floored at zero. The structural `.graph` format is unchanged (still non-negative),
   and `constrain` continues to read the value as a logical-depth weight (a small or
   negative weight makes the path non-critical, assigned the smallest legal constraint).
-- **Input-format reference** (`INPUT_FORMATS.md`): a dedicated specification of the two input formats — the structural graph (`.graph`), covering all five component types (`Port`, `NullReg`, `ControlReg`, `DataReg`, `UnsafeReg`) and the name/adjacency/virtual-delay rules, and the HBCN (`.hbcn`) place/transition/token/delay grammar — with verifiable examples drawn from `examples/`.
+- **Input-format reference** (`docs/INPUT_FORMATS.md`): a dedicated specification of the two input formats — the structural graph (`.graph`), covering all five component types (`Port`, `NullReg`, `ControlReg`, `DataReg`, `UnsafeReg`) and the name/adjacency/virtual-delay rules, and the HBCN (`.hbcn`) place/transition/token/delay grammar — with verifiable examples drawn from `examples/`.
+- **Constraint-generation reference** (`docs/CONSTRAINING.md`): documents every `constrain` flag, the proportional and pseudoclock algorithms with their LP formulations, the margin (`-f`/`-b`) and forward-completion options, and the SDC/CSV/report outputs.
 - **Disentangled per-place timing constraints**: the four places of an HBCN channel — data
   propagation (`+→+`), spacer propagation (`−→−`), and the two acknowledges (`+→−`, `−→+`) — now
   carry independent delays through the `constrain` LP and are emitted as separate SDC statements.
@@ -43,6 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now apply it to the arrival times, delays, slacks, and objective they read from a solution, so raw
   solver noise (e.g. a delay of `2.9999999998` slipping below its `3.0` bound, or a cycle time read
   as `150.00000000000003`) no longer surfaces in results.
+- **`constrain` pseudoclock flag spelling** (breaking): the misspelt `--no-proportinal` flag is now
+  `--no-proportional`; the old spelling no longer works.
 
 ## [0.6.0] - 2025-10-28
 
