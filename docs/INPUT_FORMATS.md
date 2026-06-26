@@ -179,6 +179,15 @@ handshake. On unmarked lines the serialiser writes two spaces in place of the `*
 purely for alignment; because the format is whitespace-insensitive, leading
 whitespace has no effect on input.
 
+A channel marks exactly one of its four places. If a channel marks **none**, the
+parser inserts a default token at its **spacer-acknowledge** place
+(`-{b} => +{a}`, the `Spacer(b) → Data(a)` backward place) — the canonical reset
+marking, matching the default the structural expansion uses for external channels.
+This lets a hand-written `.hbcn` omit the marking on a channel and have it supplied
+automatically; a channel that marks **more than one** place is still rejected. See
+[`examples/hbcn/unmarked.hbcn`](../examples/hbcn/unmarked.hbcn) for a single channel
+with no explicit marking.
+
 ### Delays
 
 A delay is either a single maximum or a minimum–maximum pair:

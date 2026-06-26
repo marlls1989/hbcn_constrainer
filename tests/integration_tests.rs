@@ -1074,6 +1074,30 @@ mod hbcn_format_integration_tests {
         );
     }
 
+    /// A channel that marks no place is accepted: the parser inserts a default token at its
+    /// spacer-acknowledge place. Without that token the channel's cycle would be token-free and
+    /// the model infeasible, so a successful analysis proves the default was applied.
+    #[test]
+    fn test_hbcn_format_unmarked_channel_defaults_token() {
+        let hbcn_content = r#"
++{port:a} => +{reg1} : 10
++{reg1} => -{port:a} : 10
+-{port:a} => -{reg1} : 10
+-{reg1} => +{port:a} : 10
+"#;
+
+        let (_temp_dir, input_path) = create_hbcn_test_file(hbcn_content);
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let log_path = temp_output_dir.path().join("test.log");
+
+        let result = run_hbcn_analyse(&input_path, Some(&log_path), None, None, false);
+        assert!(
+            result.is_ok(),
+            "Analysis of an unmarked channel should succeed via the default token: {:?}",
+            result
+        );
+    }
+
     /// Test analysis with HBCN format and VCD output
     #[test]
     fn test_hbcn_format_with_vcd() {
@@ -1767,6 +1791,26 @@ mod hbcn_format_constrain_tests {
         // Verify SDC content is not empty
         let sdc_content = fs::read_to_string(&sdc_path).expect("Failed to read SDC file");
         assert!(!sdc_content.is_empty(), "SDC file should not be empty");
+    }
+
+    /// The committed unmarked-channel example constrains successfully: its missing marking is
+    /// defaulted to the spacer-acknowledge place before constraint generation.
+    #[test]
+    fn test_hbcn_format_constrain_unmarked_channel_example() {
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/hbcn/unmarked.hbcn");
+        let temp_output_dir = TempDir::new().expect("Failed to create temp dir");
+        let sdc_path = temp_output_dir.path().join("out.sdc");
+
+        let result = run_hbcn_constrain_hbcn_format(
+            &example, &sdc_path, 100.0, 1.0, None, None, None, false, None, None,
+        );
+
+        assert!(
+            result.is_ok(),
+            "Constraining the unmarked-channel example should succeed: {:?}",
+            result
+        );
+        assert!(sdc_path.exists(), "SDC file should be generated");
     }
 
     /// Regression: the CSV and report `cost`/`Cost` columns must report the original unconstrained
