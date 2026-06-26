@@ -18,17 +18,17 @@ use crate::hbcn::*;
 use lp_solver::*;
 use lp_solver::{constraint, lp_model_builder};
 
-/// Map of path constraints from (source, destination) circuit node pairs to delay constraints.
-///
-/// This type represents the result of constraint generation, mapping each path in the
-/// circuit to its computed min/max delay constraints.
-pub type PathConstraints = HashMap<(CircuitNode, CircuitNode), DelayPair>;
+/// A `Data` transition is a rise at its register/port; a `Spacer` transition is a fall.
+/// Path constraints are carried per place by the [`SolvedHBCN`] in [`ConstrainerResult`];
+/// the SDC and CSV writers read this to qualify each path endpoint as rise/fall.
+pub(crate) fn is_rise(t: &Transition) -> bool {
+    matches!(t, Transition::Data(_))
+}
 
 #[derive(Debug, Clone)]
 pub struct ConstrainerResult {
     pub pseudoclock_period: f64,
     pub hbcn: SolvedHBCN,
-    pub path_constraints: PathConstraints,
 }
 
 /// Constrain cycle time using the pseudoclock algorithm
@@ -57,29 +57,23 @@ where
         })
         .collect();
 
-    let mut delay_vars: HashMap<(&CircuitNode, &CircuitNode), Option<VariableId<_>>> = hbcn
+    // One delay variable per place (edge), mirroring the analyse LP (`compute_cycle_time`).
+    // Keying by `EdgeIndex` keeps the four places of a channel independent rather than
+    // collapsing the two same-node-pair places onto a shared variable.
+    let delay_vars: HashMap<EdgeIndex, VariableId<_>> = hbcn
         .edge_indices()
         .map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-            let src_transition: &Transition = hbcn[src].as_ref();
-            let dst_transition: &Transition = hbcn[dst].as_ref();
-
-            ((src_transition.as_ref(), dst_transition.as_ref()), None)
+            (
+                ie,
+                builder.add_variable(VariableType::Continuous, min_delay, f64::INFINITY),
+            )
         })
         .collect();
-
-    for v in delay_vars.values_mut() {
-        *v = Some(builder.add_variable(VariableType::Continuous, min_delay, f64::INFINITY));
-    }
 
     for ie in hbcn.edge_indices() {
         let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
         let place = &hbcn[ie];
-        let src_transition: &Transition = hbcn[src].as_ref();
-        let dst_transition: &Transition = hbcn[dst].as_ref();
-        let &delay = delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())]
-            .as_ref()
-            .unwrap();
+        let delay = delay_vars[&ie];
 
         // Create constraint: delay + arr_var[src] - arr_var[dst] = (if place.token { ct } else { 0.0 })
         let place_ref: &Place = place.as_ref();
@@ -101,40 +95,23 @@ where
         Err(e) => return Err(e.into()),
     };
 
-    let pseudo_clock_value = solution.get_value(pseudo_clock).unwrap_or(min_delay);
+    let pseudo_clock_value =
+        round_to_sig_digits(solution.get_value(pseudo_clock).unwrap_or(min_delay), 8);
     Ok(ConstrainerResult {
         pseudoclock_period: pseudo_clock_value,
-        path_constraints: delay_vars
-            .iter()
-            .filter_map(|((src, dst), var)| {
-                var.map(|var_id| {
-                    let delay_value = solution.get_value(var_id).unwrap_or(pseudo_clock_value);
-                    Some((
-                        (CircuitNode::clone(src), CircuitNode::clone(dst)),
-                        DelayPair {
-                            min: None,
-                            max: delay_value,
-                        },
-                    ))
-                })
-                .flatten()
-            })
-            .collect(),
         hbcn: hbcn.map(
             |ix, x| {
                 let transition: &Transition = x.as_ref();
                 TransitionEvent {
                     transition: transition.clone(),
-                    time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
+                    time: round_to_sig_digits(solution.get_value(arr_var[&ix]).unwrap_or(0.0), 8),
                 }
             },
             |ie, e| {
-                let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                let src_transition: &Transition = hbcn[src].as_ref();
-                let dst_transition: &Transition = hbcn[dst].as_ref();
-                let delay_value = delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())]
-                    .and_then(|var_id| solution.get_value(var_id))
-                    .unwrap_or(e.weight());
+                let delay_value = round_to_sig_digits(
+                    solution.get_value(delay_vars[&ie]).unwrap_or(e.weight()),
+                    8,
+                );
 
                 DelayedPlace {
                     place: e.clone().into(),
@@ -184,23 +161,29 @@ where
         })
         .collect();
 
-    let delay_vars: HashMap<(&CircuitNode, &CircuitNode), DelayVarPair<_>> = hbcn
+    // One {max,min,slack} triple per place (edge); keeps the four places of a channel
+    // independent rather than sharing a variable across same-node-pair places.
+    let delay_vars: HashMap<EdgeIndex, DelayVarPair<_>> = hbcn
         .edge_indices()
         .map(|ie| {
-            let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-
             let max = builder.add_variable(VariableType::Continuous, min_delay, f64::INFINITY);
             let min = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
             let slack = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
+            (ie, DelayVarPair { max, min, slack })
+        })
+        .collect();
 
-            {
-                let src_transition: &Transition = hbcn[src].as_ref();
-                let dst_transition: &Transition = hbcn[dst].as_ref();
-                (
-                    (src_transition.as_ref(), dst_transition.as_ref()),
-                    DelayVarPair { max, min, slack },
-                )
-            }
+    // Map each (circuit node, is-data) to its transition node, so a backward (acknowledge)
+    // edge can find its matching forward (propagation) edge for the margin coupling.
+    let node_by_dir: HashMap<(CircuitNode, bool), NodeIndex> = hbcn
+        .node_indices()
+        .map(|ix| {
+            let transition: &Transition = hbcn[ix].as_ref();
+            let node: &CircuitNode = hbcn[ix].as_ref();
+            (
+                (node.clone(), matches!(transition, Transition::Data(_))),
+                ix,
+            )
         })
         .collect();
 
@@ -209,10 +192,7 @@ where
         let place = &hbcn[ie];
         let src_transition: &Transition = hbcn[src].as_ref();
         let dst_transition: &Transition = hbcn[dst].as_ref();
-        let delay_var = &delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())];
-        let matching_delay = delay_vars
-            .get(&(dst_transition.as_ref(), src_transition.as_ref()))
-            .expect("malformed StructuralHBCN");
+        let delay_var = &delay_vars[&ie];
 
         // Constraint: delay_var.max + arr_var[src] - arr_var[dst] = (if place.token { ct } else { 0.0 })
         let place_ref: &Place = place.as_ref();
@@ -229,6 +209,17 @@ where
         if !place_ref.is_internal {
             let is_backward = is_backward_place(src_transition, dst_transition);
             if is_backward {
+                // The matching forward (propagation) edge runs from "dst's node with the
+                // ack's source polarity" to the ack's source node: data-ack pairs with
+                // forward-data, spacer-ack with forward-spacer.
+                let dst_node: &CircuitNode = dst_transition.as_ref();
+                let src_is_data = matches!(src_transition, Transition::Data(_));
+                let fwd_src = node_by_dir[&(dst_node.clone(), src_is_data)];
+                let matching_edge = hbcn
+                    .find_edge(fwd_src, src)
+                    .expect("malformed StructuralHBCN");
+                let matching_delay = &delay_vars[&matching_edge];
+
                 if forward_margin.is_some() {
                     builder.add_constraint(constraint!(
                         (delay_var.min - matching_delay.max + matching_delay.min) == 0.0
@@ -263,40 +254,30 @@ where
 
     Ok(ConstrainerResult {
         pseudoclock_period: min_delay,
-        path_constraints: delay_vars
-            .iter()
-            .map(|((src, dst), var)| {
-                let min = solution.get_value(var.min).filter(|x| *x > 0.001);
-                let max = solution
-                    .get_value(var.max)
-                    .filter(|x| (*x - min_delay) / min_delay > 0.001)
-                    .unwrap_or(min_delay);
-                (
-                    (CircuitNode::clone(src), CircuitNode::clone(dst)),
-                    DelayPair { min, max },
-                )
-            })
-            .collect(),
         hbcn: hbcn.map(
             |ix, x| {
                 let transition: &Transition = x.as_ref();
                 TransitionEvent {
                     transition: transition.clone(),
-                    time: solution.get_value(arr_var[&ix]).unwrap_or(0.0),
+                    time: round_to_sig_digits(solution.get_value(arr_var[&ix]).unwrap_or(0.0), 8),
                 }
             },
             |ie, e| {
-                let (src, dst) = hbcn.edge_endpoints(ie).unwrap();
-                let src_transition: &Transition = hbcn[src].as_ref();
-                let dst_transition: &Transition = hbcn[dst].as_ref();
-                let delay_var = &delay_vars[&(src_transition.as_ref(), dst_transition.as_ref())];
+                let delay_var = &delay_vars[&ie];
 
                 DelayedPlace {
                     place: e.clone().into(),
-                    slack: solution.get_value(delay_var.slack),
+                    slack: solution
+                        .get_value(delay_var.slack)
+                        .map(|s| round_to_sig_digits(s, 8)),
                     delay: DelayPair {
-                        min: solution.get_value(delay_var.min),
-                        max: solution.get_value(delay_var.max).unwrap_or(e.weight()),
+                        min: solution
+                            .get_value(delay_var.min)
+                            .map(|m| round_to_sig_digits(m, 8)),
+                        max: round_to_sig_digits(
+                            solution.get_value(delay_var.max).unwrap_or(e.weight()),
+                            8,
+                        ),
                     },
                 }
             },
@@ -336,14 +317,14 @@ mod tests {
             .expect("Pseudoclock should work on linear chain");
 
         assert!(pseudo_result.pseudoclock_period >= 5.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
 
         // Test proportional algorithm with tight constraints (4x minimal delay)
         let prop_result = constrain_cycle_time_proportional(&hbcn, 20.0, 5.0, None, None)
             .expect("Proportional should work on linear chain");
 
         assert!(prop_result.pseudoclock_period >= 5.0);
-        assert!(!prop_result.path_constraints.is_empty());
+        assert!(prop_result.hbcn.edge_count() > 0);
     }
 
     #[test]
@@ -365,8 +346,8 @@ mod tests {
         // Both should produce valid results
         assert!(pseudo_result.pseudoclock_period >= 8.0);
         assert!(prop_result.pseudoclock_period >= 8.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
-        assert!(!prop_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
+        assert!(prop_result.hbcn.edge_count() > 0);
     }
 
     #[test]
@@ -418,7 +399,8 @@ mod tests {
             .expect("Should generate constraints");
 
         // Test DelayPair properties in results
-        for constraint in result.path_constraints.values() {
+        for ie in result.hbcn.edge_indices() {
+            let constraint = &result.hbcn[ie].delay;
             assert!(constraint.max >= 0.0, "Max delay should be non-negative");
             if let Some(min) = constraint.min {
                 assert!(
@@ -480,20 +462,23 @@ mod tests {
 
         // Pseudoclock typically only produces max constraints
         let _pseudo_has_min = pseudo_result
-            .path_constraints
-            .values()
-            .any(|c| c.min.is_some());
+            .hbcn
+            .edge_indices()
+            .any(|ie| pseudo_result.hbcn[ie].delay.min.is_some());
         let pseudo_has_max = pseudo_result
-            .path_constraints
-            .values()
-            .any(|c| c.max >= 0.0);
+            .hbcn
+            .edge_indices()
+            .any(|ie| pseudo_result.hbcn[ie].delay.max >= 0.0);
 
         // Proportional may produce both min and max constraints
         let _prop_has_min = prop_result
-            .path_constraints
-            .values()
-            .any(|c| c.min.is_some());
-        let prop_has_max = prop_result.path_constraints.values().any(|c| c.max >= 0.0);
+            .hbcn
+            .edge_indices()
+            .any(|ie| prop_result.hbcn[ie].delay.min.is_some());
+        let prop_has_max = prop_result
+            .hbcn
+            .edge_indices()
+            .any(|ie| prop_result.hbcn[ie].delay.max >= 0.0);
 
         // At least one algorithm should produce some constraints
         assert!(
@@ -564,7 +549,7 @@ mod tests {
 
         assert!(pseudo_result.pseudoclock_period >= 5.0);
         assert!(pseudo_result.pseudoclock_period <= 100.0);
-        assert!(!pseudo_result.path_constraints.is_empty());
+        assert!(pseudo_result.hbcn.edge_count() > 0);
 
         // Test proportional algorithm on cyclic circuit
         let prop_result = constrain_cycle_time_proportional(&hbcn, 100.0, 5.0, None, None)
@@ -572,7 +557,7 @@ mod tests {
 
         assert!(prop_result.pseudoclock_period >= 5.0);
         assert!(prop_result.pseudoclock_period <= 100.0);
-        assert!(!prop_result.path_constraints.is_empty());
+        assert!(prop_result.hbcn.edge_count() > 0);
     }
 
     /// Test cyclic circuit with forward completion

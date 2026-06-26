@@ -34,7 +34,7 @@ use crate::{
     AppError, Transition,
     hbcn::{
         DelayPair, DelayedPlace, HasWeight, MarkablePlace, Place, SlackablePlace, SolvedHBCN,
-        TransitionEvent,
+        TransitionEvent, round_to_sig_digits,
     },
 };
 use lp_solver::{
@@ -200,7 +200,12 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
 
             let slack = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
 
-            let delay = builder.add_variable(VariableType::Continuous, 0.0, f64::INFINITY);
+            // `delay` is the effective delay (path delay + slack). Its only lower bound
+            // is `weight`, enforced by `slack >= 0` via `delay - slack == weight` below;
+            // a negative path delay (a real effect) must therefore reduce the cycle time
+            // rather than being floored at zero.
+            let delay =
+                builder.add_variable(VariableType::Continuous, f64::NEG_INFINITY, f64::INFINITY);
 
             // Constraint: delay - slack = (if weighted { place.weight } else { 1.0 })
             let weight_value = if weighted { place.weight() } else { 1.0 };
@@ -227,12 +232,12 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
         Err(e) => return Err(e.into()),
     };
     Ok((
-        solution.objective_value,
+        round_to_sig_digits(solution.objective_value, 8),
         hbcn.filter_map(
             |ix, x| {
                 Some(TransitionEvent {
                     transition: x.clone(),
-                    time: solution.get_value(arr_var[&ix])?,
+                    time: round_to_sig_digits(solution.get_value(arr_var[&ix])?, 8),
                 })
             },
             |ie, e| {
@@ -242,9 +247,14 @@ pub fn compute_cycle_time<P: HasWeight + MarkablePlace + Into<Place> + Clone>(
                     place: place.clone(),
                     delay: DelayPair {
                         min: None,
-                        max: solution.get_value(*delay_var).unwrap_or(e.weight()),
+                        max: round_to_sig_digits(
+                            solution.get_value(*delay_var).unwrap_or(e.weight()),
+                            8,
+                        ),
                     },
-                    slack: solution.get_value(*slack_var),
+                    slack: solution
+                        .get_value(*slack_var)
+                        .map(|s| round_to_sig_digits(s, 8)),
                 })
             },
         ),
@@ -387,5 +397,87 @@ mod tests {
                 assert!(min_delay >= 0.0, "Min delay should be non-negative");
             }
         }
+    }
+
+    /// A negative place delay (a real effect, e.g. slew/recovery) must reduce the
+    /// cycle time rather than being floored at zero. A single valid channel forms one
+    /// token cycle whose time is the sum of its four place delays.
+    #[test]
+    fn negative_delay_lowers_cycle_time() {
+        use crate::hbcn::parser::parse_hbcn;
+
+        let baseline = r#"
+            * +{port:a} => +{reg1} : 0
+              +{reg1} => -{port:a} : 10
+              -{port:a} => -{reg1} : 10
+              -{reg1} => +{port:a} : 10
+        "#;
+        let negative = r#"
+            * +{port:a} => +{reg1} : -10
+              +{reg1} => -{port:a} : 10
+              -{port:a} => -{reg1} : 10
+              -{reg1} => +{port:a} : 10
+        "#;
+
+        let (ct_baseline, _) =
+            compute_cycle_time(&parse_hbcn(baseline).expect("baseline parses"), true)
+                .expect("baseline solves");
+        let (ct_negative, solved) =
+            compute_cycle_time(&parse_hbcn(negative).expect("negative parses"), true)
+                .expect("negative solves");
+
+        // Cycle time is the sum of the four place delays: 30 baseline, 20 with the -10 edge.
+        assert!(
+            (ct_baseline - 30.0).abs() < 1e-6,
+            "baseline cycle time should be 30, got {ct_baseline}"
+        );
+        assert!(
+            ct_negative < ct_baseline,
+            "negative delay should lower the cycle time (negative: {ct_negative}, baseline: {ct_baseline})"
+        );
+        assert!(
+            (ct_negative - 20.0).abs() < 1e-6,
+            "negative cycle time should be 20, got {ct_negative}"
+        );
+
+        // The negative delay must survive into the report, not be clamped to zero.
+        let min_reported = solved
+            .edge_indices()
+            .map(|ie| solved[ie].delay.max)
+            .fold(f64::INFINITY, f64::min);
+        assert!(
+            min_reported < 0.0,
+            "a negative place delay should be reported, got minimum {min_reported}"
+        );
+    }
+
+    /// Distinct per-place delays in a `.hbcn` survive analysis: the solved HBCN keeps four
+    /// independent delays for the channel's four places rather than collapsing them.
+    #[test]
+    fn analyse_keeps_distinct_per_place_delays() {
+        use crate::hbcn::parser::parse_hbcn;
+
+        // One channel a<->reg1, four places with four different delays.
+        let input = r#"
+            * +{port:a} => +{reg1} : 11
+              -{port:a} => -{reg1} : 12
+              +{reg1} => -{port:a} : 13
+              -{reg1} => +{port:a} : 14
+        "#;
+
+        let (_ct, solved) =
+            compute_cycle_time(&parse_hbcn(input).expect("parses"), true).expect("solves");
+
+        let mut maxes: Vec<f64> = solved
+            .edge_indices()
+            .map(|ie| solved[ie].delay.max)
+            .collect();
+        maxes.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        maxes.dedup();
+        assert_eq!(
+            maxes,
+            vec![11.0, 12.0, 13.0, 14.0],
+            "all four place delays should survive analysis distinctly"
+        );
     }
 }

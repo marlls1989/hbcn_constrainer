@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Negative delays in the HBCN format**: a `.hbcn` place delay may now be negative
+  (a physically real effect, e.g. slew/recovery). `analyse` honours it as a real
+  delay, so a negative place delay lowers the computed cycle time instead of being
+  floored at zero. The structural `.graph` format is unchanged (still non-negative),
+  and `constrain` continues to read the value as a logical-depth weight (a small or
+  negative weight makes the path non-critical, assigned the smallest legal constraint).
+- **Input-format reference** (`docs/INPUT_FORMATS.md`): a dedicated specification of the two input formats — the structural graph (`.graph`), covering all five component types (`Port`, `NullReg`, `ControlReg`, `DataReg`, `UnsafeReg`) and the name/adjacency/virtual-delay rules, and the HBCN (`.hbcn`) place/transition/token/delay grammar — with verifiable examples drawn from `examples/`.
+- **Constraint-generation reference** (`docs/CONSTRAINING.md`): documents every `constrain` flag, the proportional and pseudoclock algorithms with their LP formulations, the margin (`-f`/`-b`) and forward-completion options, and the SDC/CSV/report outputs.
+- **Disentangled per-place timing constraints**: the four places of an HBCN channel — data
+  propagation (`+→+`), spacer propagation (`−→−`), and the two acknowledges (`+→−`, `−→+`) — now
+  carry independent delays through the `constrain` LP and are emitted as separate SDC statements.
+  Each `set_max_delay`/`set_min_delay` `-through` clause is qualified by its endpoint's transition
+  direction — a `Data` (`+`) transition is a rise at its register/port, a `Spacer` (`−`) a fall — so
+  the positive-unate propagation paths are rise→rise / fall→fall and the negative-unate acknowledges
+  rise→fall / fall→rise. Previously the two same-node-pair places shared one delay variable and
+  collapsed into a single un-annotated `-through` constraint (which also forced the proportional
+  solver's `factor` to zero on distinct per-place weights). The structural `.graph` expansion is
+  unchanged (one virtual delay per channel, duplicated across the propagation places); distinct
+  per-place delays come from a characterised `.hbcn` (see [`examples/hbcn/distinct.hbcn`](examples/hbcn/distinct.hbcn)).
+  The `constrain` CSV gains `src_dir`/`dst_dir` columns.
+
 ### Changed
 - **LP solver abstraction extracted to a crate**: the in-repo `lp_solver` module was replaced by a dependency on the published [`lp_solver`](https://github.com/marlls1989/lp_solver) crate. The `coin_cbc`/`gurobi` features now forward to it.
 - **Solver-selection environment variable renamed** (breaking): `HBCN_LP_SOLVER` → `LP_SOLVER`.
@@ -14,6 +36,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 - **LP solver output suppression**: the `gag`-based redirection of CBC/Gurobi stdout (and the `output_suppression` module, now `verbose`) was removed along with the in-repo solver. Solver banners print to stdout; the generated artifacts (SDC, reports, VCD, DOT, CSV) are written to files and are unaffected. `--verbose` now only toggles hbcn's own progress messages.
 - Dropped the `gag` dependency and the LP-solver demo examples.
+
+### Fixed
+- **LP solver precision adjustment restored**: the in-repo solver abstraction used to round every
+  returned value to 8 significant digits ("a workaround to mask floating point errors in CBC"); that
+  adjustment was lost when the solver moved to the external `lp_solver` crate. `analyse`/`constrain`
+  now apply it to the arrival times, delays, slacks, and objective they read from a solution, so raw
+  solver noise (e.g. a delay of `2.9999999998` slipping below its `3.0` bound, or a cycle time read
+  as `150.00000000000003`) no longer surfaces in results.
+- **`constrain` pseudoclock flag spelling** (breaking): the misspelt `--no-proportinal` flag is now
+  `--no-proportional`; the old spelling no longer works.
 
 ## [0.6.0] - 2025-10-28
 

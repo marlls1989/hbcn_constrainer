@@ -675,7 +675,7 @@ When modifying the constrainer:
 2. **Update test expectations**: Modify assertions if behaviour intentionally changes
 3. **Add new tests**: Create tests for new features and functionality
 4. **Verify error messages**: Ensure error message assertions match actual output
-5. **Update documentation**: Keep TESTING.md current with new tests
+5. **Update documentation**: Keep docs/TESTING.md current with new tests
 
 ### Test Organization Guidelines
 - **Unit tests**: Place in the same module as the code being tested
