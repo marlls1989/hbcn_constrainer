@@ -1,0 +1,4 @@
++{port:a} => +{reg1} : 10
++{reg1} => -{port:a} : 10
+-{port:a} => -{reg1} : 10
+-{reg1} => +{port:a} : 10

@@ -872,3 +872,149 @@ pub fn validate_hbcn<T: AsRef<Transition>, P: MarkablePlace>(hbcn: &HBCN<T, P>) 
         Ok(())
     })
 }
+
+/// Insert a default token at each token-less channel's spacer-acknowledge place.
+///
+/// A channel is the tight four-place loop between two endpoints `a` and `b`
+/// (`+a→+b`, `+b→−a`, `−a→−b`, `−b→+a`); the marked-graph initial marking places exactly
+/// one token on it. The `.hbcn` format lets a hand-written channel omit that marking, so
+/// this normalisation pass restores it by marking the channel's **spacer-acknowledge**
+/// place (`Spacer(b) → Data(a)`, `−b→+a`) — the canonical reset position, matching the
+/// default the structural expansion uses for external channels.
+///
+/// Channels that already mark a place are left untouched (so a channel marking more than
+/// one place is preserved unchanged for [`validate_hbcn`] to reject). A channel missing
+/// its spacer-acknowledge place is likewise left untouched — [`validate_hbcn`] reports the
+/// structural error.
+///
+/// Intended to run **before** [`validate_hbcn`]: it establishes the one-token-per-channel
+/// invariant that the validator then verifies.
+pub fn insert_default_tokens<T: AsRef<Transition>, P: MarkablePlace>(hbcn: &mut HBCN<T, P>) {
+    // Group every edge by the unordered pair of circuit nodes its endpoints sit on. All
+    // four places of a channel join the same two circuit nodes, so each group is exactly
+    // one channel (validate_hbcn separately rejects parallel/duplicate places).
+    let mut channels: HashMap<(CircuitNode, CircuitNode), Vec<EdgeIndex>> = HashMap::new();
+    for edge_idx in hbcn.edge_indices() {
+        let Some((src_idx, dst_idx)) = hbcn.edge_endpoints(edge_idx) else {
+            continue;
+        };
+        let src_node = match hbcn[src_idx].as_ref() {
+            Transition::Data(node) | Transition::Spacer(node) => node,
+        };
+        let dst_node = match hbcn[dst_idx].as_ref() {
+            Transition::Data(node) | Transition::Spacer(node) => node,
+        };
+        // Canonical unordered key (CircuitNode is Ord).
+        let key = if src_node <= dst_node {
+            (src_node.clone(), dst_node.clone())
+        } else {
+            (dst_node.clone(), src_node.clone())
+        };
+        channels.entry(key).or_default().push(edge_idx);
+    }
+
+    for edges in channels.values() {
+        // Leave channels that already carry a token untouched.
+        if edges.iter().any(|&ie| hbcn[ie].is_marked()) {
+            continue;
+        }
+        // The spacer-acknowledge place is the channel's unique Spacer → Data edge.
+        let spacer_ack = edges.iter().copied().find(|&ie| {
+            let Some((src_idx, dst_idx)) = hbcn.edge_endpoints(ie) else {
+                return false;
+            };
+            matches!(hbcn[src_idx].as_ref(), Transition::Spacer(_))
+                && matches!(hbcn[dst_idx].as_ref(), Transition::Data(_))
+        });
+        if let Some(ie) = spacer_ack {
+            // TODO: emit an info-level message here when a token is implicitly inserted
+            // (deferred — needs a logging-facility decision; see future plan).
+            hbcn[ie].mark(true);
+        }
+    }
+}
+
+#[cfg(test)]
+mod default_token_tests {
+    use super::*;
+    use crate::hbcn::test_helpers::{TestHBCN, create_valid_channel};
+    use string_cache::DefaultAtom;
+
+    /// The `(source, destination)` transitions of every marked place, for assertions.
+    fn marked_places(hbcn: &TestHBCN) -> Vec<(Transition, Transition)> {
+        hbcn.edge_indices()
+            .filter(|&ie| hbcn[ie].is_marked())
+            .map(|ie| {
+                let (s, d) = hbcn.edge_endpoints(ie).unwrap();
+                (hbcn[s].clone(), hbcn[d].clone())
+            })
+            .collect()
+    }
+
+    /// Strip every token, leaving the channel with no marked place.
+    fn clear_marks(hbcn: &mut TestHBCN) {
+        for ie in hbcn.edge_indices().collect::<Vec<_>>() {
+            hbcn[ie].mark(false);
+        }
+    }
+
+    #[test]
+    fn marks_spacer_ack_of_unmarked_channel() {
+        // A channel with no marked place gets a single token at its spacer-acknowledge
+        // place, Spacer(b) -> Data(a), and then validates.
+        let mut hbcn = create_valid_channel("a", "b", 10.0, 5.0, 0);
+        clear_marks(&mut hbcn);
+
+        insert_default_tokens(&mut hbcn);
+
+        let a = CircuitNode::Port(DefaultAtom::from("a"));
+        let b = CircuitNode::Port(DefaultAtom::from("b"));
+        assert_eq!(
+            marked_places(&hbcn),
+            vec![(Transition::Spacer(b), Transition::Data(a))],
+            "exactly the spacer-acknowledge place must be marked"
+        );
+        validate_hbcn(&hbcn).expect("defaulted channel must be valid");
+    }
+
+    #[test]
+    fn leaves_already_marked_channel_untouched() {
+        // token_place 0 marks the forward-data place; the pass must neither move it nor add
+        // a second token at the spacer-acknowledge place.
+        let mut hbcn = create_valid_channel("a", "b", 10.0, 5.0, 0);
+
+        insert_default_tokens(&mut hbcn);
+
+        let a = CircuitNode::Port(DefaultAtom::from("a"));
+        let b = CircuitNode::Port(DefaultAtom::from("b"));
+        assert_eq!(
+            marked_places(&hbcn),
+            vec![(Transition::Data(a), Transition::Data(b))],
+            "an already-marked channel must keep its single original token"
+        );
+        validate_hbcn(&hbcn).expect("unchanged channel must still be valid");
+    }
+
+    #[test]
+    fn does_not_mask_multi_token_channels() {
+        // A channel marking two places must still be rejected: the pass is a no-op when a
+        // token is already present, so it cannot hide a malformed double marking.
+        let mut hbcn = create_valid_channel("a", "b", 10.0, 5.0, 0);
+        let spacer_ack = hbcn
+            .edge_indices()
+            .find(|&ie| {
+                let (s, d) = hbcn.edge_endpoints(ie).unwrap();
+                matches!(hbcn[s], Transition::Spacer(_)) && matches!(hbcn[d], Transition::Data(_))
+            })
+            .expect("channel has a spacer-acknowledge place");
+        hbcn[spacer_ack].mark(true);
+
+        insert_default_tokens(&mut hbcn);
+
+        assert_eq!(marked_places(&hbcn).len(), 2, "pass must not remove tokens");
+        assert!(
+            validate_hbcn(&hbcn).is_err(),
+            "a channel with two tokens must still be rejected"
+        );
+    }
+}

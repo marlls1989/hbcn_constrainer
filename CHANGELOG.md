@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unchanged (one virtual delay per channel, duplicated across the propagation places); distinct
   per-place delays come from a characterised `.hbcn` (see [`examples/hbcn/distinct.hbcn`](examples/hbcn/distinct.hbcn)).
   The `constrain` CSV gains `src_dir`/`dst_dir` columns.
+- **Default token for unmarked HBCN channels**: a `.hbcn` channel that marks no place is now
+  accepted — the parser inserts a default token at its spacer-acknowledge place
+  (`Spacer(b) → Data(a)`, the canonical reset position the structural expansion already uses for
+  external channels) before validation. A channel that marks more than one place is still rejected,
+  and the structural `.graph` path is unaffected (it always marks every channel). See
+  [`examples/hbcn/unmarked.hbcn`](examples/hbcn/unmarked.hbcn).
 
 ### Changed
 - **LP solver abstraction extracted to a crate**: the in-repo `lp_solver` module was replaced by a dependency on the published [`lp_solver`](https://github.com/marlls1989/lp_solver) crate. The `coin_cbc`/`gurobi` features now forward to it.
