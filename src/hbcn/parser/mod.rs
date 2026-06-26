@@ -13,7 +13,9 @@ mod parser {
     include!(concat!(env!("OUT_DIR"), "/hbcn/parser/parser.rs"));
 }
 
-use crate::hbcn::{CircuitNode, DelayedPlace, HBCN, Place, Transition, validate_hbcn};
+use crate::hbcn::{
+    CircuitNode, DelayedPlace, HBCN, Place, Transition, insert_default_tokens, validate_hbcn,
+};
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
 
@@ -23,7 +25,9 @@ use std::collections::{HashMap, HashSet};
 /// `HBCN<Transition, DelayedPlace>`. Node names are used to determine if a circuit node
 /// is a register or a port: all names starting with "port:" are ports, all others are registers.
 ///
-/// After parsing, the HBCN is validated using `validate_hbcn`.
+/// Any channel that marks no place has a default token inserted at its spacer-acknowledge
+/// place (`Spacer(b) => Data(a)`) by `insert_default_tokens`; the HBCN is then validated
+/// using `validate_hbcn`.
 ///
 /// # Arguments
 ///
@@ -86,7 +90,7 @@ pub fn parse_hbcn(input: &str) -> Result<HBCN<Transition, DelayedPlace>> {
     );
 
     // Add edges
-    let hbcn = adjacency_list.iter().fold(hbcn, |mut graph, entry| {
+    let mut hbcn = adjacency_list.iter().fold(hbcn, |mut graph, entry| {
         let source_idx = transition_map[&entry.source];
         let target_idx = transition_map[&entry.target];
 
@@ -104,6 +108,11 @@ pub fn parse_hbcn(input: &str) -> Result<HBCN<Transition, DelayedPlace>> {
         );
         graph
     });
+
+    // Default the marking of any token-less channel before validating, so a hand-written
+    // HBCN may omit the `*` on a channel and have a token inserted at its spacer-acknowledge
+    // place (the canonical reset position).
+    insert_default_tokens(&mut hbcn);
 
     // Validate the HBCN
     validate_hbcn(&hbcn).map_err(|e| anyhow::anyhow!("HBCN validation failed: {}", e))?;
@@ -197,6 +206,38 @@ mod tests {
             }
         }
         assert!(found_token, "Should find at least one token");
+    }
+
+    #[test]
+    fn parse_hbcn_defaults_unmarked_channel_token() {
+        // A channel with no `*` on any line is accepted: a default token is inserted at the
+        // spacer-acknowledge place, Spacer(b) -> Data(a) (the `-{b} => +{a}` line).
+        let input = r#"
+            +{a} => +{b} : 10
+            +{b} => -{a} : 20
+            -{a} => -{b} : 10
+            -{b} => +{a} : 20
+        "#;
+        let hbcn =
+            parse_hbcn(input).expect("token-less channel should parse and default its marking");
+
+        let marked: Vec<_> = hbcn
+            .edge_indices()
+            .filter(|&ie| hbcn[ie].is_marked())
+            .map(|ie| {
+                let (s, d) = hbcn.edge_endpoints(ie).unwrap();
+                (hbcn[s].clone(), hbcn[d].clone())
+            })
+            .collect();
+
+        assert_eq!(marked.len(), 1, "exactly one place must be marked");
+        let (src, dst) = &marked[0];
+        assert!(
+            matches!(src, Transition::Spacer(_)) && matches!(dst, Transition::Data(_)),
+            "the default token must land on the spacer-acknowledge place (Spacer -> Data), got {src} -> {dst}"
+        );
+        assert_eq!(src.name().as_ref(), "b");
+        assert_eq!(dst.name().as_ref(), "a");
     }
 
     #[test]
