@@ -37,11 +37,14 @@ Str: Symbol = {
 }
 
 Num: f64 = {
-    <i:r"[0-9]+(?:\.[0-9]+)?"> =>? {
+    // A leading `-` is accepted: negative delays are physically real (e.g. slew/recovery).
+    // The `-` requires a following digit, so the Spacer sign in `-{node}` still lexes as
+    // the `-` token rather than a number.
+    <i:r"-?[0-9]+(?:\.[0-9]+)?"> =>? {
         let value: f64 = i.parse().map_err(|_| lalrpop_util::ParseError::User {
             error: "invalid numeric literal",
         })?;
-        // An overlong digit run parses to f64 infinity without error; reject it rather
+        // An overlong digit run parses to f64 (+/-)infinity without error; reject it rather
         // than silently propagating Inf into the LP / cycle-time computation.
         if value.is_finite() {
             Ok(value)

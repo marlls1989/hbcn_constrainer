@@ -36,7 +36,7 @@
 //!     csv: Some("constraints.csv".into()),
 //!     rpt: Some("report.rpt".into()),
 //!     vcd: None,
-//!     no_proportinal: false,
+//!     no_proportional: false,
 //!     no_forward_completion: false,
 //!     forward_margin: None,
 //!     backward_margin: None,
@@ -119,7 +119,7 @@ pub struct ConstrainArgs {
 
     /// Use pseudo-clock to constrain paths
     #[clap(long)]
-    pub no_proportinal: bool,
+    pub no_proportional: bool,
 
     /// Don't use forward completion delay if greater than path virtual delay
     #[clap(long)]
@@ -169,7 +169,7 @@ pub struct ConstrainArgs {
 ///     csv: None,
 ///     rpt: None,
 ///     vcd: None,
-///     no_proportinal: false,
+///     no_proportional: false,
 ///     no_forward_completion: false,
 ///     forward_margin: None,
 ///     backward_margin: None,
@@ -191,7 +191,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         ref csv,
         ref rpt,
         ref vcd,
-        no_proportinal,
+        no_proportional,
         no_forward_completion,
         forward_margin,
         backward_margin,
@@ -206,7 +206,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         eprintln!("Minimal delay: {}", minimal_delay);
         eprintln!(
             "Constraint algorithm: {}",
-            if no_proportinal {
+            if no_proportional {
                 "pseudoclock"
             } else {
                 "proportional"
@@ -214,7 +214,11 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
         );
     }
 
-    let constraints = {
+    // Capture the original (unconstrained) per-place cost, keyed by edge index. The solved
+    // HBCN is built with `StableGraph::map`, which preserves edge indices, so these costs line
+    // up with the solved edges by index — letting the CSV report the input weight alongside the
+    // computed max/min (the solved edge's own `weight()` is the computed max, not the cost).
+    let (constraints, original_cost) = {
         if structural {
             // Parse as structural graph
             if is_verbose() {
@@ -223,11 +227,15 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             let g = read_file(&input)?;
             let hbcn = from_structural_graph(&g, forward_completion)
                 .ok_or_else(|| anyhow!("Failed to convert structural graph to StructuralHBCN"))?;
+            let original_cost: HashMap<_, f64> = hbcn
+                .edge_indices()
+                .map(|ie| (ie, hbcn[ie].weight()))
+                .collect();
 
             if is_verbose() {
                 eprintln!("Generating constraints...");
             }
-            if no_proportinal {
+            let constraints = if no_proportional {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
                 hbcn::constrain_cycle_time_proportional(
@@ -237,7 +245,8 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                     backward_margin,
                     forward_margin,
                 )?
-            }
+            };
+            (constraints, original_cost)
         } else {
             // Parse as HBCN
             if is_verbose() {
@@ -245,11 +254,15 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
             }
             let file_contents = fs::read_to_string(&input)?;
             let hbcn = crate::hbcn::parser::parse_hbcn(&file_contents)?;
+            let original_cost: HashMap<_, f64> = hbcn
+                .edge_indices()
+                .map(|ie| (ie, hbcn[ie].weight()))
+                .collect();
 
             if is_verbose() {
                 eprintln!("Generating constraints...");
             }
-            if no_proportinal {
+            let constraints = if no_proportional {
                 hbcn::constrain_cycle_time_pseudoclock(&hbcn, cycle_time, minimal_delay)?
             } else {
                 hbcn::constrain_cycle_time_proportional(
@@ -259,7 +272,8 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                     backward_margin,
                     forward_margin,
                 )?
-            }
+            };
+            (constraints, original_cost)
         }
     };
 
@@ -269,38 +283,46 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
     let hbcn = &constraints.hbcn;
 
-    // Note: Self-reflexive path constraints have been removed
-
     if let Some(output) = csv {
         if is_verbose() {
             eprintln!("Writing CSV constraints to: {:?}", output);
         }
         let mut csv_file = BufWriter::new(fs::File::create(output)?);
-        let cost_map: HashMap<(CircuitNode, CircuitNode), f64> = hbcn
-            .edge_indices()
-            .filter_map(|ie| {
-                let (is, id) = hbcn.edge_endpoints(ie)?;
-
-                Some((
-                    (
-                        AsRef::<CircuitNode>::as_ref(&hbcn[is]).clone(),
-                        AsRef::<CircuitNode>::as_ref(&hbcn[id]).clone(),
-                    ),
-                    hbcn[ie].weight(),
-                ))
-            })
-            .collect();
-        writeln!(csv_file, "src,dst,cost,max_delay,min_delay")?;
-        for (key, constrain) in constraints.path_constraints.iter() {
-            if let Some(cost) = cost_map.get(key) {
-                let (src, dst) = key;
-                write!(csv_file, "{},{},{:.0},", src.name(), dst.name(), cost,)?;
-                write!(csv_file, "{:.3},", constrain.max)?;
-                if let Some(min_delay) = constrain.min {
-                    writeln!(csv_file, "{:.3}", min_delay)?;
-                } else {
-                    writeln!(csv_file)?;
-                }
+        // A `Data` transition is a rise at its node, a `Spacer` transition a fall.
+        let dir = |t: &Transition| {
+            if matches!(t, Transition::Data(_)) {
+                "rise"
+            } else {
+                "fall"
+            }
+        };
+        writeln!(csv_file, "src,src_dir,dst,dst_dir,cost,max_delay,min_delay")?;
+        for ie in hbcn.edge_indices() {
+            let Some((is, id)) = hbcn.edge_endpoints(ie) else {
+                continue;
+            };
+            let src = AsRef::<CircuitNode>::as_ref(&hbcn[is]);
+            let dst = AsRef::<CircuitNode>::as_ref(&hbcn[id]);
+            let place = &hbcn[ie];
+            // `cost` is the original unconstrained weight (by edge index); `max_delay`/`min_delay`
+            // are the computed constraints.
+            write!(
+                csv_file,
+                "{},{},{},{},{:.0},",
+                src.name(),
+                dir(&hbcn[is].transition),
+                dst.name(),
+                dir(&hbcn[id].transition),
+                original_cost
+                    .get(&ie)
+                    .copied()
+                    .unwrap_or_else(|| place.weight()),
+            )?;
+            write!(csv_file, "{:.3},", place.delay.max)?;
+            if let Some(min_delay) = place.delay.min {
+                writeln!(csv_file, "{:.3}", min_delay)?;
+            } else {
+                writeln!(csv_file)?;
             }
         }
     }
@@ -318,7 +340,7 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
 
     sdc::write_path_constraints(
         &mut out_file,
-        &constraints.path_constraints,
+        &constraints.hbcn,
         constraints.pseudoclock_period,
     )?;
 
@@ -381,7 +403,12 @@ pub fn constrain_main(args: ConstrainArgs) -> Result<()> {
                 let t = &constraints.hbcn[it];
 
                 let slack = e.slack.unwrap_or(0.0);
-                let vdelay = e.weight();
+                // `Cost` is the original unconstrained weight (by edge index), not the solved
+                // edge's `weight()` (which is the computed max delay).
+                let vdelay = original_cost
+                    .get(&ie)
+                    .copied()
+                    .unwrap_or_else(|| e.weight());
 
                 let ttype = match (&s.transition, &t.transition) {
                     (Transition::Data(_), Transition::Data(_)) => "Data Prop",

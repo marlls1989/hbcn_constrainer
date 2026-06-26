@@ -1,0 +1,4 @@
+* +{port:a} => +{reg1} : 100
+  -{port:a} => -{reg1} : 40
+  +{reg1} => -{port:a} : 30
+  -{reg1} => +{port:a} : 30

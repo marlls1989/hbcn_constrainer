@@ -76,4 +76,4 @@ Parallelism uses `rayon`; the graph backbone is `petgraph`.
 
 - **British spelling** in identifiers, docs, and output (`analyse`, `serialise`, `optimisation`, `behaviour`). A recent commit deliberately reverted American spellings — match the surrounding code.
 - When adding constraints to an LP, the **branded type system** will reject variables from the wrong builder at compile time; use the `lp_model_builder!()` / `constraint!` macros rather than constructing builders manually.
-- Tests: unit tests live in-module (`mod tests`) or in sibling files (`constrain/tests.rs`, `constrain/sdc_tests.rs`); end-to-end tests in `tests/integration_tests.rs` call the **library API directly** (not the binary) for speed, and use `--structural` graph inputs via `tempfile`. See `TESTING.md` for the full catalogue.
+- Tests: unit tests live in-module (`mod tests`) or in sibling files (`constrain/tests.rs`, `constrain/sdc_tests.rs`); end-to-end tests in `tests/integration_tests.rs` call the **library API directly** (not the binary) for speed, and use `--structural` graph inputs via `tempfile`. See `docs/TESTING.md` for the full catalogue.
